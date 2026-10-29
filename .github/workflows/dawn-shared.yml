@@ -71,7 +71,7 @@ jobs:
           cmake -S dawn -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DDAWN_FETCH_DEPENDENCIES=ON \
             -DDAWN_BUILD_MONOLITHIC_LIBRARY=SHARED -DDAWN_ENABLE_INSTALL=ON \
             -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
-            -DDAWN_USE_GLFW=OFF -DDAWN_USE_WAYLAND=OFF -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DDAWN_SUPPORTS_CXX_MODULES=OFF
+            -DDAWN_ENABLE_VULKAN=ON -DDAWN_USE_GLFW=OFF -DDAWN_USE_WAYLAND=OFF -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DDAWN_SUPPORTS_CXX_MODULES=OFF
       - name: Build
         run: cmake --build out
       - name: Install and show what shipped
@@ -109,3 +109,23 @@ jobs:
             chmod +x wgt.com; export LD_LIBRARY_PATH="$(dirname "$SHARED_LIB")" DYLD_LIBRARY_PATH="$(dirname "$SHARED_LIB")"
             ./run-one.sh "dawn shared, cosmo APE dlopen" sh ./wgt.com "$SHARED_LIB"
           fi
+
+      - name: "Same Dawn, Vulkan backend on Windows (Khronos loader beside Dawn + Mesa lavapipe as the software ICD)"
+        if: runner.os == 'Windows' && matrix.label == 'win-x64'
+        continue-on-error: true
+        run: |
+          mkdir mesa && cd mesa && gh release download -R pal1000/mesa-dist-win -p '*release-msvc.7z' --clobber && 7z x -y *.7z -ox >/dev/null && cd ..
+          icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); echo "ICD: $icd"; find mesa/x -iname 'vulkan_lvp.dll' | head -2
+          exe=$(cygpath -u "$(find tb -name wgt.exe | head -1)")
+          cp /c/Windows/System32/vulkan-1.dll "$(dirname "$SHARED_LIB")/"; cp /c/Windows/System32/vulkan-1.dll "$(dirname "$exe")/"
+          export VK_ICD_FILENAMES="$(cygpath -w "$icd")" WGT_BACKEND=vulkan
+          cd ci-webgpu-test && ./run-one.sh "dawn shared, Vulkan backend on Windows" "$OLDPWD/$exe"
+      - name: "Same Dawn, Vulkan backend on macOS via MoltenVK (what 'Vulkan everywhere' would cost)"
+        if: runner.os == 'macOS' && matrix.label == 'mac-arm64'
+        continue-on-error: true
+        run: |
+          brew install molten-vk vulkan-loader >/dev/null 2>&1 || brew install molten-vk vulkan-loader
+          export VK_ICD_FILENAMES="$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json" WGT_BACKEND=vulkan
+          export DYLD_LIBRARY_PATH="$(brew --prefix vulkan-loader)/lib:$(dirname "$SHARED_LIB")"
+          exe=$(find tb -name wgt | head -1)
+          cd ci-webgpu-test && ./run-one.sh "dawn shared, Vulkan backend on macOS (MoltenVK)" "$OLDPWD/$exe"
