@@ -1,69 +1,123 @@
 name: dawn-cosmo
-# Feasibility: does Dawn (Vulkan backend only, no windowing) compile with the Cosmopolitan compiler, so one APE could carry Dawn?
+# Dawn (Vulkan backend, headless) compiled with the Cosmopolitan toolchain for x86-64 AND arm64, linked with the WebGPU compute test
+# into ONE fat executable, then run on Linux x64/arm64, Windows x64/arm64 and macOS arm64.
 on:
   workflow_dispatch:
+env:
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+  COSMOCC: 4.0.2
 jobs:
   build:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
     runs-on: ubuntu-latest
     timeout-minutes: 340
     env:
-      DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+      COSMO_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
       - name: Tools
         run: |
-          sudo apt-get update && sudo apt-get install -y ninja-build mesa-vulkan-drivers libvulkan1
-          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
           mkdir -p $HOME/cosmo && unzip -q cosmocc.zip -d $HOME/cosmo
           cp $HOME/cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
-          ls $HOME/cosmo/bin | grep -E "x86_64"
-      - name: Fetch Dawn source at the nightly's commit
+      - name: Fetch Dawn at the pinned commit
         run: |
           mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
           git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
-          grep -n "dlopen\|dlsym\|dlclose\|dlerror" src/dawn/common/DynamicLib.cpp | head -20
-      - name: Patch DynamicLib for cosmo_dlopen
-        run: |
-          cd dawn
-          python3 - <<'PY'
-          p='src/dawn/common/DynamicLib.cpp'
-          s=open(p).read()
-          hdr='#ifdef __COSMOPOLITAN__\n#include <dlfcn.h>\n#define dlopen cosmo_dlopen\n#define dlsym(h,n) cosmo_dltramp(cosmo_dlsym(h,n))\n#define dlclose cosmo_dlclose\n#define dlerror cosmo_dlerror\n#endif\n'
-          i=s.index('#include')
-          open(p,'w').write(s[:i]+hdr+s[i:])
-          PY
-          # Cosmopolitan has no dladdr/Dl_info/RTLD_NOLOAD: the module is the executable itself, and "already loaded" falls back to a normal open
-          python3 - <<'PY'
-          p='src/dawn/common/SystemUtils.cpp'
-          s=open(p).read()
-          a=s.index('    static int placeholderSymbol = 0;'); b=s.index('    return absolutePath.data();\n}', a)+len('    return absolutePath.data();\n')
-          s=s[:a]+'#ifdef __COSMOPOLITAN__\n    return GetExecutablePath();\n#else\n'+s[a:b]+'#endif\n'+s[b:]
-          open(p,'w').write(s)
-          p='src/dawn/common/DynamicLib.cpp'
-          s=open(p).read()
-          s=s.replace('#ifdef __COSMOPOLITAN__\n#include <dlfcn.h>','#ifdef __COSMOPOLITAN__\n#include <dlfcn.h>\n#ifndef RTLD_NOLOAD\n#define RTLD_NOLOAD 0\n#endif',1)
-          open(p,'w').write(s)
-          PY
-          # Cosmopolitan defines neither __linux__ nor _WIN32: treat it as Linux for Dawn's platform detection (same kind of fix Sample needed for WASI)
-          sed -i 's/^#elif defined(__linux__)$/#elif defined(__linux__) || defined(__COSMOPOLITAN__)/' src/utils/platform.h
-          grep -n 'COSMOPOLITAN' src/utils/platform.h
+      - name: Patch Dawn
+        run: python3 dawn-cosmo/patch.py dawn
       - name: Configure
         run: |
-          set -o pipefail
+          emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
           cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release \
             -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF \
             -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF \
             -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
-            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DDAWN_BUILD_PROTOBUF=OFF -DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10 2>&1 | tee configure.log | tail -40
-      - name: Build libwebgpu_dawn (keep going to collect all errors)
-        continue-on-error: true
+            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DDAWN_BUILD_PROTOBUF=OFF $emu 2>&1 | tee configure.log | tail -30
+      - name: Build libwebgpu_dawn.a (keep going to collect every error)
         run: |
           cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
-          echo '=== distinct errors'; grep -E 'error:|undefined reference' build.log | sed -E 's#/home/runner/work/ci/ci/dawn/##' | cut -c1-230 | sort | uniq -c | sort -rn | head -40
           echo '=== failed objects'; grep 'FAILED:' build.log | cut -c1-200 | head -40
-          tail -5 build.log
-          grep -c "FAILED:" build.log || true
+          echo '=== distinct errors'; grep -E 'error:|undefined reference' build.log | sed -E 's#/home/runner/work/ci/ci/dawn/##' | cut -c1-230 | sort | uniq -c | sort -rn | head -40
+          tail -3 build.log
           find build -name 'libwebgpu_dawn.a' -exec ls -la {} \;
+          test -n "$(find build -name libwebgpu_dawn.a)"
+      - name: Link the WebGPU test against it (one architecture)
+        run: |
+          B=$HOME/cosmo/bin; lib=$(find $PWD/build -name libwebgpu_dawn.a | head -1)
+          $B/$COSMO_ARCH-unknown-cosmo-cc -O2 -I$PWD/dawn/include -c ci-webgpu-test/wgt.c -o wgt.o
+          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 wgt.o "$lib" -o wgt.$COSMO_ARCH.com
+          ls -la wgt.$COSMO_ARCH.com*
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: logs, path: "*.log" }
+        with: { name: 'logs-${{ matrix.arch }}', path: "*.log" }
+      - uses: actions/upload-artifact@v4
+        with: { name: 'wgt-${{ matrix.arch }}', path: 'wgt.${{ matrix.arch }}.com.dbg' }
+
+  link:
+    needs: build
+    runs-on: ubuntu-latest
+    steps:
+      - name: Tools
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir -p cosmo && unzip -q cosmocc.zip -d cosmo
+      - uses: actions/download-artifact@v4
+        with: { name: wgt-x86_64, path: parts }
+      - uses: actions/download-artifact@v4
+        with: { name: wgt-aarch64, path: parts }
+      - name: One fat file
+        run: |
+          B=$PWD/cosmo/bin
+          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wgt-dawn.com parts/wgt.x86_64.com.dbg parts/wgt.aarch64.com.dbg
+          ls -la wgt-dawn.com
+      - uses: actions/upload-artifact@v4
+        with: { name: wgt-dawn, path: wgt-dawn.com }
+
+  test:
+    needs: link
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env:
+      RUNNER_LABEL: ${{ matrix.label }}
+      GH_TOKEN: ${{ github.token }}
+      WGT_BACKEND: vulkan
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: wgt-dawn, path: . }
+      - name: Vulkan software driver (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+      - name: Vulkan software driver (Windows - Mesa lavapipe)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir mesa && cd mesa && gh release download -R pal1000/mesa-dist-win -p '*release-msvc.7z' --clobber && 7z x -y *.7z -ox >/dev/null && cd ..
+          icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); echo "ICD: $icd"
+          echo "VK_ICD_FILENAMES=$(cygpath -w "$icd")" >> "$GITHUB_ENV"
+          ls -la /c/Windows/System32/vulkan-1.dll || true
+      - name: Vulkan loader + MoltenVK (macOS)
+        if: runner.os == 'macOS'
+        run: |
+          brew install molten-vk vulkan-loader >/dev/null 2>&1 || brew install molten-vk vulkan-loader
+          echo "VK_ICD_FILENAMES=$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$(brew --prefix vulkan-loader)/lib" >> "$GITHUB_ENV"
+      - name: Run the ONE file
+        continue-on-error: true
+        run: |
+          chmod +x ci-webgpu-test/run-one.sh
+          if [ "$RUNNER_OS" = Windows ]; then cp wgt-dawn.com wgt-dawn.exe; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" ./wgt-dawn.exe
+          else chmod +x wgt-dawn.com; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" sh ./wgt-dawn.com; fi

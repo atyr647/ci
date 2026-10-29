@@ -34,19 +34,21 @@ Darling: the 2026 release has no kernel module (userspace `darlingserver`); inst
 ## Dawn compiled with the Cosmopolitan compiler (workflow `dawn-cosmo`, Vulkan backend only, no windowing)
 Configure now succeeds (needed the APE loader as `CMAKE_CROSSCOMPILING_EMULATOR`). The compile reached step 755 of 1009 (Tint and SPIR-V-Tools largely built) and stopped on 2 failed targets; the failure text was not printed (workflow fixed to print it, re-run queued).
 
-## One Cosmopolitan file -> official Wasmtime -> wasm guest (workflow `wasm-host`, Wasmtime v50.0.0, guest = wasip1 core module calling `sample:wire/transport` send/recv, served by C)
+## One Cosmopolitan file -> official Wasmtime -> wasm guest (workflow `wasm-host`, Wasmtime v50.0.0, guest = wasip1 core module calling a `send`/`recv` import pair served by C)
 | target | result |
 |---|---|
-| linux x64 | PASS |
-| linux arm64 | PASS on the re-run with unbuffered output; the first run printed the `send` line and then exited non-zero with no message. Cause not established; a 20x repeat is in the next run. |
+| linux x64 | PASS, 20/20 repeated runs |
+| linux arm64 | before the fix: intermittent SIGSEGV right after the first host callback, 9/20 passed (x64: 20/20). After the fix below: PASS, 20/20 |
 | windows x64 / arm64 (x86-64 emulated) | PASS |
-| macOS x64 | FAIL: Cosmopolitan 4.0.2 has no `dlopen` on x86-64 macOS |
-| macOS arm64 | HANG: dlopen, symbol load, engine, store, linker, module compile all complete; the first call into wasm (`_start`) never returns and the `send` import is never reached (killed after 60 s). Variants (no Mach exception thread / explicit bounds checks / Pulley interpreter) are queued. |
+| macOS arm64 | before the fix: hang on the first call into wasm (even with the Pulley interpreter, no Mach exception thread, or explicit bounds checks). After the fix below: PASS in all four variants |
+| macOS x64 | not pursued (Cosmopolitan has no `dlopen` there; not a target) |
+
+Cause and fix (measured, both arm64 failures vanished together): on aarch64 Cosmopolitan keeps its thread pointer in register x28. Wasmtime's code may use x28 for anything, so when it calls a host function written in Cosmopolitan C, that C code runs with a garbage thread pointer (the first `printf` in the callback hung on macOS or crashed on Linux). The callback now saves Wasmtime's x28, restores Cosmopolitan's own on entry and puts Wasmtime's back on return (`TLS_ENTER`/`TLS_LEAVE` in `ci-wasm-host/wt-host.c`). This applies to ANY callback from foreign code into Cosmopolitan code on aarch64, including Dawn-to-Vulkan callbacks.
 
 ## Wasmtime C API and WASI 0.3 (workflow `wasmtime-p3-capi`)
 - Patch `ci-wasm-host/wasmtime-c-api-wasip3.patch` (9 lines Rust + 1 header declaration) on the unmodified v50.0.0 tag builds on linux x64, macOS arm64 and windows x64.
 - OFFICIAL library, plain-C host: a wasip2 component runs (`wasmtime_component_linker_add_wasip2_async`); for p3 there is no linker call to make (confirmed on linux x64 and macOS arm64).
-- PATCHED library, plain-C host, windows x64: the p2 component AND a wasm32-wasip3 component (wasi-sdk 34, `hello-wasip3.wasm`) both run, `run()` returns ok. Linux/macOS runs of the patched test ended silently because of a workflow bug (`ls` of a missing file under `-e -o pipefail`); fixed, re-run queued.
+- PATCHED library, plain-C host: the p2 component AND a wasm32-wasip3 component (wasi-sdk 34, `hello-wasip3.wasm`) both run and `run()` returns ok on linux x64, macOS arm64 (after making the dylib install name relocatable) and windows x64.
 - Not tested: a component that uses `stream`/`future` values across the host boundary. The C API has no component value kinds for them (valkinds end at MAP), so typed async GPU calls from C would still need new API.
 
 ## Dawn compiled with the Cosmopolitan compiler (continued)
