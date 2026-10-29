@@ -29,6 +29,7 @@ jobs:
       - name: Mirror the upstream Darling debs into a release of this repo
         continue-on-error: true
         run: |
+          gh release delete darling-debs-20260609 --cleanup-tag -y --repo ${{ github.repository }} || true   # re-create from the current (rewritten) history
           mkdir -p mirror && gh release download -R darlinghq/darling -p 'debs_*.zip' -D mirror
           gh release create darling-debs-20260609 mirror/debs_*.zip --repo ${{ github.repository }} --title "Darling debs (upstream v0.1.20260608, mirrored)" --notes "Mirror of darlinghq/darling release assets, for use inside sandboxes that cannot reach upstream." || gh release upload darling-debs-20260609 mirror/debs_*.zip --repo ${{ github.repository }} --clobber
       - name: Install Darling from the upstream release .deb
