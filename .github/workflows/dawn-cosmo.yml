@@ -32,6 +32,9 @@ jobs:
           i=s.index('#include')
           open(p,'w').write(s[:i]+hdr+s[i:])
           PY
+          # Cosmopolitan defines neither __linux__ nor _WIN32: treat it as Linux for Dawn's platform detection (same kind of fix Sample needed for WASI)
+          sed -i 's/^#elif defined(__linux__)$/#elif defined(__linux__) || defined(__COSMOPOLITAN__)/' src/utils/platform.h
+          grep -n 'COSMOPOLITAN' src/utils/platform.h
       - name: Configure
         run: |
           set -o pipefail
