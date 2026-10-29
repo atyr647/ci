@@ -44,7 +44,8 @@ jobs:
         continue-on-error: true
         run: |
           cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
-          tail -60 build.log
+          grep -n -A14 'FAILED:' build.log | cut -c1-400 | head -150
+          tail -5 build.log
           grep -c "FAILED:" build.log || true
           find build -name 'libwebgpu_dawn.a' -exec ls -la {} \;
       - uses: actions/upload-artifact@v4
