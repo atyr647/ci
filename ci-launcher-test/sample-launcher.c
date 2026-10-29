@@ -5,6 +5,9 @@
  *   4. exec the host with the game files
  * usage: launcher [--server URL] [--offline] [--dir DIR] [--update-only] [-- host-args...] */
 #include <stdio.h>
+#ifdef __COSMOPOLITAN__
+#include <sys/wait.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include <unistd.h>
@@ -52,11 +55,20 @@ static int copyfile(const char *src, const char *dst) { FILE *i = fopen(src, "rb
 static char server[512], dir[900], fromdir[900]; static int offline;
 static int fetch(const char *urlpath, const char *dst) {              /* network via curl (ships with Windows 10+, macOS and most Linux), or from inside this file */
   if (offline) { char s[1600]; if (fromdir[0]) snprintf(s, sizeof s, "%s%s", fromdir, urlpath); else snprintf(s, sizeof s, "/zip%s", urlpath); return copyfile(s, dst); }
-  /* Windows: the Cosmopolitan runtime does not find "curl" on PATH (only curl.exe by absolute path), and hands us /C/... style paths */
-  const char *curl = "curl"; char wdst[1024]; snprintf(wdst, sizeof wdst, "%s", dst);
-  if (IsWindows()) { if (access("C:\\Windows\\System32\\curl.exe", 0) == 0) curl = "C:\\Windows\\System32\\curl.exe";
-    if (dst[0] == '/' && dst[1] && dst[2] == '/') snprintf(wdst, sizeof wdst, "%c:%s", dst[1], dst + 2); }
-  char cmd[2048]; snprintf(cmd, sizeof cmd, "\"%s\" -fsSL --retry 2 -o \"%s\" \"%s%s\"", curl, wdst, server, urlpath); return system(cmd); }
+#ifdef __COSMOPOLITAN__
+  /* Windows: Cosmopolitan's PATH search does not find "curl" (only curl.exe by absolute path), its shell mangles backslashes in
+     quoted paths, and it hands us /C/... style paths. So spawn curl.exe directly, with no shell, and a Windows-style destination. */
+  if (IsWindows()) {
+    char wdst[1024], url[1100]; snprintf(wdst, sizeof wdst, "%s", dst);
+    if (dst[0] == '/' && dst[1] && dst[2] == '/') snprintf(wdst, sizeof wdst, "%c:%s", dst[1], dst + 2);
+    snprintf(url, sizeof url, "%s%s", server, urlpath);
+    char *av[] = {"C:\\Windows\\System32\\curl.exe", "-fsSL", "--retry", "2", "-o", wdst, url, 0};
+    pid_t pid = fork(); if (pid < 0) return -1;
+    if (!pid) { execv(av[0], av); _exit(127); }
+    int st = 0; waitpid(pid, &st, 0); return WIFEXITED(st) ? WEXITSTATUS(st) : -1;
+  }
+#endif
+  char cmd[2048]; snprintf(cmd, sizeof cmd, "curl -fsSL --retry 2 -o \"%s\" \"%s%s\"", dst, server, urlpath); return system(cmd); }
 int main(int argc, char **argv) {
   const char *plat_os = IsLinux() ? "linux" : IsWindows() ? "windows" : IsXnu() ? "macos" : "other"; struct utsname u; uname(&u);
   const char *arch = (!strcmp(u.machine, "x86_64") || !strcmp(u.machine, "AMD64")) ? "x86_64" : (!strcmp(u.machine, "aarch64") || !strcmp(u.machine, "arm64")) ? "aarch64" : u.machine;
