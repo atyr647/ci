@@ -160,3 +160,35 @@ if 'COSMO-PATCH-NOCALLBACKS' not in s:
     s = s.replace(a, 'if (false /* COSMO-PATCH-NOCALLBACKS */ && usedGlobalKnobs.HasExt(InstanceExt::DebugUtils)) {\n        // Workaround', 1)
     s = s.replace(b, 'if (false && usedKnobs.HasExt(InstanceExt::DebugUtils)) {\n        utilsMessengerCreateInfo.flags = 0;', 1)
     open(p, 'w').write(s); print('patched: no debug messengers')
+
+# 10. macOS: MoltenVK is a "portability" driver. The loader only lists it when the instance enables VK_KHR_portability_enumeration and sets the
+#     matching create flag, otherwise vkCreateInstance returns VK_ERROR_INCOMPATIBLE_DRIVER (measured on macOS arm64, native Dawn and Cosmopolitan Dawn alike).
+p = os.path.join(root, 'src/dawn/native/vulkan/BackendVk.cpp')
+s = open(p).read()
+if 'COSMO-PATCH-PORTABILITY' not in s:
+    a = '    VkApplicationInfo appInfo;\n    appInfo.sType = VK_STRUCTURE_TYPE_APPLICATION_INFO;'
+    assert a in s
+    s = s.replace(a, '''    // COSMO-PATCH-PORTABILITY
+    bool enumeratePortability = false;
+#ifdef __COSMOPOLITAN__
+    if (IsXnu()) {
+        uint32_t extCount = 0;
+        mFunctions.EnumerateInstanceExtensionProperties(nullptr, &extCount, nullptr);
+        std::vector<VkExtensionProperties> extProps(extCount);
+        mFunctions.EnumerateInstanceExtensionProperties(nullptr, &extCount, extProps.data());
+        for (const VkExtensionProperties& e : extProps) {
+            if (std::string(e.extensionName) == "VK_KHR_portability_enumeration") {
+                enumeratePortability = true;
+            }
+        }
+        if (enumeratePortability) {
+            extensionNames.push_back("VK_KHR_portability_enumeration");
+        }
+    }
+#endif
+
+''' + a, 1)
+    b = '    createInfo.flags = 0;\n    createInfo.pApplicationInfo = &appInfo;'
+    assert b in s
+    s = s.replace(b, '    createInfo.flags = enumeratePortability ? 0x00000001 : 0;  // VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR\n    createInfo.pApplicationInfo = &appInfo;', 1)
+    open(p, 'w').write(s); print('patched: portability enumeration')

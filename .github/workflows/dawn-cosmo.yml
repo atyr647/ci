@@ -24,10 +24,20 @@ jobs:
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
           mkdir -p $HOME/cosmo && unzip -q cosmocc.zip -d $HOME/cosmo
           cp $HOME/cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
-      - name: Fetch Dawn at the pinned commit
+      - name: Restore the Dawn checkout and build directory from the last run
+        uses: actions/cache/restore@v4
+        with:
+          path: |
+            dawn
+            build
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
+          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-
+      - name: Fetch Dawn at the pinned commit (unless restored)
         run: |
-          mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
-          git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
+          if [ ! -d dawn/.git ]; then
+            mkdir -p dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
+            git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
+          fi
       - name: Patch Dawn
         run: python3 dawn-cosmo/patch.py dawn
       - name: Configure
@@ -46,6 +56,14 @@ jobs:
           tail -3 build.log
           find build -name 'libwebgpu_dawn.a' -exec ls -la {} \;
           test -n "$(find build -name libwebgpu_dawn.a)"
+      - name: Save the Dawn checkout and build directory
+        if: always()
+        uses: actions/cache/save@v4
+        with:
+          path: |
+            dawn
+            build
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
       - name: Link the WebGPU test against it (one architecture)
         run: |
           B=$HOME/cosmo/bin; lib=$(find $PWD/build -name libwebgpu_dawn.a | head -1)
