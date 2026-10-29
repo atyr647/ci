@@ -47,7 +47,8 @@ jobs:
         continue-on-error: true
         run: |
           cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
-          grep -n -A14 'FAILED:' build.log | cut -c1-400 | head -150
+          echo '=== distinct errors'; grep -E 'error:|undefined reference' build.log | sed -E 's#/home/runner/work/ci/ci/dawn/##' | cut -c1-230 | sort | uniq -c | sort -rn | head -40
+          echo '=== failed objects'; grep 'FAILED:' build.log | cut -c1-200 | head -40
           tail -5 build.log
           grep -c "FAILED:" build.log || true
           find build -name 'libwebgpu_dawn.a' -exec ls -la {} \;
