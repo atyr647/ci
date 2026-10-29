@@ -68,7 +68,7 @@ jobs:
           cp wtp3/linker.h "$inc/wasmtime/component/linker.h"
       - name: "plain-C host on the OFFICIAL library: p2 passes, p3 has no linker call"
         run: |
-          lib=$(find off \( -name libwasmtime.so -o -name libwasmtime.dylib -o -name wasmtime.dll.lib \) | head -1)
+          lib=$(find off -not -path '*/min/*' \( -name libwasmtime.so -o -name libwasmtime.dylib -o -name wasmtime.dll.lib \) | head -1)
           echo "official lib: $lib"
           if [ "$RUNNER_OS" = Windows ]; then
             cl.exe //nologo //I"$(cygpath -w "$INC")" ci-wasm-host/p3-host.c "$(cygpath -w "$lib")" ws2_32.lib advapi32.lib userenv.lib ntdll.lib bcrypt.lib //Fe:official.exe || true

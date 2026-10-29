@@ -47,8 +47,10 @@ jobs:
           find wt -name '${{ matrix.lib }}' | head -2
       - name: "APE -> dlopen Wasmtime -> wasm guest -> imports served by C"
         continue-on-error: true
+        timeout-minutes: 3
         run: |
-          lib=$(find "$PWD/wt" -name '${{ matrix.lib }}' | head -1)
+          # the release tarball also holds a stripped 'min' build without WASI: take the full one
+          lib=$(find "$PWD/wt" -not -path '*/min/*' -name '${{ matrix.lib }}' | head -1); echo "using $lib"; ls -la "$lib"
           cd ape
           if [ "$RUNNER_OS" = Windows ]; then cp wt-host.com wt-host.exe; ../ci-wasm-host/run-one.sh "ape + libwasmtime" ./wt-host.exe "$(cygpath -w "$lib")" guest.wasm
           else chmod +x wt-host.com; ../ci-wasm-host/run-one.sh "ape + libwasmtime" sh ./wt-host.com "$lib" guest.wasm; fi
