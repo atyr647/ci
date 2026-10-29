@@ -1,0 +1,87 @@
+name: wasmtime-p3-capi
+# Can the Wasmtime C API run a WASI 0.3 (p3) component if it just gains the linker call the Rust crate already has?
+# Patch = ci-wasm-host/wasmtime-c-api-wasip3.patch (9 lines of Rust + 1 header declaration) on the unmodified v50.0.0 tag.
+on: workflow_dispatch
+env: { WT: v50.0.0 }
+jobs:
+  guests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the same C program as a p2 and a p3 component with wasi-sdk 34
+        run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          S=$(ls -d wasi-sdk-34*)
+          for t in wasip2 wasip3; do $S/bin/clang --target=wasm32-$t -O2 ci-wasm-host/hello-p.c -o hello-$t.wasm; done
+          ls -la hello-*.wasm
+      - uses: actions/upload-artifact@v4
+        with: { name: guests, path: "hello-wasip2.wasm\nhello-wasip3.wasm" }
+  build:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64, os: ubuntu-latest,  out: 'target/release/libwasmtime.so target/release/libwasmtime.a' }
+          - { label: mac-arm64, os: macos-latest,   out: 'target/release/libwasmtime.dylib' }
+          - { label: win-x64,   os: windows-latest, out: 'target/release/wasmtime.dll target/release/wasmtime.dll.lib' }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the unmodified v50.0.0 tag and apply the patch
+        run: |
+          git clone --depth 1 --branch $WT https://github.com/bytecodealliance/wasmtime wt
+          cd wt && git apply ../ci-wasm-host/wasmtime-c-api-wasip3.patch && git diff --stat
+      - name: Build the C API with the same feature set the official release uses
+        working-directory: wt
+        run: |
+          cargo build --release -p wasmtime-c-api --no-default-features --features profiling,wat,cache,parallel-compilation,wasi,wasi-http,logging,coredump,addr2line,demangle,threads,gc,gc-drc,gc-null,async,cranelift,winch,debug-builtins,pooling-allocator,component-model,component-model-async,pulley
+          mkdir -p ../out && for f in ${{ matrix.out }}; do cp "$f" ../out/; done
+          cp crates/c-api/include/wasmtime/component/linker.h ../out/linker.h
+          ls -la ../out
+      - uses: actions/upload-artifact@v4
+        with: { name: 'wt-p3-${{ matrix.label }}', path: out }
+  test:
+    needs: [guests, build]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64, os: ubuntu-latest,  cap: x86_64-linux }
+          - { label: mac-arm64, os: macos-latest,   cap: aarch64-macos }
+          - { label: win-x64,   os: windows-latest, cap: x86_64-windows }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: guests, path: guests }
+      - uses: actions/download-artifact@v4
+        with: { name: 'wt-p3-${{ matrix.label }}', path: wtp3 }
+      - name: Headers from the official release, plus the patched linker.h
+        run: |
+          ext=tar.xz; [ "$RUNNER_OS" = Windows ] && ext=zip
+          curl -fsSL -o off.$ext https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.cap }}-c-api.$ext
+          mkdir off && if [ $ext = zip ]; then cmake -E chdir off cmake -E tar xf ../off.zip; else tar xJf off.tar.xz -C off; fi
+          inc=$(dirname "$(find off -name wasmtime.h | head -1)"); echo "INC=$PWD/$inc" >> "$GITHUB_ENV"
+          cp wtp3/linker.h "$inc/wasmtime/component/linker.h"
+      - name: "plain-C host on the OFFICIAL library: p2 passes, p3 has no linker call"
+        run: |
+          lib=$(find off \( -name libwasmtime.so -o -name libwasmtime.dylib -o -name wasmtime.dll.lib \) | head -1)
+          echo "official lib: $lib"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cl.exe //nologo //I"$(cygpath -w "$INC")" ci-wasm-host/p3-host.c "$(cygpath -w "$lib")" ws2_32.lib advapi32.lib userenv.lib ntdll.lib bcrypt.lib //Fe:official.exe || true
+          else cc -O1 -I"$INC" ci-wasm-host/p3-host.c ci-wasm-host/p3stub.c "$lib" -o official -Wl,-rpath,"$(dirname "$PWD/$lib")" || true; fi
+        continue-on-error: true
+      - name: "plain-C host on the PATCHED library: p3 component"
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then
+            cl.exe //nologo //I"$(cygpath -w "$INC")" ci-wasm-host/p3-host.c wtp3/wasmtime.dll.lib ws2_32.lib advapi32.lib userenv.lib ntdll.lib bcrypt.lib //Fe:patched.exe
+            cp wtp3/wasmtime.dll .
+            ./patched.exe guests/hello-wasip2.wasm p2; ./patched.exe guests/hello-wasip3.wasm p3
+          else
+            lib=$(ls wtp3/libwasmtime.so wtp3/libwasmtime.dylib 2>/dev/null | head -1)
+            cc -O1 -I"$INC" ci-wasm-host/p3-host.c "$lib" -o patched -Wl,-rpath,"$PWD/wtp3"
+            ./patched guests/hello-wasip2.wasm p2; ./patched guests/hello-wasip3.wasm p3
+          fi
