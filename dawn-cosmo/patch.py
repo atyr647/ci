@@ -70,10 +70,16 @@ struct DualAbiFn {
     DualAbiFn() = default;
     DualAbiFn(std::nullptr_t) {}
     explicit DualAbiFn(void* a) : addr(a) {}
-    // Must not be inlined: GCC miscompiles the Microsoft/System V pair when it is merged into a caller (measured: the 10th Vulkan call of a
-    // sequence received a clobbered first argument). One out-of-line copy per signature is correct.
+    // GCC merges "cond ? ms_abi_call(args) : sysv_call(args)" into ONE System V call and drops the Microsoft one (the calling convention is not part of
+    // what its tail-merging/cross-jumping compares) - measured: Windows then called vulkan-1.dll with System V registers. The two differently-worded asm
+    // statements keep the branches distinct; noinline keeps one out-of-line copy per signature.
     __attribute__((noinline)) R operator()(Args... args) const {
-        return DawnCosmoIsWindows() ? reinterpret_cast<Ms>(addr)(args...) : reinterpret_cast<SysV>(addr)(args...);
+        if (DawnCosmoIsWindows()) {
+            __asm__ volatile("# dawn-cosmo: Microsoft x64 call" ::: "memory");
+            return reinterpret_cast<Ms>(addr)(args...);
+        }
+        __asm__ volatile("# dawn-cosmo: System V call" ::: "memory");
+        return reinterpret_cast<SysV>(addr)(args...);
     }
     bool operator==(std::nullptr_t) const { return addr == nullptr; }
     bool operator!=(std::nullptr_t) const { return addr != nullptr; }

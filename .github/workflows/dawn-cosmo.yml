@@ -30,8 +30,8 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
-          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v2-${{ github.run_id }}
+          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v2-
       - name: Fetch Dawn at the pinned commit (unless restored)
         run: |
           if [ ! -d dawn/.git ]; then
@@ -63,7 +63,7 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v2-${{ github.run_id }}
       - name: Link the WebGPU test against it (one architecture)
         run: |
           B=$HOME/cosmo/bin; lib=$(find $PWD/build -name libwebgpu_dawn.a | head -1)
