@@ -74,7 +74,9 @@ Both architectures of Dawn (Vulkan backend) build in CI (x86_64 about 26 min, aa
 |---|---|
 | linux x64 (lavapipe) | PASS |
 | linux arm64 (lavapipe) | PASS |
-| macOS arm64 | FAIL: `vkCreateInstance` returned VK_ERROR_INCOMPATIBLE_DRIVER. Not specific to Cosmopolitan: native Dawn gave the same ("No supported adapters"). MoltenVK only appears when the instance enables VK_KHR_portability_enumeration with the matching create flag. Patched in `patch.py` (item 10), not yet re-run. |
+| macOS arm64 | first run FAIL (`vkCreateInstance` returned VK_ERROR_INCOMPATIBLE_DRIVER; native Dawn behaved the same: MoltenVK only appears when the instance enables VK_KHR_portability_enumeration with the matching create flag). After `patch.py` item 10: **PASS** through MoltenVK 1.4.2 ("Apple Paravirtual device"), correct hash (run on commit 3edfd84). |
 | windows x64 | FAIL: uncaught SIGSEGV (no backtrace). Crash reports now compiled into the test. |
 | windows arm64 (x86-64 emulated) | FAIL: the loader reported Vulkan 1.0 ("at least 1.1.0" required) |
 Native (non-Cosmopolitan) Dawn on the same Windows runner: D3D12 PASS, but its Vulkan backend with Mesa lavapipe also found no adapter, so the Windows Vulkan driver setup itself is not yet right (separate from the SIGSEGV).
+
+Status after the second run (commit 3edfd84): ONE file with Dawn compiled by Cosmopolitan passes the compute test on linux x64, linux arm64 and macOS arm64 (Vulkan on Linux via lavapipe, on macOS via MoltenVK). Windows x64 and arm64 still crash inside the Windows Vulkan loader during adapter request; logs from that run were partly overwritten because stdout and stderr shared one redirected file on Windows (run-one.sh now uses one pipe).
