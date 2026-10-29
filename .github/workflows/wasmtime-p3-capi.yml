@@ -89,6 +89,8 @@ jobs:
             run=./patched.exe
           else
             lib=$(find wtp3 \( -name libwasmtime.so -o -name libwasmtime.dylib \) | head -1)   # (ls of a missing file exits non-zero and -e/pipefail ended the step silently)
+            # the dylib records its build-machine path as install name: make it relocatable before linking against it
+            if [ "$RUNNER_OS" = macOS ]; then install_name_tool -id "@rpath/libwasmtime.dylib" "$lib"; fi
             cc -O1 -I"$INC" ci-wasm-host/p3-host.c "$lib" -o patched -Wl,-rpath,"$PWD/wtp3"
             run=./patched
           fi

@@ -25,8 +25,20 @@ static char g_reply[64]; static int g_reply_len;
   uint8_t *base = wasmtime_memory_data(cx, &mem.of.memory); uint32_t p = args[0].of.i32, mx = args[1].of.i32; \
   int n = g_reply_len < (int)mx ? g_reply_len : (int)mx; memcpy(base + p, g_reply, n); results[0].kind = WASMTIME_I32; results[0].of.i32 = n; return 0;
 #define CB_ARGS void *env, wasmtime_caller_t *caller, const wasmtime_val_t *args, size_t nargs, wasmtime_val_t *results, size_t nresults
-static wasm_trap_t *cb_send(CB_ARGS) { CALLBACK_BODY_SEND }
-static wasm_trap_t *cb_recv(CB_ARGS) { CALLBACK_BODY_RECV }
+/* aarch64: Cosmopolitan keeps its thread pointer in x28. Wasmtime is free to use x28 for anything, so a callback arriving from it must put ours back first and give theirs back on return
+ * (hypothesis for the intermittent SIGSEGV right after the first callback on Linux arm64; x86-64 uses %fs and is untouched). */
+static void *g_tls;
+#ifdef __aarch64__
+#define TLS_ENTER void *foreign_x28; __asm__ volatile("mov %0, x28\n\tmov x28, %1" : "=&r"(foreign_x28) : "r"(g_tls) : "memory")
+#define TLS_LEAVE __asm__ volatile("mov x28, %0" :: "r"(foreign_x28) : "memory")
+#else
+#define TLS_ENTER
+#define TLS_LEAVE
+#endif
+static wasm_trap_t *send_body(CB_ARGS) { CALLBACK_BODY_SEND }
+static wasm_trap_t *recv_body(CB_ARGS) { CALLBACK_BODY_RECV }
+static wasm_trap_t *cb_send(CB_ARGS) { TLS_ENTER; wasm_trap_t *r = send_body(env, caller, args, nargs, results, nresults); TLS_LEAVE; return r; }
+static wasm_trap_t *cb_recv(CB_ARGS) { TLS_ENTER; wasm_trap_t *r = recv_body(env, caller, args, nargs, results, nresults); TLS_LEAVE; return r; }
 static __attribute__((ms_abi)) wasm_trap_t *cb_send_ms(CB_ARGS) { CALLBACK_BODY_SEND }
 static __attribute__((ms_abi)) wasm_trap_t *cb_recv_ms(CB_ARGS) { CALLBACK_BODY_RECV }
 
@@ -41,6 +53,9 @@ static wasm_functype_t *mk_i32i32_i32(void) {   /* (i32, i32) -> i32 */
 int main(int argc, char **argv) {
   if (argc < 3) { fprintf(stderr, "usage: %s <libwasmtime> <guest.wasm>\n", argv[0]); return 1; }
   setvbuf(stdout, NULL, _IONBF, 0);
+#ifdef __aarch64__
+  __asm__ volatile("mov %0, x28" : "=r"(g_tls));
+#endif
 #define STAGE(s) fprintf(stderr, "stage: %s\n", s)
   STAGE("dlopen");
   void *h = cosmo_dlopen(argv[1], RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 8; }
