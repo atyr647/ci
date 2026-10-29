@@ -31,7 +31,6 @@ jobs:
           - { label: win-x64,     os: windows-latest,   cap: x86_64-windows,  lib: wasmtime.dll }
           - { label: win-arm64,   os: windows-11-arm,   cap: x86_64-windows,  lib: wasmtime.dll }   # APE runs as x86-64 under emulation, so it needs the x64 DLL
           - { label: mac-arm64,   os: macos-latest,     cap: aarch64-macos,   lib: libwasmtime.dylib }
-          - { label: mac-x64,     os: macos-15-intel,   cap: x86_64-macos,    lib: libwasmtime.dylib }
     runs-on: ${{ matrix.os }}
     defaults: { run: { shell: bash } }
     env: { RUNNER_LABEL: '${{ matrix.label }}' }

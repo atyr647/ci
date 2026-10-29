@@ -54,7 +54,6 @@ jobs:
           - { os: ubuntu-latest, label: linux-x86_64 }
           - { os: windows-latest, label: windows-x86_64 }
           - { os: macos-latest, label: macos-apple-silicon }
-          - { os: macos-15-intel, label: macos-intel }
     runs-on: ${{ matrix.os }}
     timeout-minutes: 25
     steps:

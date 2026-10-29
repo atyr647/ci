@@ -40,7 +40,6 @@ jobs:
           - { label: win-x64,     os: windows-latest,   wgpu: windows-x86_64-msvc,    dawn: windows-latest, lib: wgpu_native.dll,      cmake_arch: '-A x64' }
           - { label: win-arm64,   os: windows-11-arm,   wgpu: windows-aarch64-msvc,   dawn: '',             lib: wgpu_native.dll,      cmake_arch: '-A ARM64' }
           - { label: mac-arm64,   os: macos-latest,     wgpu: macos-aarch64,          dawn: macos-latest,   lib: libwgpu_native.dylib, cmake_arch: '' }
-          - { label: mac-x64,     os: macos-15-intel,   wgpu: macos-x86_64,           dawn: macos-15-intel, lib: libwgpu_native.dylib, cmake_arch: '' }
     runs-on: ${{ matrix.os }}
     defaults: { run: { shell: bash, working-directory: ci-webgpu-test } }
     env: { RUNNER_LABEL: '${{ matrix.label }}', GH_TOKEN: '${{ github.token }}' }

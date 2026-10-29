@@ -1,0 +1,19 @@
+name: cleanup-runs
+# Deletes workflow runs on main whose commit is no longer part of main's (rewritten) history, so old commit titles disappear from the Actions list.
+on: workflow_dispatch
+jobs:
+  cleanup:
+    runs-on: ubuntu-latest
+    permissions: { actions: write, contents: read }
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+        with: { ref: main, fetch-depth: 0 }
+      - name: Delete runs for commits that are not in main any more
+        run: |
+          git rev-list main > keep.txt; wc -l keep.txt
+          gh api --paginate "repos/${{ github.repository }}/actions/runs?branch=main&per_page=100" --jq '.workflow_runs[] | select(.status=="completed") | "\(.id) \(.head_sha)"' > runs.txt
+          n=0; while read -r id sha; do
+            if ! grep -q "^$sha$" keep.txt; then gh api -X DELETE "repos/${{ github.repository }}/actions/runs/$id" && n=$((n+1)); fi
+          done < runs.txt
+          echo "deleted $n runs"

@@ -36,7 +36,6 @@ jobs:
             dict(label='win-x64',     os='windows-latest',   msvc='x64', lib='webgpu_dawn.dll'),
             dict(label='win-arm64',   os='windows-11-arm',   msvc='arm64', lib='webgpu_dawn.dll'),
             dict(label='mac-arm64',   os='macos-latest',     msvc='',    lib='libwebgpu_dawn.dylib'),
-            dict(label='mac-x64',     os='macos-15-intel',   msvc='',    lib='libwebgpu_dawn.dylib'),
           ]
           only = os.environ.get('ONLY', '')
           sel = [x for x in all_ if not only or x['label'] == only]
