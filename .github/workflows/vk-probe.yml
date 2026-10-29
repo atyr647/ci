@@ -63,7 +63,8 @@ jobs:
           ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -50
           echo "=== again with the loader's debug output (OutputDebugString raises an SEH exception that Cosmopolitan reports as SIGSEGV)"
           export VK_LOADER_DEBUG=error,warn,driver
-          ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -12
+          echo "--- without the shield"; ( NO_SHIELD=1 ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -8
+          echo "--- with the shield"; ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -30
       - name: Windows - the same question asked by a NATIVE process (Python ctypes), with the loader's full debug output
         if: runner.os == 'Windows' && matrix.label == 'win-x64'
         continue-on-error: true
