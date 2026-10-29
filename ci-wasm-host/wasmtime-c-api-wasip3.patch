@@ -1,0 +1,53 @@
+diff --git a/crates/c-api/Cargo.toml b/crates/c-api/Cargo.toml
+index 3c1318d..2c277f2 100644
+--- a/crates/c-api/Cargo.toml
++++ b/crates/c-api/Cargo.toml
+@@ -30,7 +30,7 @@ wat = { workspace = true, optional = true }
+ 
+ # Optional dependencies for the `wasi` feature
+ tokio = { workspace = true, optional = true, features = ["fs"] }
+-wasmtime-wasi = { workspace = true, optional = true, features = ["p1"] }
++wasmtime-wasi = { workspace = true, optional = true, features = ["p1", "p3"] }
+ wasmtime-wasi-http = { workspace = true, optional = true, features = ["p2", "default-send-request"] }
+ wasmtime-wasi-io = { workspace = true, optional = true, features = ["std"] }
+ async-trait = { workspace = true, optional = true }
+diff --git a/crates/c-api/include/wasmtime/component/linker.h b/crates/c-api/include/wasmtime/component/linker.h
+index aa6f76a..f931d36 100644
+--- a/crates/c-api/include/wasmtime/component/linker.h
++++ b/crates/c-api/include/wasmtime/component/linker.h
+@@ -276,6 +276,15 @@ wasmtime_component_linker_instance_add_func_async(
+ WASM_API_EXTERN wasmtime_error_t *
+ wasmtime_component_linker_add_wasip2_async(wasmtime_component_linker_t *linker);
+ 
++/**
++ * \brief Add all WASI 0.3 (p3) interfaces into the \p linker provided.
++ *
++ * Requires an engine with the component model async feature enabled and an
++ * asynchronous store.
++ */
++WASM_API_EXTERN wasmtime_error_t *
++wasmtime_component_linker_add_wasip3(wasmtime_component_linker_t *linker);
++
+ #endif // WASMTIME_FEATURE_WASI
+ 
+ #ifdef WASMTIME_FEATURE_WASI_HTTP
+diff --git a/crates/c-api/src/component/linker.rs b/crates/c-api/src/component/linker.rs
+index e4714f7..8981b46 100644
+--- a/crates/c-api/src/component/linker.rs
++++ b/crates/c-api/src/component/linker.rs
+@@ -289,6 +289,15 @@ pub unsafe extern "C" fn wasmtime_component_linker_add_wasip2_async(
+     crate::handle_result(result, |_| ())
+ }
+ 
++#[unsafe(no_mangle)]
++#[cfg(all(feature = "wasi", feature = "component-model-async"))]
++pub unsafe extern "C" fn wasmtime_component_linker_add_wasip3(
++    linker: &mut wasmtime_component_linker_t,
++) -> Option<Box<wasmtime_error_t>> {
++    let result = wasmtime_wasi::p3::add_to_linker(&mut linker.linker);
++    crate::handle_result(result, |_| ())
++}
++
+ #[unsafe(no_mangle)]
+ #[cfg(all(feature = "wasi-http", feature = "component-model-async"))]
+ pub unsafe extern "C" fn wasmtime_component_linker_add_wasi_http_async(
