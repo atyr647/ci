@@ -21,19 +21,32 @@ jobs:
           cd ci-webgpu-test && python3 gen-shim.py wgt.c && ../cosmo/bin/cosmocc -O2 -DDLSHIM -I../dawn-headers/include -o wgt.com wgt.c && ls -la wgt.com
       - uses: actions/upload-artifact@v4
         with: { name: wgt-dawn-com, path: ci-webgpu-test/wgt.com }
+  plan:
+    runs-on: ubuntu-latest
+    outputs: { matrix: '${{ steps.m.outputs.matrix }}' }
+    steps:
+      - id: m
+        env: { ONLY: '${{ inputs.only }}' }
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          all_ = [
+            dict(label='linux-x64',   os='ubuntu-latest',    msvc='',    lib='libwebgpu_dawn.so'),
+            dict(label='linux-arm64', os='ubuntu-24.04-arm', msvc='',    lib='libwebgpu_dawn.so'),
+            dict(label='win-x64',     os='windows-latest',   msvc='x64', lib='webgpu_dawn.dll'),
+            dict(label='win-arm64',   os='windows-11-arm',   msvc='arm64', lib='webgpu_dawn.dll'),
+            dict(label='mac-arm64',   os='macos-latest',     msvc='',    lib='libwebgpu_dawn.dylib'),
+            dict(label='mac-x64',     os='macos-15-intel',   msvc='',    lib='libwebgpu_dawn.dylib'),
+          ]
+          only = os.environ.get('ONLY', '')
+          sel = [x for x in all_ if not only or x['label'] == only]
+          print('matrix=' + json.dumps({'include': sel}))
+          PY
   build-and-test:
-    needs: ape
+    needs: [ape, plan]
     strategy:
       fail-fast: false
-      matrix:
-        include:
-          - { label: linux-x64,   os: ubuntu-latest,    msvc: '',      lib: libwebgpu_dawn.so }
-          - { label: linux-arm64, os: ubuntu-24.04-arm, msvc: '',      lib: libwebgpu_dawn.so }
-          - { label: win-x64,     os: windows-latest,   msvc: x64,     lib: webgpu_dawn.dll }
-          - { label: win-arm64,   os: windows-11-arm,   msvc: arm64,   lib: webgpu_dawn.dll }
-          - { label: mac-arm64,   os: macos-latest,     msvc: '',      lib: libwebgpu_dawn.dylib }
-          - { label: mac-x64,     os: macos-15-intel,   msvc: '',      lib: libwebgpu_dawn.dylib }
-    if: inputs.only == '' || inputs.only == matrix.label
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
     runs-on: ${{ matrix.os }}
     timeout-minutes: 240
     defaults: { run: { shell: bash } }
