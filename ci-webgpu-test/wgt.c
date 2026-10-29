@@ -58,6 +58,14 @@ int main(int argc,char**argv){
   if(!adapter){puts("FAIL no adapter");return 2;}
   WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT; wgpuAdapterGetInfo(adapter,&info);
   printf("adapter: backend=%d type=%d vendor=",info.backendType,info.adapterType); sv(info.vendor); printf(" device="); sv(info.device); printf(" desc="); sv(info.description); puts("");
+  { WGPULimits L = WGPU_LIMITS_INIT; WGPUSupportedFeatures F = {0, 0};
+    if (wgpuAdapterGetLimits(adapter,&L) == WGPUStatus_Success)
+      printf("limits: tex2D=%u bindGroups=%u colorAtt=%u storageBuf=%llu uniformBuf=%llu bufferSize=%llu wgInvocations=%u wgStorage=%u storageTexPerStage=%u uboAlign=%u\n",
+        L.maxTextureDimension2D,L.maxBindGroups,L.maxColorAttachments,(unsigned long long)L.maxStorageBufferBindingSize,(unsigned long long)L.maxUniformBufferBindingSize,
+        (unsigned long long)L.maxBufferSize,L.maxComputeInvocationsPerWorkgroup,L.maxComputeWorkgroupStorageSize,L.maxStorageTexturesPerShaderStage,L.minUniformBufferOffsetAlignment);
+    wgpuAdapterGetFeatures(adapter,&F);
+    printf("features(%zu):",F.featureCount); for(size_t i=0;i<F.featureCount;i++) printf(" %x",(unsigned)F.features[i]); puts("");
+    wgpuSupportedFeaturesFreeMembers(F); }
   WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT;
   WGPURequestDeviceCallbackInfo dci = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
   dci.mode = WGPUCallbackMode_AllowProcessEvents; dci.callback = CB(on_device,WGPURequestDeviceCallback);
