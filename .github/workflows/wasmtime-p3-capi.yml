@@ -88,7 +88,7 @@ jobs:
             cp wtp3/wasmtime.dll .
             run=./patched.exe
           else
-            lib=$(ls wtp3/libwasmtime.so wtp3/libwasmtime.dylib 2>/dev/null | head -1)
+            lib=$(find wtp3 \( -name libwasmtime.so -o -name libwasmtime.dylib \) | head -1)   # (ls of a missing file exits non-zero and -e/pipefail ended the step silently)
             cc -O1 -I"$INC" ci-wasm-host/p3-host.c "$lib" -o patched -Wl,-rpath,"$PWD/wtp3"
             run=./patched
           fi

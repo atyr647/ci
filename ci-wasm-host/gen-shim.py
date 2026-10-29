@@ -7,7 +7,7 @@ src = re.sub(r'#include "wt_shim.h"', '', src)
 fns = sorted(set(re.findall(r'\b((?:wasmtime|wasm|wasi)_[a-z0-9_]+)\(', src)))
 # only names that are real library functions (declared in the headers), not types/macros/our own statics
 hdr = open(sys.argv[2]).read() if len(sys.argv) > 2 else ''
-fns = [f for f in fns if f not in ('wasm_valtype_new_i32',) and (not hdr or re.search(r'\b' + f + r'\s*\(', hdr))]
+fns = [f for f in fns if f not in ('wasm_valtype_new_i32',) and (not hdr or f.startswith('wasmtime_config_') or re.search(r'\b' + f + r'\s*\(', hdr))]   # wasmtime_config_*_set are declared through the WASMTIME_CONFIG_PROP macro, so their names are not literal in the header text
 h = '#define MSABI __attribute__((ms_abi))\n'
 for f in fns:
     h += f'typedef __typeof__({f}) MSABI m_{f}_t;\nstatic __typeof__(&{f}) p_{f}; static m_{f}_t *m_{f};\n'
