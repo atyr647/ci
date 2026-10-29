@@ -1,0 +1,91 @@
+name: webgpu-cross-os
+# Does ONE webgpu.h C source give the same result on every OS/arch, through Dawn, wgpu-native, and a Cosmopolitan APE that dlopens the native lib?
+on:
+  workflow_dispatch:
+  push:
+    paths: ['ci-webgpu-test/**', '.github/workflows/webgpu-cross-os.yml']
+
+env:
+  WGPU_TAG: v29.0.1.1
+  DAWN_TAG: v20261027.184652
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+  COSMO_VER: 4.0.2
+
+jobs:
+  cosmo:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wgt.com (one APE, x86-64 + arm64, no libwebgpu linked in)
+        working-directory: ci-webgpu-test
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMO_VER/cosmocc-$COSMO_VER.zip
+          mkdir cosmocc && (cd cosmocc && unzip -q ../cosmocc.zip)
+          curl -fsSL -o wgpu.zip https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_TAG/wgpu-linux-x86_64-release.zip
+          mkdir wgpu && (cd wgpu && unzip -q ../wgpu.zip)
+          python3 gen-shim.py wgt.c
+          ./cosmocc/bin/cosmocc -O2 -DDLSHIM -Iwgpu/include -o wgt.com wgt.c
+          ls -la wgt.com
+      - uses: actions/upload-artifact@v4
+        with: { name: wgt-com, path: ci-webgpu-test/wgt.com }
+
+  test:
+    needs: cosmo
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    wgpu: linux-x86_64,          dawn: ubuntu-latest,  lib: libwgpu_native.so,    cmake_arch: '' }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, wgpu: linux-aarch64,         dawn: '',             lib: libwgpu_native.so,    cmake_arch: '' }
+          - { label: win-x64,     os: windows-latest,   wgpu: windows-x86_64-msvc,    dawn: windows-latest, lib: wgpu_native.dll,      cmake_arch: '-A x64' }
+          - { label: win-arm64,   os: windows-11-arm,   wgpu: windows-aarch64-msvc,   dawn: '',             lib: wgpu_native.dll,      cmake_arch: '-A ARM64' }
+          - { label: mac-arm64,   os: macos-latest,     wgpu: macos-aarch64,          dawn: macos-latest,   lib: libwgpu_native.dylib, cmake_arch: '' }
+          - { label: mac-x64,     os: macos-15-intel,   wgpu: macos-x86_64,           dawn: macos-15-intel, lib: libwgpu_native.dylib, cmake_arch: '' }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash, working-directory: ci-webgpu-test } }
+    env: { RUNNER_LABEL: '${{ matrix.label }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: wgt-com, path: ci-webgpu-test }
+      - name: Software Vulkan on Linux (hosted runners have no GPU)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+      - name: Fetch wgpu-native
+        run: |
+          curl -fsSL -o wgpu.zip https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_TAG/wgpu-${{ matrix.wgpu }}-release.zip
+          cmake -E make_directory wgpu && cmake -E chdir wgpu cmake -E tar xf ../wgpu.zip
+          ls wgpu/lib
+      - name: "C source -> wgpu-native (direct link)"
+        run: |
+          cmake -S . -B build-wgpu ${{ matrix.cmake_arch }} -DBACKEND=wgpu -DWGPU_ROOT="$PWD/wgpu" -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-wgpu --config Release
+          exe=$(find build-wgpu -name 'wgt' -o -name 'wgt.exe' | head -1)
+          ./run-one.sh "wgpu-native direct" "$exe"
+      - name: "C source -> Dawn static (prebuilt, x64 + mac only)"
+        if: matrix.dawn != ''
+        continue-on-error: true
+        run: |
+          curl -fsSL -o dawn.tgz https://github.com/google/dawn/releases/download/$DAWN_TAG/Dawn-$DAWN_SHA-${{ matrix.dawn }}-Release.tar.gz
+          mkdir dawn && tar xzf dawn.tgz -C dawn
+          cfg=$(find dawn -name DawnConfig.cmake | head -1)
+          cmake -S . -B build-dawn ${{ matrix.cmake_arch }} -DBACKEND=dawn -DDawn_DIR="$PWD/$(dirname "$cfg")" -DCMAKE_BUILD_TYPE=Release
+          cmake --build build-dawn --config Release
+          exe=$(find build-dawn -name 'wgt' -o -name 'wgt.exe' | head -1)
+          ./run-one.sh "dawn static" "$exe"
+      - name: "Cosmopolitan APE -> dlopen native wgpu-native"
+        continue-on-error: true
+        run: |
+          lib="$PWD/wgpu/lib/${{ matrix.lib }}"
+          if [ "$RUNNER_OS" = Windows ]; then cp wgt.com wgt-cosmo.exe; ./run-one.sh "cosmo APE dlopen" ./wgt-cosmo.exe "$(cygpath -w "$lib")"
+          else chmod +x wgt.com; ./run-one.sh "cosmo APE dlopen" sh ./wgt.com "$lib"; fi
+      - name: "Cosmopolitan APE on Linux without any C compiler (dlopen helper pre-seeded)"
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          # cosmo_dlopen compiles ~/.cosmo/dlopen-helper.c with cc on first use; ship the compiled helper instead
+          mkdir -p nocc-bin fresh-home/.cosmo
+          for t in sh mkdir uname cp chmod mv rm dirname basename sed tr cat gzip head tail ls ln mktemp od dd; do ln -sf "$(command -v $t)" nocc-bin/$t; done
+          cp ~/.cosmo/dlopen-helper ~/.cosmo/dlopen-helper.c fresh-home/.cosmo/
+          lib="$PWD/wgpu/lib/${{ matrix.lib }}"
+          ./run-one.sh "cosmo APE dlopen, no cc" env HOME=$PWD/fresh-home PATH=$PWD/nocc-bin sh ./wgt.com "$lib"
