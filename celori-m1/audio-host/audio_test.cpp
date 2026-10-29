@@ -1,12 +1,13 @@
 // Tests of the host audio shim (celori_audio.c over miniaudio) in OFFLINE mode, natively and under ASan/UBSan: exact timing of voices, pan, spatialisation, pitch, stealing, determinism
 // (including independence of how the frames are chunked), hostile WAV files, and the capture file. Usage: audio_test <dir containing step.wav> [capture.wav]
-#include <time.h>
 #include <algorithm>
+#include <chrono>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
 #include <cstring>
 #include <string>
+#include <thread>
 #include <vector>
 
 #include "celori_audio.h"
@@ -108,7 +109,7 @@ int main(int argc, char** argv) {
     // the null backend works as a real-time mode; with no output device the DEVICE mode must fail cleanly
     { char err[200]; celori_audio* n = celori_audio_create(CELORI_AUDIO_NULL, 48000, err, sizeof err); CHECK(n != nullptr, "null backend: %s", err);
       if (n) { celori_audio_info i; celori_audio_info_get(n, &i); CHECK(i.realtime && std::string(i.backend) == "null", "null backend info: %s", i.backend); uint32_t id; CHECK(celori_audio_load(n, "s", wav.data(), wav.size(), &id, err, sizeof err) == 0, "load"); uint64_t v; CHECK(celori_audio_play(n, id, 1, 1, 0, 0, 0, 0, 0, &v, err, sizeof err) == 0, "play");
-        struct timespec ts = {0, 150 * 1000 * 1000}; nanosleep(&ts, nullptr); celori_audio_destroy(n); }
+        std::this_thread::sleep_for(std::chrono::milliseconds(150)); celori_audio_destroy(n); }
       celori_audio* d = celori_audio_create(CELORI_AUDIO_DEVICE, 48000, err, sizeof err); std::printf("  device mode in this environment: %s (%s)\n", d ? "created" : "unavailable", d ? "an output device exists" : err); celori_audio_destroy(d); }
     std::printf("audio_test: %d checks, %d failed\n", g_checks, g_failed);
     return g_failed ? 1 : 0;
