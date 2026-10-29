@@ -1,0 +1,63 @@
+name: vk-probe
+# Step-by-step: can ONE Cosmopolitan file load the Vulkan loader, resolve entry points and call them (right ABI) on every OS?
+on:
+  workflow_dispatch:
+  push:
+    paths: ['ci-webgpu-test/vkprobe.c', '.github/workflows/vk-probe.yml']
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          git clone -q --depth 1 --branch v1.4.304 https://github.com/KhronosGroup/Vulkan-Headers vkh
+          cosmo/bin/cosmocc -O1 -Ivkh/include -o vkprobe.com ci-webgpu-test/vkprobe.c && ls -la vkprobe.com
+      - uses: actions/upload-artifact@v4
+        with: { name: vkprobe, path: vkprobe.com }
+  test:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: vkprobe, path: . }
+      - name: Linux Vulkan driver
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+      - name: macOS loader + MoltenVK
+        if: runner.os == 'macOS'
+        run: |
+          brew install molten-vk vulkan-loader >/dev/null 2>&1 || brew install molten-vk vulkan-loader
+          echo "VK_ICD_FILENAMES=$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json" >> "$GITHUB_ENV"
+          echo "DYLD_LIBRARY_PATH=$(brew --prefix vulkan-loader)/lib" >> "$GITHUB_ENV"
+      - name: Windows - what Vulkan is installed
+        if: runner.os == 'Windows'
+        run: |
+          ls -la /c/Windows/System32/vulkan-1.dll /c/Windows/SysWOW64/vulkan-1.dll 2>&1 | head
+          (cd /c/Windows/System32 && ls -la | grep -i -E "vulkan|vk_" | head) || true
+          powershell -NoProfile -Command "Get-ItemProperty 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -ErrorAction SilentlyContinue | Format-List" || true
+      - name: Run the probe (no extra driver)
+        continue-on-error: true
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then cp vkprobe.com vkprobe.exe; run=./vkprobe.exe; else chmod +x vkprobe.com; run="sh ./vkprobe.com"; fi
+          ( $run 2>&1 | cat ) | tr '\r' '\n' | head -60
+      - name: Windows - add Mesa lavapipe as the software driver, run again
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: |
+          mkdir mesa && cd mesa && gh release download -R pal1000/mesa-dist-win -p '*release-msvc.7z' --clobber && 7z x -y *.7z -ox >/dev/null && cd ..
+          icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); echo "ICD: $icd"; cat "$icd"
+          export VK_ICD_FILENAMES="$(cygpath -w "$icd")" VK_LOADER_DEBUG=error,warn,driver
+          ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -80
