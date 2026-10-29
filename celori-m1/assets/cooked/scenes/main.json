@@ -1,0 +1,2730 @@
+{
+ "version": 1,
+ "name": "yard",
+ "entities": [
+  {
+   "id": "ground",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      -0.5,
+      0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      80,
+      1,
+      80
+     ],
+     "color": [
+      0.22,
+      0.4,
+      0.19
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      80,
+      1,
+      80
+     ]
+    }
+   }
+  },
+  {
+   "id": "tile_0_0",
+   "components": {
+    "Transform": {
+     "position": [
+      -11,
+      0.0025,
+      -11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_0_2",
+   "components": {
+    "Transform": {
+     "position": [
+      -11,
+      0.0025,
+      -7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_0_4",
+   "components": {
+    "Transform": {
+     "position": [
+      -11,
+      0.0025,
+      -3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_0_6",
+   "components": {
+    "Transform": {
+     "position": [
+      -11,
+      0.0025,
+      1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_0_8",
+   "components": {
+    "Transform": {
+     "position": [
+      -11,
+      0.0025,
+      5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_0_10",
+   "components": {
+    "Transform": {
+     "position": [
+      -11,
+      0.0025,
+      9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_1_1",
+   "components": {
+    "Transform": {
+     "position": [
+      -9,
+      0.0025,
+      -9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_1_3",
+   "components": {
+    "Transform": {
+     "position": [
+      -9,
+      0.0025,
+      -5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_1_5",
+   "components": {
+    "Transform": {
+     "position": [
+      -9,
+      0.0025,
+      -1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_1_7",
+   "components": {
+    "Transform": {
+     "position": [
+      -9,
+      0.0025,
+      3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_1_9",
+   "components": {
+    "Transform": {
+     "position": [
+      -9,
+      0.0025,
+      7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_1_11",
+   "components": {
+    "Transform": {
+     "position": [
+      -9,
+      0.0025,
+      11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_2_0",
+   "components": {
+    "Transform": {
+     "position": [
+      -7,
+      0.0025,
+      -11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_2_2",
+   "components": {
+    "Transform": {
+     "position": [
+      -7,
+      0.0025,
+      -7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_2_4",
+   "components": {
+    "Transform": {
+     "position": [
+      -7,
+      0.0025,
+      -3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_2_6",
+   "components": {
+    "Transform": {
+     "position": [
+      -7,
+      0.0025,
+      1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_2_8",
+   "components": {
+    "Transform": {
+     "position": [
+      -7,
+      0.0025,
+      5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_2_10",
+   "components": {
+    "Transform": {
+     "position": [
+      -7,
+      0.0025,
+      9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_3_1",
+   "components": {
+    "Transform": {
+     "position": [
+      -5,
+      0.0025,
+      -9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_3_3",
+   "components": {
+    "Transform": {
+     "position": [
+      -5,
+      0.0025,
+      -5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_3_5",
+   "components": {
+    "Transform": {
+     "position": [
+      -5,
+      0.0025,
+      -1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_3_7",
+   "components": {
+    "Transform": {
+     "position": [
+      -5,
+      0.0025,
+      3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_3_9",
+   "components": {
+    "Transform": {
+     "position": [
+      -5,
+      0.0025,
+      7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_3_11",
+   "components": {
+    "Transform": {
+     "position": [
+      -5,
+      0.0025,
+      11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_4_0",
+   "components": {
+    "Transform": {
+     "position": [
+      -3,
+      0.0025,
+      -11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_4_2",
+   "components": {
+    "Transform": {
+     "position": [
+      -3,
+      0.0025,
+      -7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_4_4",
+   "components": {
+    "Transform": {
+     "position": [
+      -3,
+      0.0025,
+      -3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_4_6",
+   "components": {
+    "Transform": {
+     "position": [
+      -3,
+      0.0025,
+      1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_4_8",
+   "components": {
+    "Transform": {
+     "position": [
+      -3,
+      0.0025,
+      5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_4_10",
+   "components": {
+    "Transform": {
+     "position": [
+      -3,
+      0.0025,
+      9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_5_1",
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0.0025,
+      -9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_5_3",
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0.0025,
+      -5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_5_5",
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0.0025,
+      -1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_5_7",
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0.0025,
+      3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_5_9",
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0.0025,
+      7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_5_11",
+   "components": {
+    "Transform": {
+     "position": [
+      -1,
+      0.0025,
+      11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_6_0",
+   "components": {
+    "Transform": {
+     "position": [
+      1,
+      0.0025,
+      -11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_6_2",
+   "components": {
+    "Transform": {
+     "position": [
+      1,
+      0.0025,
+      -7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_6_4",
+   "components": {
+    "Transform": {
+     "position": [
+      1,
+      0.0025,
+      -3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_6_6",
+   "components": {
+    "Transform": {
+     "position": [
+      1,
+      0.0025,
+      1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_6_8",
+   "components": {
+    "Transform": {
+     "position": [
+      1,
+      0.0025,
+      5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_6_10",
+   "components": {
+    "Transform": {
+     "position": [
+      1,
+      0.0025,
+      9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_7_1",
+   "components": {
+    "Transform": {
+     "position": [
+      3,
+      0.0025,
+      -9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_7_3",
+   "components": {
+    "Transform": {
+     "position": [
+      3,
+      0.0025,
+      -5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_7_5",
+   "components": {
+    "Transform": {
+     "position": [
+      3,
+      0.0025,
+      -1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_7_7",
+   "components": {
+    "Transform": {
+     "position": [
+      3,
+      0.0025,
+      3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_7_9",
+   "components": {
+    "Transform": {
+     "position": [
+      3,
+      0.0025,
+      7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_7_11",
+   "components": {
+    "Transform": {
+     "position": [
+      3,
+      0.0025,
+      11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_8_0",
+   "components": {
+    "Transform": {
+     "position": [
+      5,
+      0.0025,
+      -11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_8_2",
+   "components": {
+    "Transform": {
+     "position": [
+      5,
+      0.0025,
+      -7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_8_4",
+   "components": {
+    "Transform": {
+     "position": [
+      5,
+      0.0025,
+      -3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_8_6",
+   "components": {
+    "Transform": {
+     "position": [
+      5,
+      0.0025,
+      1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_8_8",
+   "components": {
+    "Transform": {
+     "position": [
+      5,
+      0.0025,
+      5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_8_10",
+   "components": {
+    "Transform": {
+     "position": [
+      5,
+      0.0025,
+      9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_9_1",
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0.0025,
+      -9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_9_3",
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0.0025,
+      -5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_9_5",
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0.0025,
+      -1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_9_7",
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0.0025,
+      3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_9_9",
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0.0025,
+      7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_9_11",
+   "components": {
+    "Transform": {
+     "position": [
+      7,
+      0.0025,
+      11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_10_0",
+   "components": {
+    "Transform": {
+     "position": [
+      9,
+      0.0025,
+      -11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_10_2",
+   "components": {
+    "Transform": {
+     "position": [
+      9,
+      0.0025,
+      -7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_10_4",
+   "components": {
+    "Transform": {
+     "position": [
+      9,
+      0.0025,
+      -3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_10_6",
+   "components": {
+    "Transform": {
+     "position": [
+      9,
+      0.0025,
+      1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_10_8",
+   "components": {
+    "Transform": {
+     "position": [
+      9,
+      0.0025,
+      5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_10_10",
+   "components": {
+    "Transform": {
+     "position": [
+      9,
+      0.0025,
+      9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_11_1",
+   "components": {
+    "Transform": {
+     "position": [
+      11,
+      0.0025,
+      -9
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_11_3",
+   "components": {
+    "Transform": {
+     "position": [
+      11,
+      0.0025,
+      -5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_11_5",
+   "components": {
+    "Transform": {
+     "position": [
+      11,
+      0.0025,
+      -1
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_11_7",
+   "components": {
+    "Transform": {
+     "position": [
+      11,
+      0.0025,
+      3
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_11_9",
+   "components": {
+    "Transform": {
+     "position": [
+      11,
+      0.0025,
+      7
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.36,
+      0.57,
+      0.28
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "tile_11_11",
+   "components": {
+    "Transform": {
+     "position": [
+      11,
+      0.0025,
+      11
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2,
+      0.005,
+      2
+     ],
+     "color": [
+      0.3,
+      0.5,
+      0.24
+     ],
+     "roughness": 0.8,
+     "casts_shadow": false
+    }
+   }
+  },
+  {
+   "id": "step_0",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0.075,
+      -6.0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      3,
+      0.15,
+      0.5
+     ],
+     "color": [
+      0.55,
+      0.55,
+      0.58
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      3,
+      0.15,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "step_1",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0.15,
+      -6.5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      3,
+      0.3,
+      0.5
+     ],
+     "color": [
+      0.38,
+      0.38,
+      0.42
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      3,
+      0.3,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "step_2",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0.225,
+      -7.0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      3,
+      0.44999999999999996,
+      0.5
+     ],
+     "color": [
+      0.55,
+      0.55,
+      0.58
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      3,
+      0.44999999999999996,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "step_3",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0.3,
+      -7.5
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      3,
+      0.6,
+      0.5
+     ],
+     "color": [
+      0.38,
+      0.38,
+      0.42
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      3,
+      0.6,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "step_4",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0.375,
+      -8.0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      3,
+      0.75,
+      0.5
+     ],
+     "color": [
+      0.55,
+      0.55,
+      0.58
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      3,
+      0.75,
+      0.5
+     ]
+    }
+   }
+  },
+  {
+   "id": "landing",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0.375,
+      -9.75
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      3,
+      0.75,
+      3.0
+     ],
+     "color": [
+      0.55,
+      0.55,
+      0.58
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      3,
+      0.75,
+      3.0
+     ]
+    }
+   }
+  },
+  {
+   "id": "ramp",
+   "components": {
+    "Transform": {
+     "position": [
+      5.0,
+      0.62,
+      -3.0
+     ],
+     "rotation_deg": [
+      20,
+      0,
+      0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      2.4,
+      0.2,
+      4.2
+     ],
+     "color": [
+      0.55,
+      0.38,
+      0.2
+     ]
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      2.4,
+      0.2,
+      4.2
+     ]
+    }
+   }
+  },
+  {
+   "id": "platform",
+   "components": {
+    "Transform": {
+     "position": [
+      -5.5,
+      0.3,
+      -3.0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      3,
+      0.6,
+      3
+     ],
+     "color": [
+      0.55,
+      0.55,
+      0.58
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      3,
+      0.6,
+      3
+     ]
+    }
+   }
+  },
+  {
+   "id": "crate_a",
+   "components": {
+    "Transform": {
+     "position": [
+      -2.4,
+      0.4,
+      3.0
+     ],
+     "rotation_deg": [
+      0,
+      20,
+      0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      0.8,
+      0.8,
+      0.8
+     ],
+     "color": [
+      0.55,
+      0.38,
+      0.2
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      0.8,
+      0.8,
+      0.8
+     ]
+    }
+   }
+  },
+  {
+   "id": "crate_b",
+   "components": {
+    "Transform": {
+     "position": [
+      -1.5,
+      0.4,
+      3.6
+     ],
+     "rotation_deg": [
+      0,
+      -10,
+      0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      0.8,
+      0.8,
+      0.8
+     ],
+     "color": [
+      0.55,
+      0.38,
+      0.2
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      0.8,
+      0.8,
+      0.8
+     ]
+    }
+   }
+  },
+  {
+   "id": "crate_c",
+   "components": {
+    "Transform": {
+     "position": [
+      -1.9,
+      1.2,
+      3.2
+     ],
+     "rotation_deg": [
+      0,
+      35,
+      0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      0.8,
+      0.8,
+      0.8
+     ],
+     "color": [
+      0.95,
+      0.62,
+      0.12
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      0.8,
+      0.8,
+      0.8
+     ]
+    }
+   }
+  },
+  {
+   "id": "wall_low",
+   "components": {
+    "Transform": {
+     "position": [
+      4.0,
+      0.5,
+      5.0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      6,
+      1.0,
+      0.4
+     ],
+     "color": [
+      0.38,
+      0.38,
+      0.42
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      6,
+      1.0,
+      0.4
+     ]
+    }
+   }
+  },
+  {
+   "id": "fence",
+   "components": {
+    "Transform": {
+     "position": [
+      4.0,
+      1.5,
+      7.0
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      10,
+      3.0,
+      0.4
+     ],
+     "color": [
+      0.55,
+      0.55,
+      0.58
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      10,
+      3.0,
+      0.4
+     ]
+    }
+   }
+  },
+  {
+   "id": "pillar_0",
+   "components": {
+    "Transform": {
+     "position": [
+      7.0,
+      1.5,
+      2.0
+     ]
+    },
+    "Mesh": {
+     "shape": "capsule",
+     "size": [
+      0.35,
+      3.0,
+      1
+     ],
+     "color": [
+      0.75,
+      0.22,
+      0.18
+     ],
+     "roughness": 0.6
+    },
+    "StaticCollider": {
+     "shape": "capsule",
+     "size": [
+      0.35,
+      3.0,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "pillar_1",
+   "components": {
+    "Transform": {
+     "position": [
+      7.0,
+      1.5,
+      -6.0
+     ]
+    },
+    "Mesh": {
+     "shape": "capsule",
+     "size": [
+      0.35,
+      3.0,
+      1
+     ],
+     "color": [
+      0.75,
+      0.22,
+      0.18
+     ],
+     "roughness": 0.6
+    },
+    "StaticCollider": {
+     "shape": "capsule",
+     "size": [
+      0.35,
+      3.0,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "pillar_2",
+   "components": {
+    "Transform": {
+     "position": [
+      -8.0,
+      1.5,
+      2.0
+     ]
+    },
+    "Mesh": {
+     "shape": "capsule",
+     "size": [
+      0.35,
+      3.0,
+      1
+     ],
+     "color": [
+      0.75,
+      0.22,
+      0.18
+     ],
+     "roughness": 0.6
+    },
+    "StaticCollider": {
+     "shape": "capsule",
+     "size": [
+      0.35,
+      3.0,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "pillar_3",
+   "components": {
+    "Transform": {
+     "position": [
+      -8.0,
+      1.5,
+      -8.0
+     ]
+    },
+    "Mesh": {
+     "shape": "capsule",
+     "size": [
+      0.35,
+      3.0,
+      1
+     ],
+     "color": [
+      0.75,
+      0.22,
+      0.18
+     ],
+     "roughness": 0.6
+    },
+    "StaticCollider": {
+     "shape": "capsule",
+     "size": [
+      0.35,
+      3.0,
+      1
+     ]
+    }
+   }
+  },
+  {
+   "id": "hill_0",
+   "components": {
+    "Transform": {
+     "position": [
+      -18,
+      2.0,
+      -26
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      14,
+      5,
+      8
+     ],
+     "color": [
+      0.28,
+      0.42,
+      0.3
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      14,
+      5,
+      8
+     ]
+    }
+   }
+  },
+  {
+   "id": "hill_1",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      3.5,
+      -30
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      20,
+      8,
+      8
+     ],
+     "color": [
+      0.28,
+      0.42,
+      0.3
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      20,
+      8,
+      8
+     ]
+    }
+   }
+  },
+  {
+   "id": "hill_2",
+   "components": {
+    "Transform": {
+     "position": [
+      20,
+      2.5,
+      -27
+     ]
+    },
+    "Mesh": {
+     "shape": "box",
+     "size": [
+      16,
+      6,
+      8
+     ],
+     "color": [
+      0.28,
+      0.42,
+      0.3
+     ],
+     "roughness": 0.8
+    },
+    "StaticCollider": {
+     "shape": "box",
+     "size": [
+      16,
+      6,
+      8
+     ]
+    }
+   }
+  },
+  {
+   "id": "hero",
+   "components": {
+    "Transform": {
+     "position": [
+      0,
+      0,
+      4.0
+     ]
+    },
+    "Character": {},
+    "PlayerControlled": {},
+    "Model": {
+     "asset": "robot"
+    },
+    "FootstepAudio": {
+     "sound": "step",
+     "land_sound": "land",
+     "jump_sound": "jump"
+    }
+   }
+  },
+  {
+   "id": "camera",
+   "components": {
+    "FollowCamera": {
+     "target": "hero",
+     "distance": 5.0,
+     "height": 2.2,
+     "look_height": 1.2,
+     "fov_deg": 55
+    }
+   }
+  },
+  {
+   "id": "sun",
+   "components": {
+    "DirectionalLight": {
+     "direction": [
+      -0.45,
+      -1.0,
+      -0.35
+     ],
+     "intensity": 100000
+    }
+   }
+  }
+ ]
+}

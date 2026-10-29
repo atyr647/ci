@@ -1,0 +1,56 @@
+{
+ "version": 1,
+ "mesh": "robot.cmesh",
+ "skeleton": "robot.skel.ozz",
+ "clips": [
+  {
+   "name": "idle",
+   "file": "robot.idle.ozz",
+   "duration": 3.0,
+   "footsteps": [],
+   "ground_speed": 0
+  },
+  {
+   "name": "walk",
+   "file": "robot.walk.ozz",
+   "duration": 1.0,
+   "footsteps": [
+    0.25,
+    0.75
+   ],
+   "ground_speed": 1.4
+  },
+  {
+   "name": "run",
+   "file": "robot.run.ozz",
+   "duration": 0.7,
+   "footsteps": [
+    0.25,
+    0.75
+   ],
+   "ground_speed": 3.142
+  },
+  {
+   "name": "air",
+   "file": "robot.air.ozz",
+   "duration": 0.8,
+   "footsteps": [],
+   "ground_speed": 0
+  }
+ ],
+ "joints": 20,
+ "vertices": 600,
+ "triangles": 300,
+ "bounds": {
+  "min": [
+   -0.275,
+   -0.0,
+   -0.195
+  ],
+  "max": [
+   0.275,
+   1.83,
+   0.11
+  ]
+ }
+}

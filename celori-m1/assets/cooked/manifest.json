@@ -1,0 +1,87 @@
+{
+ "assets": {
+  "models/robot.air.ozz": {
+   "bytes": 1573,
+   "inputs": [
+    "b67c054d1a0b406a2c5d16f41b15d8ce7aa30637ef960d1e319aea63e304404f"
+   ],
+   "sha256": "4750021f7a6ea34009a80afe35ff36a9c54c6a1725601066e63592421458db85"
+  },
+  "models/robot.cmesh": {
+   "bytes": 32756,
+   "inputs": [
+    "b67c054d1a0b406a2c5d16f41b15d8ce7aa30637ef960d1e319aea63e304404f"
+   ],
+   "sha256": "6e78f793c2189fdd19a3382722f8a448229a689e4418f6869eeea8f002ed5398"
+  },
+  "models/robot.idle.ozz": {
+   "bytes": 1991,
+   "inputs": [
+    "b67c054d1a0b406a2c5d16f41b15d8ce7aa30637ef960d1e319aea63e304404f"
+   ],
+   "sha256": "12500658f46ee4f9a556a8e70aa3c4b7bbef143c5d73aa321ab53f06bafe9b12"
+  },
+  "models/robot.model.json": {
+   "bytes": 765,
+   "inputs": [
+    "b67c054d1a0b406a2c5d16f41b15d8ce7aa30637ef960d1e319aea63e304404f"
+   ],
+   "sha256": "63d2749f09bee78223cf93c6eb1ed49d321eb8702ed9c89ca7e42a0a08827e0b"
+  },
+  "models/robot.run.ozz": {
+   "bytes": 3327,
+   "inputs": [
+    "b67c054d1a0b406a2c5d16f41b15d8ce7aa30637ef960d1e319aea63e304404f"
+   ],
+   "sha256": "a3d36f897327d0e0677264b3a9d760df08c8e82d957c6fc2aab33258cc11607f"
+  },
+  "models/robot.skel.ozz": {
+   "bytes": 1034,
+   "inputs": [
+    "b67c054d1a0b406a2c5d16f41b15d8ce7aa30637ef960d1e319aea63e304404f"
+   ],
+   "sha256": "52835cc15f9e79194f5bd097aa51e46ba29200a1988f1edb25a8c265942abccb"
+  },
+  "models/robot.walk.ozz": {
+   "bytes": 3572,
+   "inputs": [
+    "b67c054d1a0b406a2c5d16f41b15d8ce7aa30637ef960d1e319aea63e304404f"
+   ],
+   "sha256": "903a2aaccdf67972293b438cad43d2a854220faa629520518466af964fd2d856"
+  },
+  "scenes/main.json": {
+   "bytes": 34278,
+   "inputs": [
+    "cb8258f0b95efb335ec014fcb0ab83be2edb3d53adb495f06e4cf1bac2109adf"
+   ],
+   "sha256": "cb8258f0b95efb335ec014fcb0ab83be2edb3d53adb495f06e4cf1bac2109adf"
+  },
+  "sounds/jump.wav": {
+   "bytes": 24044,
+   "inputs": [
+    "14d2660c8e60a71ebd5a8593300f78786abee7a728d468519803c7ac03ccf162"
+   ],
+   "sha256": "14d2660c8e60a71ebd5a8593300f78786abee7a728d468519803c7ac03ccf162"
+  },
+  "sounds/land.wav": {
+   "bytes": 33644,
+   "inputs": [
+    "4111810747fb159c8efe67329a04aace34862b7510fc4234b31120a092397189"
+   ],
+   "sha256": "4111810747fb159c8efe67329a04aace34862b7510fc4234b31120a092397189"
+  },
+  "sounds/step.wav": {
+   "bytes": 19244,
+   "inputs": [
+    "af6c7d3cf733326eedc5f7db88c946c7ddb49745ad5d06483507d7b4ec5782e5"
+   ],
+   "sha256": "af6c7d3cf733326eedc5f7db88c946c7ddb49745ad5d06483507d7b4ec5782e5"
+  }
+ },
+ "tool_versions": {
+  "celori_cook.py": "459d00457fadab6e",
+  "cook_model.py": "a7b809c9cc3b0829",
+  "gltf2ozz": "d6c9c4ee439fe186"
+ },
+ "version": 1
+}

@@ -1,0 +1,24 @@
+{
+ "physics_test": {
+  "PHYS_HASH_REPLAY": "4ae14fcaeb5efcfc",
+  "PHYS_HASH": "b09911a66b898750"
+ },
+ "gameplay_test": {
+  "GAMEPLAY_HASH_REPLAY": "fa8a98a89fd4eb8f",
+  "GAMEPLAY_HASH": "7dca209d1e1e444d"
+ },
+ "scene_test": {
+  "SCENE_HASH": "9aafe0c0b9a2c6ab",
+  "SCENE_TEXT_HASH": "e911417dce455fe8"
+ },
+ "animation_test": {
+  "ANIM_HASH_REPLAY": "1387d888ace77409",
+  "ANIM_HASH": "d8f858db63a1844e"
+ },
+ "audio_system_test": {
+  "AUDIOSYS_HASH": "f233ff3cd848ce9b"
+ },
+ "audio_shim": {
+  "AUDIO_CAPTURE_HASH": "a448a15862a0b105"
+ }
+}

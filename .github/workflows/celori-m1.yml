@@ -1,0 +1,50 @@
+name: celori-m1
+# Does Celori's M1 simulation behave identically on real Windows / macOS / Linux, x86-64 and arm64? The engine's wasm tests (Jolt physics, character gameplay, scene loading, ozz animation, audio system)
+# run under the stock Wasmtime 49.0.2 CLI (the version the proof host is pinned to); their determinism hashes must equal the Linux x86-64 values in celori-m1/expected.json.
+# The host audio shim (miniaudio, OFFLINE mixer) is compiled with each runner's own compiler and its 9600-frame mix hash must be the same.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['celori-m1/**', '.github/workflows/celori-m1.yml']
+env: { WT: v49.0.2, MA_COMMIT: 9634bedb5b5a2ca38c1ee7108a9358a4e233f14d }
+jobs:
+  m1:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    cap: x86_64-linux,    ext: tar.xz, exe: wasmtime }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, cap: aarch64-linux,   ext: tar.xz, exe: wasmtime }
+          - { label: win-x64,     os: windows-latest,   cap: x86_64-windows,  ext: zip,    exe: wasmtime.exe }
+          - { label: win-arm64,   os: windows-11-arm,   cap: aarch64-windows, ext: zip,    exe: wasmtime.exe }
+          - { label: mac-arm64,   os: macos-latest,     cap: aarch64-macos,   ext: tar.xz, exe: wasmtime }
+          - { label: mac-x64,     os: macos-15-intel,   cap: x86_64-macos,    ext: tar.xz, exe: wasmtime }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wasmtime CLI
+        run: |
+          curl -fsSL -o wt.${{ matrix.ext }} https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.cap }}.${{ matrix.ext }}
+          mkdir wt
+          if [ "${{ matrix.ext }}" = zip ]; then cmake -E chdir wt cmake -E tar xf ../wt.zip; else tar xJf wt.tar.xz -C wt; fi
+          find wt -name '${{ matrix.exe }}' | head -1 | tee wtpath
+          "$(cat wtpath)" --version
+      - name: Engine wasm tests under Wasmtime
+        id: wasm
+        continue-on-error: true
+        run: python3 celori-m1/run.py "$(cat wtpath)" ${{ matrix.label }}
+      - name: miniaudio (pinned commit)
+        run: |
+          mkdir ma && cd ma && git init -q && git remote add origin https://github.com/mackron/miniaudio && git fetch -q --depth 1 origin $MA_COMMIT && git checkout -q FETCH_HEAD && ls -la miniaudio.h
+      - name: Host audio shim, native, offline mixer
+        id: audio
+        continue-on-error: true
+        run: python3 celori-m1/audio-shim.py ${{ matrix.label }} ma
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: "results-${{ matrix.label }}", path: "results-wasm-*.json", if-no-files-found: ignore }
+      - name: Verdict
+        run: |
+          echo "wasm tests: ${{ steps.wasm.outcome }}; audio shim: ${{ steps.audio.outcome }}"
+          [ "${{ steps.wasm.outcome }}" = success ] && [ "${{ steps.audio.outcome }}" = success ]
