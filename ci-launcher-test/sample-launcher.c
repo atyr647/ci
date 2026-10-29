@@ -52,7 +52,11 @@ static int copyfile(const char *src, const char *dst) { FILE *i = fopen(src, "rb
 static char server[512], dir[900], fromdir[900]; static int offline;
 static int fetch(const char *urlpath, const char *dst) {              /* network via curl (ships with Windows 10+, macOS and most Linux), or from inside this file */
   if (offline) { char s[1600]; if (fromdir[0]) snprintf(s, sizeof s, "%s%s", fromdir, urlpath); else snprintf(s, sizeof s, "/zip%s", urlpath); return copyfile(s, dst); }
-  char cmd[2048]; snprintf(cmd, sizeof cmd, "curl -fsSL --retry 2 -o \"%s\" \"%s%s\"", dst, server, urlpath); return system(cmd); }
+  /* Windows: the Cosmopolitan runtime does not find "curl" on PATH (only curl.exe by absolute path), and hands us /C/... style paths */
+  const char *curl = "curl"; char wdst[1024]; snprintf(wdst, sizeof wdst, "%s", dst);
+  if (IsWindows()) { if (access("C:\\Windows\\System32\\curl.exe", 0) == 0) curl = "C:\\Windows\\System32\\curl.exe";
+    if (dst[0] == '/' && dst[1] && dst[2] == '/') snprintf(wdst, sizeof wdst, "%c:%s", dst[1], dst + 2); }
+  char cmd[2048]; snprintf(cmd, sizeof cmd, "\"%s\" -fsSL --retry 2 -o \"%s\" \"%s%s\"", curl, wdst, server, urlpath); return system(cmd); }
 int main(int argc, char **argv) {
   const char *plat_os = IsLinux() ? "linux" : IsWindows() ? "windows" : IsXnu() ? "macos" : "other"; struct utsname u; uname(&u);
   const char *arch = (!strcmp(u.machine, "x86_64") || !strcmp(u.machine, "AMD64")) ? "x86_64" : (!strcmp(u.machine, "aarch64") || !strcmp(u.machine, "arm64")) ? "aarch64" : u.machine;
