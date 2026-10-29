@@ -3,9 +3,11 @@
 # Output goes to a file so a hang or crash still shows what was printed; the command is killed after RUN_ONE_TIMEOUT seconds (default 120).
 EXPECTED=${EXPECTED_FNV:-9761e8ede774e783}   # fnv of d[i]=i*i+7 for i<256: independent of GPU, backend and OS
 label=$1; shift
-tmp=$(mktemp); "$@" >"$tmp" 2>&1 & pid=$!
+tmp=$(mktemp)
+# stdout and stderr go through ONE pipe: when both are redirected to the same file the Cosmopolitan runtime on Windows overwrites its own output
+( "$@"; echo $? >"$tmp.rc" ) 2>&1 | cat >"$tmp" & pid=$!
 for _ in $(seq 1 "${RUN_ONE_TIMEOUT:-120}"); do kill -0 $pid 2>/dev/null || break; sleep 1; done
-if kill -0 $pid 2>/dev/null; then kill -9 $pid 2>/dev/null; echo "(timed out after ${RUN_ONE_TIMEOUT:-120}s, killed)" >>"$tmp"; rc=124; else wait $pid; rc=$?; fi
+if kill -0 $pid 2>/dev/null; then kill -9 $pid 2>/dev/null; echo "(timed out after ${RUN_ONE_TIMEOUT:-120}s, killed)" >>"$tmp"; rc=124; else wait $pid; rc=$(cat "$tmp.rc" 2>/dev/null || echo 1); fi
 out=$(cat "$tmp")
 printf '%s\n' "$out" | sed 's/^/    /'; echo "    exit code: $rc"
 hash=$(printf '%s\n' "$out" | sed -n 's/.*fnv=\([0-9a-f]*\).*/\1/p' | head -1)

@@ -141,3 +141,10 @@ jobs:
           chmod +x ci-webgpu-test/run-one.sh
           if [ "$RUNNER_OS" = Windows ]; then cp wgt-dawn.com wgt-dawn.exe; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" ./wgt-dawn.exe
           else chmod +x wgt-dawn.com; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" sh ./wgt-dawn.com; fi
+      - name: Windows only - syscall trace tail (to see what happens before a crash)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: |
+          cp wgt-dawn.com wgt-dawn.exe
+          ( ./wgt-dawn.exe --strace 2>&1 | cat ) > strace.txt || true
+          wc -l strace.txt; tail -n 90 strace.txt | cut -c1-260
