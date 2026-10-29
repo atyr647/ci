@@ -54,3 +54,21 @@ jobs:
           cd ape
           if [ "$RUNNER_OS" = Windows ]; then cp wt-host.com wt-host.exe; ../ci-wasm-host/run-one.sh "ape + libwasmtime" ./wt-host.exe "$(cygpath -w "$lib")" guest.wasm
           else chmod +x wt-host.com; ../ci-wasm-host/run-one.sh "ape + libwasmtime" sh ./wt-host.com "$lib" guest.wasm; fi
+
+      - name: "Variants (to find what makes the first wasm call hang on macOS arm64)"
+        if: matrix.label == 'mac-arm64'
+        continue-on-error: true
+        timeout-minutes: 6
+        run: |
+          lib=$(find "$PWD/wt" -not -path '*/min/*' -name '${{ matrix.lib }}' | head -1)
+          cd ape
+          for o in nomach nosignals pulley nomach,nosignals; do
+            RUN_ONE_TIMEOUT=30 WT_OPT=$o ../ci-wasm-host/run-one.sh "ape + libwasmtime WT_OPT=$o" sh ./wt-host.com "$lib" guest.wasm || true
+          done
+      - name: "Repeat 20x (is the Linux arm64 pass stable?)"
+        if: matrix.label == 'linux-arm64' || matrix.label == 'linux-x64'
+        continue-on-error: true
+        run: |
+          lib=$(find "$PWD/wt" -not -path '*/min/*' -name '${{ matrix.lib }}' | head -1); cd ape
+          pass=0; for i in $(seq 1 20); do if sh ./wt-host.com "$lib" guest.wasm >/dev/null 2>&1; then pass=$((pass+1)); fi; done
+          echo "RESULT [${{ matrix.label }}] ape + libwasmtime repeated: $pass/20 passed"
