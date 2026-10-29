@@ -40,23 +40,26 @@ static wasm_functype_t *mk_i32i32_i32(void) {   /* (i32, i32) -> i32 */
 }
 int main(int argc, char **argv) {
   if (argc < 3) { fprintf(stderr, "usage: %s <libwasmtime> <guest.wasm>\n", argv[0]); return 1; }
+  setvbuf(stdout, NULL, _IONBF, 0);
+#define STAGE(s) fprintf(stderr, "stage: %s\n", s)
+  STAGE("dlopen");
   void *h = cosmo_dlopen(argv[1], RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 8; }
-  { int r = wt_load(h); if (r) return r; }
+  STAGE("load symbols"); { int r = wt_load(h); if (r) return r; }
   FILE *f = fopen(argv[2], "rb"); if (!f) { perror("guest"); return 1; } fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
   uint8_t *wasm = malloc(len); if (fread(wasm, 1, len, f) != (size_t)len) return 1; fclose(f);
 
-  wasm_engine_t *engine = wasm_engine_new(); wasmtime_store_t *store = wasmtime_store_new(engine, NULL, NULL); wasmtime_context_t *cx = wasmtime_store_context(store);
+  STAGE("engine_new"); wasm_engine_t *engine = wasm_engine_new(); STAGE("store_new"); wasmtime_store_t *store = wasmtime_store_new(engine, NULL, NULL); wasmtime_context_t *cx = wasmtime_store_context(store);
   wasi_config_t *wc = wasi_config_new(); wasi_config_inherit_stdout(wc); wasi_config_inherit_stderr(wc);
   wasmtime_error_t *err = wasmtime_context_set_wasi(cx, wc); if (err) die(err, NULL, "set_wasi");
-  wasmtime_linker_t *linker = wasmtime_linker_new(engine);
+  STAGE("linker"); wasmtime_linker_t *linker = wasmtime_linker_new(engine);
   err = wasmtime_linker_define_wasi(linker); if (err) die(err, NULL, "define_wasi");
   const char *mod = "sample:wire/transport@0.1.0";
   wasm_functype_t *ty = mk_i32i32_i32(), *ty2 = mk_i32i32_i32();
   err = wasmtime_linker_define_func(linker, mod, strlen(mod), "send", 4, ty, WT_CB(cb_send, wasmtime_func_callback_t), NULL, NULL); if (err) die(err, NULL, "define send");
   err = wasmtime_linker_define_func(linker, mod, strlen(mod), "recv", 4, ty2, WT_CB(cb_recv, wasmtime_func_callback_t), NULL, NULL); if (err) die(err, NULL, "define recv");
-  wasmtime_module_t *module = NULL; err = wasmtime_module_new(engine, wasm, len, &module); if (err) die(err, NULL, "module_new");
+  STAGE("module_new"); wasmtime_module_t *module = NULL; err = wasmtime_module_new(engine, wasm, len, &module); if (err) die(err, NULL, "module_new");
   wasmtime_instance_t inst; wasm_trap_t *trap = NULL; err = wasmtime_linker_instantiate(linker, cx, module, &inst, &trap); if (err || trap) die(err, trap, "instantiate");
-  wasmtime_extern_t start; if (!wasmtime_instance_export_get(cx, &inst, "_start", 6, &start)) { fprintf(stderr, "no _start\n"); return 3; }
+  STAGE("run _start"); wasmtime_extern_t start; if (!wasmtime_instance_export_get(cx, &inst, "_start", 6, &start)) { fprintf(stderr, "no _start\n"); return 3; }
   err = wasmtime_func_call(cx, &start.of.func, NULL, 0, NULL, 0, &trap);
   if (err) { int code; if (wasmtime_error_exit_status(err, &code)) { printf("host : guest exited with status %d\n", code); puts(code == 0 ? "RESULT PASS" : "RESULT FAIL"); return code; } die(err, NULL, "call"); }
   if (trap) die(NULL, trap, "trap");
