@@ -1,7 +1,10 @@
 name: dawn-shared
 # Build Dawn ONCE per target as a shared library from the nightly's commit, then prove the pieces on real hardware/OS:
 #   (1) the C source linked directly against it, (2) ONE Cosmopolitan APE that dlopens it. Same output hash everywhere = same Dawn code path.
-on: workflow_dispatch
+on:
+  workflow_dispatch:
+    inputs:
+      only: { description: 'build only this label (e.g. linux-x64); empty = all', required: false, default: '' }
 env:
   DAWN_TAG: v20261027.184652
   DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
@@ -30,6 +33,7 @@ jobs:
           - { label: win-arm64,   os: windows-11-arm,   msvc: arm64,   lib: webgpu_dawn.dll }
           - { label: mac-arm64,   os: macos-latest,     msvc: '',      lib: libwebgpu_dawn.dylib }
           - { label: mac-x64,     os: macos-15-intel,   msvc: '',      lib: libwebgpu_dawn.dylib }
+    if: inputs.only == '' || inputs.only == matrix.label
     runs-on: ${{ matrix.os }}
     timeout-minutes: 240
     defaults: { run: { shell: bash } }
@@ -54,7 +58,7 @@ jobs:
           cmake -S dawn -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DDAWN_FETCH_DEPENDENCIES=ON \
             -DDAWN_BUILD_MONOLITHIC_LIBRARY=SHARED -DDAWN_ENABLE_INSTALL=ON \
             -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
-            -DDAWN_USE_GLFW=OFF -DDAWN_USE_WAYLAND=OFF
+            -DDAWN_USE_GLFW=OFF -DDAWN_USE_WAYLAND=OFF -DCMAKE_CXX_SCAN_FOR_MODULES=OFF
       - name: Build
         run: cmake --build out
       - name: Install and show what shipped
