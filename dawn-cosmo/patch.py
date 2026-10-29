@@ -70,7 +70,9 @@ struct DualAbiFn {
     DualAbiFn() = default;
     DualAbiFn(std::nullptr_t) {}
     explicit DualAbiFn(void* a) : addr(a) {}
-    R operator()(Args... args) const {
+    // Must not be inlined: GCC miscompiles the Microsoft/System V pair when it is merged into a caller (measured: the 10th Vulkan call of a
+    // sequence received a clobbered first argument). One out-of-line copy per signature is correct.
+    __attribute__((noinline)) R operator()(Args... args) const {
         return DawnCosmoIsWindows() ? reinterpret_cast<Ms>(addr)(args...) : reinterpret_cast<SysV>(addr)(args...);
     }
     bool operator==(std::nullptr_t) const { return addr == nullptr; }
@@ -146,3 +148,15 @@ def devicevk(s):
     b = s.index('    }\n', a) + len('    }\n')
     return s[:a] + '#ifndef __COSMOPOLITAN__  // %s: test-only toggle that stores raw System V function pointers\n' % MARK + s[a:b] + '#endif\n' + s[b:]
 edit('src/dawn/native/vulkan/DeviceVk.cpp', devicevk)
+
+# 9. Foreign code (the Vulkan loader) must not call back into Cosmopolitan code: on Windows the loader would use the Microsoft ABI, on aarch64
+#    the thread register (x28) is clobbered. So no debug-utils messengers are registered; driver messages simply are not forwarded to Dawn's log.
+p = os.path.join(root, 'src/dawn/native/vulkan/BackendVk.cpp')
+s = open(p).read()
+if 'COSMO-PATCH-NOCALLBACKS' not in s:
+    a = 'if (usedGlobalKnobs.HasExt(InstanceExt::DebugUtils)) {\n        // Workaround'
+    b = 'if (usedKnobs.HasExt(InstanceExt::DebugUtils)) {\n        utilsMessengerCreateInfo.flags = 0;'
+    assert a in s and b in s
+    s = s.replace(a, 'if (false /* COSMO-PATCH-NOCALLBACKS */ && usedGlobalKnobs.HasExt(InstanceExt::DebugUtils)) {\n        // Workaround', 1)
+    s = s.replace(b, 'if (false && usedKnobs.HasExt(InstanceExt::DebugUtils)) {\n        utilsMessengerCreateInfo.flags = 0;', 1)
+    open(p, 'w').write(s); print('patched: no debug messengers')

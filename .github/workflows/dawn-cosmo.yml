@@ -49,7 +49,7 @@ jobs:
       - name: Link the WebGPU test against it (one architecture)
         run: |
           B=$HOME/cosmo/bin; lib=$(find $PWD/build -name libwebgpu_dawn.a | head -1)
-          $B/$COSMO_ARCH-unknown-cosmo-cc -O2 -I$PWD/dawn/include -c ci-webgpu-test/wgt.c -o wgt.o
+          $B/$COSMO_ARCH-unknown-cosmo-cc -O2 -I$PWD/dawn/include -I$PWD/build/gen/include -c ci-webgpu-test/wgt.c -o wgt.o
           $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 wgt.o "$lib" -o wgt.$COSMO_ARCH.com
           ls -la wgt.$COSMO_ARCH.com*
       - uses: actions/upload-artifact@v4
