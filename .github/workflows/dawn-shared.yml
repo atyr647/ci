@@ -81,13 +81,12 @@ jobs:
           echo "SHARED_LIB=$(find "$PWD/dist" -name '${{ matrix.lib }}' | head -1)" >> "$GITHUB_ENV"
       - uses: actions/upload-artifact@v4
         with: { name: 'dawn-shared-${{ matrix.label }}', path: dist, retention-days: 7 }
-      - name: Windows needs Microsoft's DXC next to Dawn
+      - name: Windows - Dawn loads its shader compiler (FXC d3dcompiler_47.dll) only from next to itself, never from System32
         if: runner.os == 'Windows'
         run: |
-          gh release download -R microsoft/DirectXShaderCompiler -p 'dxc_*.zip' -D dxc && (cd dxc && cmake -E tar xf dxc_*.zip)
-          d=$(dirname "$(find dxc -ipath "*${{ matrix.msvc }}*" -name dxcompiler.dll | head -1)"); ls "$d"
-          cp "$d/dxcompiler.dll" "$d/dxil.dll" "$(dirname "$SHARED_LIB")/"
+          cp /c/Windows/System32/d3dcompiler_47.dll "$(dirname "$SHARED_LIB")/"
           echo "DLL_DIR=$(dirname "$SHARED_LIB")" >> "$GITHUB_ENV"
+          ls -la "$(dirname "$SHARED_LIB")" | grep -i "dll"
       - name: "C source linked directly against the shared Dawn"
         continue-on-error: true
         run: |
