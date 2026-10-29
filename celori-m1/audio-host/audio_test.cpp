@@ -2,6 +2,7 @@
 // (including independence of how the frames are chunked), hostile WAV files, and the capture file. Usage: audio_test <dir containing step.wav> [capture.wav]
 #include <algorithm>
 #include <chrono>
+#include <filesystem>
 #include <cmath>
 #include <cstdio>
 #include <cstdlib>
@@ -16,6 +17,7 @@ static int g_checks = 0, g_failed = 0;
 #define CHECK(cond, ...) do { g_checks++; if (!(cond)) { g_failed++; std::printf("FAIL %s:%d  %s   ", __FILE__, __LINE__, #cond); std::printf(__VA_ARGS__); std::printf("\n"); } } while (0)
 
 static std::vector<uint8_t> slurp(const std::string& p) { std::vector<uint8_t> b; FILE* f = std::fopen(p.c_str(), "rb"); if (!f) return b; uint8_t t[4096]; size_t n; while ((n = std::fread(t, 1, sizeof t, f)) > 0) b.insert(b.end(), t, t + n); std::fclose(f); return b; }
+static std::string tmp_wav() { return (std::filesystem::temp_directory_path() / "celori_audio_test.wav").string(); }
 static uint64_t fnv(uint64_t h, const void* p, size_t n) { auto* b = static_cast<const uint8_t*>(p); for (size_t i = 0; i < n; i++) { h ^= b[i]; h *= 1099511628211ull; } return h; }
 
 struct Mixer {
@@ -30,7 +32,7 @@ struct Mixer {
     celori_audio_stats stats() { celori_audio_stats s; celori_audio_stats_get(a, &s); return s; }
     void advance(uint32_t n) { celori_audio_advance(a, n); }
     // dump the capture through the WAV writer and read the samples back: also tests the writer
-    std::vector<int16_t> mix(const char* path = "/tmp/celori_audio_test.wav") { std::vector<int16_t> out; if (celori_audio_write_wav(a, path) != 0) return out; auto b = slurp(path); if (b.size() < 44) return out; out.resize((b.size() - 44) / 2); std::memcpy(out.data(), b.data() + 44, out.size() * 2); return out; }
+    std::vector<int16_t> mix(const std::string& path = tmp_wav()) { std::vector<int16_t> out; if (celori_audio_write_wav(a, path.c_str()) != 0) return out; auto b = slurp(path); if (b.size() < 44) return out; out.resize((b.size() - 44) / 2); std::memcpy(out.data(), b.data() + 44, out.size() * 2); return out; }
 };
 static int first_nonzero(const std::vector<int16_t>& m) { for (size_t i = 0; i < m.size(); i++) if (m[i]) return int(i / 2); return -1; }
 static double peak(const std::vector<int16_t>& m, int ch) { double p = 0; for (size_t i = size_t(ch); i < m.size(); i += 2) p = std::fmax(p, std::fabs(double(m[i]))); return p; }
@@ -88,8 +90,8 @@ int main(int argc, char** argv) {
       std::printf("AUDIO_HASH %016llx\n", (unsigned long long)a);
       Mixer s1m(wav); s1m.play(); s1m.advance(4800); Mixer s2m(wav); s2m.play(); s2m.advance(4801); CHECK(s1m.stats().mix_hash != s2m.stats().mix_hash, "the hash is sensitive"); }
     // the capture hash equals an independent FNV over the file's samples; the file is a valid 16-bit stereo WAV
-    { Mixer m(wav); m.play(); m.advance(9600); auto mx = m.mix(argc > 2 ? argv[2] : "/tmp/celori_audio_test.wav"); uint64_t h = 14695981039346656037ull; for (int16_t s : mx) h = fnv(h, &s, 2); CHECK(h == m.stats().mix_hash, "mix hash equals FNV-1a over the WAV samples"); std::printf("AUDIO_CAPTURE_HASH %016llx\n", (unsigned long long)m.stats().mix_hash);
-      auto b = slurp(argc > 2 ? argv[2] : "/tmp/celori_audio_test.wav"); CHECK(b.size() == 44 + 9600 * 4 && std::memcmp(b.data(), "RIFF", 4) == 0 && std::memcmp(b.data() + 8, "WAVEfmt ", 8) == 0, "WAV header and size"); }
+    { Mixer m(wav); m.play(); m.advance(9600); auto mx = m.mix(argc > 2 ? std::string(argv[2]) : tmp_wav()); uint64_t h = 14695981039346656037ull; for (int16_t s : mx) h = fnv(h, &s, 2); CHECK(h == m.stats().mix_hash, "mix hash equals FNV-1a over the WAV samples"); std::printf("AUDIO_CAPTURE_HASH %016llx\n", (unsigned long long)m.stats().mix_hash);
+      auto b = slurp(argc > 2 ? std::string(argv[2]) : tmp_wav()); CHECK(b.size() == 44 + 9600 * 4 && std::memcmp(b.data(), "RIFF", 4) == 0 && std::memcmp(b.data() + 8, "WAVEfmt ", 8) == 0, "WAV header and size"); }
     // voice pool: more voices than slots steals the oldest and still counts
     { Mixer m(wav); for (int i = 0; i < 40; i++) m.play(); auto s = m.stats(); CHECK(s.voices_started == 40 && s.voices_stolen == 8, "40 voices on a pool of 32: started %llu stolen %llu", (unsigned long long)s.voices_started, (unsigned long long)s.voices_stolen);
       m.advance(48000); CHECK(m.stats().voices_active == 0, "finished voices are released"); }
