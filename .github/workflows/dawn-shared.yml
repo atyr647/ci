@@ -1,0 +1,95 @@
+name: dawn-shared
+# Build Dawn ONCE per target as a shared library from the nightly's commit, then prove the pieces on real hardware/OS:
+#   (1) the C source linked directly against it, (2) ONE Cosmopolitan APE that dlopens it. Same output hash everywhere = same Dawn code path.
+on: workflow_dispatch
+env:
+  DAWN_TAG: v20261027.184652
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+jobs:
+  ape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build wgt.com against Dawn's own webgpu.h (one file: x86-64 + arm64, no WebGPU linked in)
+        run: |
+          curl -fsSL https://github.com/google/dawn/releases/download/$DAWN_TAG/dawn-headers-$DAWN_SHA.tar.gz | tar xz
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo && cp cosmo/bin/ape-x86_64.elf ~/.ape-1.10 && chmod +x ~/.ape-1.10
+          cd ci-webgpu-test && python3 gen-shim.py wgt.c && ../cosmo/bin/cosmocc -O2 -DDLSHIM -I../dawn-headers/include -o wgt.com wgt.c && ls -la wgt.com
+      - uses: actions/upload-artifact@v4
+        with: { name: wgt-dawn-com, path: ci-webgpu-test/wgt.com }
+  build-and-test:
+    needs: ape
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    msvc: '',      lib: libwebgpu_dawn.so }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, msvc: '',      lib: libwebgpu_dawn.so }
+          - { label: win-x64,     os: windows-latest,   msvc: x64,     lib: webgpu_dawn.dll }
+          - { label: win-arm64,   os: windows-11-arm,   msvc: arm64,   lib: webgpu_dawn.dll }
+          - { label: mac-arm64,   os: macos-latest,     msvc: '',      lib: libwebgpu_dawn.dylib }
+          - { label: mac-x64,     os: macos-15-intel,   msvc: '',      lib: libwebgpu_dawn.dylib }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 240
+    defaults: { run: { shell: bash } }
+    env: { RUNNER_LABEL: '${{ matrix.label }}', GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: wgt-dawn-com, path: ci-webgpu-test }
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.msvc != ''
+        with: { arch: '${{ matrix.msvc }}' }
+      - name: Dependencies
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update && sudo apt-get install -y libx11-dev libx11-xcb-dev libxcb1-dev mesa-vulkan-drivers libvulkan1 ninja-build; fi
+          command -v ninja >/dev/null || { brew install ninja || pip install --break-system-packages ninja || pip install ninja; }
+      - name: Fetch Dawn at the nightly's commit
+        run: |
+          mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
+          git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
+      - name: Configure
+        run: |
+          cmake -S dawn -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DDAWN_FETCH_DEPENDENCIES=ON \
+            -DDAWN_BUILD_MONOLITHIC_LIBRARY=SHARED -DDAWN_ENABLE_INSTALL=ON \
+            -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
+            -DDAWN_USE_GLFW=OFF -DDAWN_USE_WAYLAND=OFF
+      - name: Build
+        run: cmake --build out
+      - name: Install and show what shipped
+        run: |
+          cmake --install out --prefix "$PWD/dist"
+          find dist \( -name '*webgpu_dawn*' -o -name 'DawnConfig.cmake' \) -exec ls -la {} \;
+          echo "SHARED_LIB=$(find "$PWD/dist" -name '${{ matrix.lib }}' | head -1)" >> "$GITHUB_ENV"
+      - uses: actions/upload-artifact@v4
+        with: { name: 'dawn-shared-${{ matrix.label }}', path: dist, retention-days: 7 }
+      - name: Windows needs Microsoft's DXC next to Dawn
+        if: runner.os == 'Windows'
+        run: |
+          gh release download -R microsoft/DirectXShaderCompiler -p 'dxc_*.zip' -D dxc && (cd dxc && cmake -E tar xf dxc_*.zip)
+          d=$(dirname "$(find dxc -ipath "*${{ matrix.msvc }}*" -name dxcompiler.dll | head -1)"); ls "$d"
+          cp "$d/dxcompiler.dll" "$d/dxil.dll" "$(dirname "$SHARED_LIB")/"
+          echo "DLL_DIR=$(dirname "$SHARED_LIB")" >> "$GITHUB_ENV"
+      - name: "C source linked directly against the shared Dawn"
+        continue-on-error: true
+        run: |
+          cfg=$(find dist -name DawnConfig.cmake | head -1)
+          cmake -S ci-webgpu-test -B tb -DBACKEND=dawn -DDawn_DIR="$PWD/$(dirname "$cfg")" -DCMAKE_BUILD_TYPE=Release
+          cmake --build tb --config Release
+          exe=$(find tb -name 'wgt' -o -name 'wgt.exe' | head -1)
+          [ "$RUNNER_OS" = Windows ] && cp "$DLL_DIR"/*.dll "$(dirname "$exe")/"
+          export LD_LIBRARY_PATH="$(dirname "$SHARED_LIB")" DYLD_LIBRARY_PATH="$(dirname "$SHARED_LIB")"
+          cd ci-webgpu-test && ./run-one.sh "dawn shared, direct link" "$OLDPWD/$exe"
+      - name: "ONE Cosmopolitan APE -> dlopen the shared Dawn"
+        continue-on-error: true
+        run: |
+          cd ci-webgpu-test
+          if [ "$RUNNER_OS" = Windows ]; then
+            cp wgt.com wgt-cosmo.exe
+            [ "${{ matrix.label }}" = win-arm64 ] && echo "NOTE: the APE is x86-64 code under emulation on Windows ARM; an arm64 DLL cannot be loaded into it (expected FAIL)"
+            ./run-one.sh "dawn shared, cosmo APE dlopen" ./wgt-cosmo.exe "$(cygpath -w "$SHARED_LIB")"
+          else
+            chmod +x wgt.com; export LD_LIBRARY_PATH="$(dirname "$SHARED_LIB")" DYLD_LIBRARY_PATH="$(dirname "$SHARED_LIB")"
+            ./run-one.sh "dawn shared, cosmo APE dlopen" sh ./wgt.com "$SHARED_LIB"
+          fi
