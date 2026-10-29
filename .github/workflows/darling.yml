@@ -1,0 +1,48 @@
+name: darling
+# Can Darling (Mach-O on Linux) be installed on a hosted runner, and does it run (a) a plain Mach-O (b) a Cosmopolitan APE?
+on:
+  workflow_dispatch:
+  push:
+    paths: ['darling-test/**', '.github/workflows/darling.yml']
+jobs:
+  release-deb:
+    runs-on: ubuntu-22.04
+    timeout-minutes: 60
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: What is available upstream
+        run: |
+          gh release list -R darlinghq/darling -L 5 || true
+          gh release view -R darlinghq/darling --json tagName,assets -q '.tagName, (.assets[].name)' || true
+      - name: Test binaries (Mach-O via zig, plus a Cosmopolitan APE)
+        run: |
+          curl -fsSL -o zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz && tar xJf zig.tar.xz
+          Z=$PWD/zig-linux-x86_64-0.13.0/zig
+          $Z cc -target x86_64-macos -O1 -o hello-macho darling-test/hello.c
+          file hello-macho
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cp cosmo/bin/ape-x86_64.elf ~/.ape-1.10; chmod +x ~/.ape-1.10
+          cosmo/bin/cosmocc -O1 -o hello-ape.com darling-test/hello.c
+      - name: Install Darling from the upstream release .deb (this builds the darling-mach kernel module)
+        continue-on-error: true
+        id: inst
+        run: |
+          set -x
+          mkdir debs && gh release download -R darlinghq/darling -p '*.deb' -D debs || ls debs
+          ls -la debs
+          sudo apt-get update
+          sudo apt-get install -y dkms linux-headers-$(uname -r) || sudo apt-get install -y dkms
+          sudo apt-get install -y ./debs/*.deb
+          dkms status || true
+          sudo modprobe darling-mach || sudo dmesg | tail -20
+          lsmod | grep -i darling || true
+      - name: Run under Darling
+        continue-on-error: true
+        run: |
+          which darling && darling --version || true
+          darling shell uname -a
+          darling shell sw_vers || true
+          darling "$PWD/hello-macho"
+          echo "--- APE under Darling"
+          darling shell "$PWD/hello-ape.com" || true
