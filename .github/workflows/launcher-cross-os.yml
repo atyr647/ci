@@ -1,0 +1,71 @@
+name: launcher-cross-os
+# Tests the single-file launcher on real Windows, macOS (Apple Silicon + Intel) and Linux runners.
+# No secrets: every run generates a throwaway Ed25519 key, signs its own manifest and builds the launcher with that public key.
+on:
+  workflow_dispatch:
+  push:
+    branches: [main]
+    paths: ['ci-launcher-test/**', '.github/workflows/launcher-cross-os.yml']
+permissions:
+  contents: read
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    defaults:
+      run:
+        working-directory: ci-launcher-test
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fetch the real wasmtime CLI for each platform (the "host") and sign a manifest
+        run: |
+          set -euo pipefail
+          V=v50.0.0; B=https://github.com/bytecodealliance/wasmtime/releases/download/$V
+          mkdir -p dl pack/host pack/game
+          for spec in "linux x86_64" "macos x86_64" "macos aarch64"; do
+            set -- $spec; os=$1; arch=$2
+            curl -fsSL -o dl/w.tar.xz "$B/wasmtime-$V-$arch-$os.tar.xz"
+            rm -rf dl/x; mkdir dl/x; tar -xJf dl/w.tar.xz -C dl/x --strip-components=1
+            mkdir -p "pack/host/$os-$arch"; cp dl/x/wasmtime "pack/host/$os-$arch/wasmtime"
+          done
+          curl -fsSL -o dl/w.zip "$B/wasmtime-$V-x86_64-windows.zip"; rm -rf dl/x; mkdir dl/x; unzip -q dl/w.zip -d dl/x
+          mkdir -p pack/host/windows-x86_64; cp dl/x/*/wasmtime.exe pack/host/windows-x86_64/wasmtime.exe
+          cp hello.wasm pack/game/hello.wasm
+          node make-pack.js pack
+      - name: Build the single-file launcher (Cosmopolitan APE)
+        run: |
+          set -euo pipefail
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
+          mkdir -p "$HOME/cosmo"; unzip -q cosmocc.zip -d "$HOME/cosmo"
+          cp "$HOME/cosmo/bin/ape-x86_64.elf" "$HOME/.ape-1.10"; chmod +x "$HOME/.ape-1.10"
+          "$HOME/cosmo/bin/cosmocc" -O2 -DPUBKEY_HEX="\"$(cat pubkey.txt)\"" -o launcher.com sample-launcher.c monocypher.c monocypher-ed25519.c
+          ls -la launcher.com; rm -rf dl cosmocc.zip
+      - uses: actions/upload-artifact@v4
+        with:
+          name: kit
+          path: ci-launcher-test
+          retention-days: 3
+  test:
+    needs: prepare
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { os: ubuntu-latest, label: linux-x86_64 }
+          - { os: windows-latest, label: windows-x86_64 }
+          - { os: macos-latest, label: macos-apple-silicon }
+          - { os: macos-15-intel, label: macos-intel }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 25
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          name: kit
+          path: kit
+      - name: Run the launcher tests
+        shell: bash
+        working-directory: kit
+        run: |
+          chmod +x run-tests.sh launcher.com || true
+          ./run-tests.sh "${{ matrix.label }}" 2>&1 | tee ../out.txt
+          { echo "### ${{ matrix.label }}"; grep -E "^RESULT|^== (machine|SUMMARY)" ../out.txt; } >> "$GITHUB_STEP_SUMMARY" || true
