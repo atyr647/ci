@@ -1,0 +1,8 @@
+wt-host.com
+wt-host.com.dbg
+*.elf
+*.exe
+*.o
+all.h
+wt_shim.h
+dl_shim.h
