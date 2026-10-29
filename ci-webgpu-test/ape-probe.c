@@ -6,6 +6,9 @@
 #include <sys/wait.h>
 int main(int argc, char **argv) {
   if (argc > 1 && !strcmp(argv[1], "exit7")) return 7;
+  if (argc > 1 && !strcmp(argv[1], "exitfn7")) exit(7);
+  if (argc > 1 && !strcmp(argv[1], "_exit7")) _exit(7);
+  if (argc > 1 && !strcmp(argv[1], "quickexit7")) quick_exit(7);
   printf("PATH=%.300s\n", getenv("PATH") ? getenv("PATH") : "(null)");
   printf("system(curl --version) -> %d\n", system("curl --version"));
   FILE *p = popen("curl --version", "r"); char b[200] = ""; if (p) { fgets(b, sizeof b, p); printf("popen -> %d first line: %s", pclose(p), b); } else puts("popen failed");
