@@ -6,8 +6,9 @@ on:
     paths: ['darling-test/**', '.github/workflows/darling.yml']
 jobs:
   release-deb:
-    runs-on: ubuntu-22.04
+    runs-on: ubuntu-24.04
     timeout-minutes: 60
+    permissions: { contents: write }
     env: { GH_TOKEN: '${{ github.token }}' }
     steps:
       - uses: actions/checkout@v4
@@ -25,7 +26,12 @@ jobs:
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
           cp cosmo/bin/ape-x86_64.elf ~/.ape-1.10; chmod +x ~/.ape-1.10
           cosmo/bin/cosmocc -O1 -o hello-ape.com darling-test/hello.c
-      - name: Install Darling from the upstream release .deb (this builds the darling-mach kernel module)
+      - name: Mirror the upstream Darling debs into a release of this repo
+        continue-on-error: true
+        run: |
+          mkdir -p mirror && gh release download -R darlinghq/darling -p 'debs_*.zip' -D mirror
+          gh release create darling-debs-20260609 mirror/debs_*.zip --repo ${{ github.repository }} --title "Darling debs (upstream v0.1.20260608, mirrored)" --notes "Mirror of darlinghq/darling release assets, for use inside sandboxes that cannot reach upstream." || gh release upload darling-debs-20260609 mirror/debs_*.zip --repo ${{ github.repository }} --clobber
+      - name: Install Darling from the upstream release .deb
         continue-on-error: true
         id: inst
         run: |
