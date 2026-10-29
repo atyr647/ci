@@ -17,6 +17,7 @@ jobs:
           gh release view -R darlinghq/darling --json tagName,assets -q '.tagName, (.assets[].name)' || true
       - name: Test binaries (Mach-O via zig, plus a Cosmopolitan APE)
         run: |
+          sudo sh -c 'echo -1 > /proc/sys/fs/binfmt_misc/status' || true   # the runner registers dotnet for MZ files, which hijacks APEs
           curl -fsSL -o zig.tar.xz https://ziglang.org/download/0.13.0/zig-linux-x86_64-0.13.0.tar.xz && tar xJf zig.tar.xz
           Z=$PWD/zig-linux-x86_64-0.13.0/zig
           $Z cc -target x86_64-macos -O1 -o hello-macho darling-test/hello.c
@@ -29,11 +30,11 @@ jobs:
         id: inst
         run: |
           set -x
-          mkdir debs && gh release download -R darlinghq/darling -p '*.deb' -D debs || ls debs
+          mkdir debs && gh release download -R darlinghq/darling -p 'debs_*.zip' -D debs && (cd debs && unzip -o -q debs_*.zip)
           ls -la debs
           sudo apt-get update
           sudo apt-get install -y dkms linux-headers-$(uname -r) || sudo apt-get install -y dkms
-          sudo apt-get install -y ./debs/*.deb
+          find debs -name '*.deb' | head -30; sudo apt-get install -y $(find debs -name '*.deb' | sort | sed 's|^|./|')
           dkms status || true
           sudo modprobe darling-mach || sudo dmesg | tail -20
           lsmod | grep -i darling || true

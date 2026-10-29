@@ -1,0 +1,49 @@
+name: ape-probe
+# Why did the Cosmopolitan launcher lose exit codes / not find curl on real Windows?
+on: workflow_dispatch
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo && cp cosmo/bin/ape-x86_64.elf ~/.ape-1.10 && chmod +x ~/.ape-1.10
+          cosmo/bin/cosmocc -O1 -o ape-probe.com ci-webgpu-test/ape-probe.c
+      - uses: actions/upload-artifact@v4
+        with: { name: probe, path: ape-probe.com }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix: { os: [windows-latest, windows-11-arm, macos-latest] }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: probe, path: . }
+      - name: Exit status through each launcher
+        shell: bash
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then cp ape-probe.com ape-probe.exe; P=./ape-probe.exe; else chmod +x ape-probe.com; P="sh ./ape-probe.com"; fi
+          $P exit7; echo "bash: exit=$? (want 7)"
+          if [ "$RUNNER_OS" = Windows ]; then
+            cmd.exe //c "ape-probe.exe exit7"; echo "cmd: exit=$? (want 7)"
+            powershell -NoProfile -Command "& .\\ape-probe.exe exit7; Write-Host \"powershell: exit=\$LASTEXITCODE (want 7)\""
+          fi
+      - name: Spawning curl
+        shell: bash
+        continue-on-error: true
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then P=./ape-probe.exe; else P="sh ./ape-probe.com"; fi
+          $P
+      - name: Same, from cmd.exe (normal Windows PATH)
+        if: runner.os == 'Windows'
+        shell: cmd
+        continue-on-error: true
+        run: ape-probe.exe
+      - name: Which DLLs can a process load
+        if: runner.os == 'Windows'
+        shell: bash
+        continue-on-error: true
+        run: gcc -O1 -o probe.exe ci-webgpu-test/probe.c && ./probe.exe
