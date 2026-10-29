@@ -1,0 +1,51 @@
+name: dawn-cosmo
+# Feasibility: does Dawn (Vulkan backend only, no windowing) compile with the Cosmopolitan compiler, so one APE could carry Dawn?
+on:
+  workflow_dispatch:
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build mesa-vulkan-drivers libvulkan1
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
+          mkdir -p $HOME/cosmo && unzip -q cosmocc.zip -d $HOME/cosmo
+          cp $HOME/cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+          ls $HOME/cosmo/bin | grep -E "^x86_64-unknown-cosmo-(cc|c\+\+|ar|objcopy)$"
+      - name: Fetch Dawn source at the nightly's commit
+        run: |
+          mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
+          git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
+          grep -n "dlopen\|dlsym\|dlclose\|dlerror" src/dawn/common/DynamicLib.cpp | head -20
+      - name: Patch DynamicLib for cosmo_dlopen
+        run: |
+          cd dawn
+          python3 - <<'PY'
+          p='src/dawn/common/DynamicLib.cpp'
+          s=open(p).read()
+          hdr='#ifdef __COSMOPOLITAN__\n#include <dlfcn.h>\n#define dlopen cosmo_dlopen\n#define dlsym(h,n) cosmo_dltramp(cosmo_dlsym(h,n))\n#define dlclose cosmo_dlclose\n#define dlerror cosmo_dlerror\n#endif\n'
+          i=s.index('#include')
+          open(p,'w').write(s[:i]+hdr+s[i:])
+          PY
+      - name: Configure
+        run: |
+          cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release \
+            -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF \
+            -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF \
+            -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
+            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF 2>&1 | tee configure.log | tail -40
+      - name: Build libwebgpu_dawn (keep going to collect all errors)
+        continue-on-error: true
+        run: |
+          cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
+          tail -60 build.log
+          grep -c "FAILED:" build.log || true
+          find build -name 'libwebgpu_dawn.a' -exec ls -la {} \;
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: logs, path: "*.log" }
