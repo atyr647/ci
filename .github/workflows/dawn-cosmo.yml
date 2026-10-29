@@ -32,6 +32,18 @@ jobs:
           i=s.index('#include')
           open(p,'w').write(s[:i]+hdr+s[i:])
           PY
+          # Cosmopolitan has no dladdr/Dl_info/RTLD_NOLOAD: the module is the executable itself, and "already loaded" falls back to a normal open
+          python3 - <<'PY'
+          p='src/dawn/common/SystemUtils.cpp'
+          s=open(p).read()
+          a=s.index('    static int placeholderSymbol = 0;'); b=s.index('    return absolutePath.data();\n}', a)+len('    return absolutePath.data();\n')
+          s=s[:a]+'#ifdef __COSMOPOLITAN__\n    return GetExecutablePath();\n#else\n'+s[a:b]+'#endif\n'+s[b:]
+          open(p,'w').write(s)
+          p='src/dawn/common/DynamicLib.cpp'
+          s=open(p).read()
+          s=s.replace('#ifdef __COSMOPOLITAN__\n#include <dlfcn.h>','#ifdef __COSMOPOLITAN__\n#include <dlfcn.h>\n#ifndef RTLD_NOLOAD\n#define RTLD_NOLOAD 0\n#endif',1)
+          open(p,'w').write(s)
+          PY
           # Cosmopolitan defines neither __linux__ nor _WIN32: treat it as Linux for Dawn's platform detection (same kind of fix Celori needed for WASI)
           sed -i 's/^#elif defined(__linux__)$/#elif defined(__linux__) || defined(__COSMOPOLITAN__)/' src/utils/platform.h
           grep -n 'COSMOPOLITAN' src/utils/platform.h
