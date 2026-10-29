@@ -59,3 +59,11 @@ Only 5 errors in 2 files remained: `dladdr`, `Dl_info`, `RTLD_NOLOAD` (SystemUti
 
 ## Adapters seen (software/virtual: no real GPU in any result)
 Windows: D3D12 "Microsoft Basic Render Driver" (WARP). macOS: Metal "Apple Paravirtual device". Linux: Vulkan llvmpipe.
+
+## Dawn under Cosmopolitan: Vulkan works on x86-64 (local run), D3D12 and Metal feasibility probes
+- Vulkan backend: Dawn `106704a` + `dawn-cosmo/patch.py` compiles with 0 failed objects; the linked test runs a compute dispatch on Vulkan (lavapipe) with the expected hash, 3/3 runs (x86-64, local). The two-architecture CI run is separate.
+- A GCC miscompile cost most of the debugging: with the Microsoft/System V call wrapper inlined, the 10th Vulkan call in a sequence got a clobbered first argument and the loader aborted ("Invalid physicalDevice"); marking the wrapper `noinline` fixes it. Root cause not established.
+- Sizes: Dawn d3d12 backend 83 files / 19.5k lines + shared d3d code 31 files / 3.6k lines; metal backend 54 files / 12.7k lines, 24 of them Objective-C++ (.mm).
+- D3D12 probe (measured): mingw-w64 Windows headers cannot be used (Windows `long` is 32-bit, Linux/Cosmopolitan `long` is 64-bit: `size_t`/`DWORD` clash); faking `_WIN32` globally switches libc++ to Windows-only code paths (about 16,700 errors). Microsoft's DirectX-Headers (Linux-safe types) DO compile under cosmocc with the right layout (`HRESULT`/`ULONG`/`DWORD` = 4 bytes, `D3D12_RESOURCE_DESC` = 56 bytes). DXGI headers are not part of that package.
+- Metal probe (measured on a toy file only): cosmocc 4.0.2 bundles clang 19.1 (`cosmocc -mclang`); it compiles Objective-C++ with `-fobjc-arc -fblocks -fobjc-runtime=macosx` to x86-64 and aarch64 objects. The objects reference `objc_msgSend`, `OBJC_CLASS_$_*`, `_NSConcreteStackBlock` and keep selector/class references in ELF sections `objc_selrefs`/`objc_classrefs`, which dyld normally fixes up; nothing does that inside an APE, so a start-up registration shim would be needed. Not tried on real Dawn Metal sources (needs the Apple SDK headers, i.e. a macOS runner).
+- Correction: an earlier statement that cosmocc has no Objective-C front end was wrong.
