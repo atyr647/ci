@@ -48,7 +48,14 @@ int main(int argc, char **argv) {
   FILE *f = fopen(argv[2], "rb"); if (!f) { perror("guest"); return 1; } fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
   uint8_t *wasm = malloc(len); if (fread(wasm, 1, len, f) != (size_t)len) return 1; fclose(f);
 
-  STAGE("engine_new"); wasm_engine_t *engine = wasm_engine_new(); STAGE("store_new"); wasmtime_store_t *store = wasmtime_store_new(engine, NULL, NULL); wasmtime_context_t *cx = wasmtime_store_context(store);
+  STAGE("engine_new");
+  /* WT_OPT: comma list of nomach (no Mach exception port thread on macOS), nosignals (explicit bounds checks instead of signal-based traps), pulley (interpreter instead of JIT) */
+  const char *opt = getenv("WT_OPT"); if (!opt) opt = ""; fprintf(stderr, "stage: WT_OPT=%s\n", opt);
+  wasm_config_t *cfg = wasm_config_new(); wasmtime_error_t *cerr = NULL;
+  if (strstr(opt, "nomach")) wasmtime_config_macos_use_mach_ports_set(cfg, false);
+  if (strstr(opt, "nosignals")) wasmtime_config_signals_based_traps_set(cfg, false);
+  if (strstr(opt, "pulley")) { cerr = wasmtime_config_target_set(cfg, "pulley64"); if (cerr) die(cerr, NULL, "target pulley64"); }
+  wasm_engine_t *engine = wasm_engine_new_with_config(cfg); STAGE("store_new"); wasmtime_store_t *store = wasmtime_store_new(engine, NULL, NULL); wasmtime_context_t *cx = wasmtime_store_context(store);
   wasi_config_t *wc = wasi_config_new(); wasi_config_inherit_stdout(wc); wasi_config_inherit_stderr(wc);
   wasmtime_error_t *err = wasmtime_context_set_wasi(cx, wc); if (err) die(err, NULL, "set_wasi");
   STAGE("linker"); wasmtime_linker_t *linker = wasmtime_linker_new(engine);
