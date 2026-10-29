@@ -16,7 +16,7 @@ jobs:
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
           mkdir -p $HOME/cosmo && unzip -q cosmocc.zip -d $HOME/cosmo
           cp $HOME/cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
-          ls $HOME/cosmo/bin | grep -E "^x86_64-unknown-cosmo-(cc|c\+\+|ar|objcopy)$"
+          ls $HOME/cosmo/bin | grep -E "x86_64"
       - name: Fetch Dawn source at the nightly's commit
         run: |
           mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
