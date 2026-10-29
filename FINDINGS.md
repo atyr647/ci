@@ -67,3 +67,14 @@ Windows: D3D12 "Microsoft Basic Render Driver" (WARP). macOS: Metal "Apple Parav
 - D3D12 probe (measured): mingw-w64 Windows headers cannot be used (Windows `long` is 32-bit, Linux/Cosmopolitan `long` is 64-bit: `size_t`/`DWORD` clash); faking `_WIN32` globally switches libc++ to Windows-only code paths (about 16,700 errors). Microsoft's DirectX-Headers (Linux-safe types) DO compile under cosmocc with the right layout (`HRESULT`/`ULONG`/`DWORD` = 4 bytes, `D3D12_RESOURCE_DESC` = 56 bytes). DXGI headers are not part of that package.
 - Metal probe (measured on a toy file only): cosmocc 4.0.2 bundles clang 19.1 (`cosmocc -mclang`); it compiles Objective-C++ with `-fobjc-arc -fblocks -fobjc-runtime=macosx` to x86-64 and aarch64 objects. The objects reference `objc_msgSend`, `OBJC_CLASS_$_*`, `_NSConcreteStackBlock` and keep selector/class references in ELF sections `objc_selrefs`/`objc_classrefs`, which dyld normally fixes up; nothing does that inside an APE, so a start-up registration shim would be needed. Not tried on real Dawn Metal sources (needs the Apple SDK headers, i.e. a macOS runner).
 - Correction: an earlier statement that cosmocc has no Objective-C front end was wrong.
+
+## Dawn compiled by Cosmopolitan, ONE fat file (workflow `dawn-cosmo`, run on commit 04fc895: x86-64 and aarch64 builds linked with apelink)
+Both architectures of Dawn (Vulkan backend) build in CI (x86_64 about 26 min, aarch64 about 19 min, 0 failed objects) and link into one executable. Test = the same WebGPU compute dispatch, expected hash 9761e8ede774e783:
+| target | result |
+|---|---|
+| linux x64 (lavapipe) | PASS |
+| linux arm64 (lavapipe) | PASS |
+| macOS arm64 | FAIL: `vkCreateInstance` returned VK_ERROR_INCOMPATIBLE_DRIVER. Not specific to Cosmopolitan: native Dawn gave the same ("No supported adapters"). MoltenVK only appears when the instance enables VK_KHR_portability_enumeration with the matching create flag. Patched in `patch.py` (item 10), not yet re-run. |
+| windows x64 | FAIL: uncaught SIGSEGV (no backtrace). Crash reports now compiled into the test. |
+| windows arm64 (x86-64 emulated) | FAIL: the loader reported Vulkan 1.0 ("at least 1.1.0" required) |
+Native (non-Cosmopolitan) Dawn on the same Windows runner: D3D12 PASS, but its Vulkan backend with Mesa lavapipe also found no adapter, so the Windows Vulkan driver setup itself is not yet right (separate from the SIGSEGV).

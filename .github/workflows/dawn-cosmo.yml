@@ -126,6 +126,8 @@ jobs:
           mkdir mesa && cd mesa && gh release download -R pal1000/mesa-dist-win -p '*release-msvc.7z' --clobber && 7z x -y *.7z -ox >/dev/null && cd ..
           icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); echo "ICD: $icd"
           echo "VK_ICD_FILENAMES=$(cygpath -w "$icd")" >> "$GITHUB_ENV"
+          echo "VK_LOADER_DEBUG=error,warn,driver" >> "$GITHUB_ENV"
+          cat "$icd"; ls "$(dirname "$icd")"
           ls -la /c/Windows/System32/vulkan-1.dll || true
       - name: Vulkan loader + MoltenVK (macOS)
         if: runner.os == 'macOS'
