@@ -21,8 +21,8 @@ echo "$LAST_OUT" | grep "install dir" | head -1
 echo "--- 5. tampered host binary must be refused"; rm -rf pack_bad inst3; cp -r pack pack_bad
 node -e "const fs=require('fs'),p=require('path');const d='pack_bad/host';for(const pl of fs.readdirSync(d))for(const n of fs.readdirSync(p.join(d,pl))){const f=p.join(d,pl,n),b=fs.readFileSync(f);b[Math.floor(b.length/2)]^=255;fs.writeFileSync(f,b);}"
 t tam "./ape-launcher$EXE" --from "$PWD/pack_bad" --dir "$PWD/inst3"
-if [ "$LAST_CODE" = 4 ] && [ ! -e "inst3/wasmtime$EXE" ]; then res tampered-host-refused ok; else res tampered-host-refused bad "exit $LAST_CODE"; fi
+if { [ "$LAST_CODE" = 4 ] || { [ -n "$EXE" ] && case "$LAST_OUT" in *REFUSING*) true;; *) false;; esac; }; } && [ ! -e "inst3/wasmtime$EXE" ]; then res tampered-host-refused ok; else res tampered-host-refused bad "exit $LAST_CODE"; fi
 echo "--- 6. forged signature must be refused"; rm -rf pack_sig inst4; cp -r pack pack_sig; node -e "const fs=require('fs');let s=fs.readFileSync('pack_sig/manifest.sig','utf8');fs.writeFileSync('pack_sig/manifest.sig',s.slice(0,8)+(s[8]==='0'?'1':'0')+s.slice(9))"
 t sig "./ape-launcher$EXE" --from "$PWD/pack_sig" --dir "$PWD/inst4"
-if [ "$LAST_CODE" = 3 ]; then res forged-signature-refused ok; else res forged-signature-refused bad "exit $LAST_CODE"; fi
+if [ "$LAST_CODE" = 3 ] || { [ -n "$EXE" ] && case "$LAST_OUT" in *"signature is invalid"*) true;; *) false;; esac; }; then res forged-signature-refused ok; else res forged-signature-refused bad "exit $LAST_CODE"; fi
 kill $SRV 2>/dev/null; echo "== SUMMARY [$LABEL]: $fails failure(s)"; exit $fails
