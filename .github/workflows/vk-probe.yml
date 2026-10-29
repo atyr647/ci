@@ -64,3 +64,25 @@ jobs:
           echo "=== again with the loader's debug output (OutputDebugString raises an SEH exception that Cosmopolitan reports as SIGSEGV)"
           export VK_LOADER_DEBUG=error,warn,driver
           ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -12
+      - name: Windows - the same question asked by a NATIVE process (Python ctypes), with the loader's full debug output
+        if: runner.os == 'Windows' && matrix.label == 'win-x64'
+        continue-on-error: true
+        run: |
+          icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); icdw=$(cygpath -w "$icd"); dir=$(dirname "$icdw")
+          ls "$(cygpath -u "$dir")" | head -20
+          cat > nativeprobe.py <<'PY'
+          import ctypes, sys
+          vk = ctypes.WinDLL("vulkan-1.dll")
+          ver = ctypes.c_uint32(0); vk.vkEnumerateInstanceVersion(ctypes.byref(ver))
+          print("loader instance version", ver.value >> 22, (ver.value >> 12) & 0x3ff)
+          info = (ctypes.c_uint64 * 8)(); info[0] = 1
+          inst = ctypes.c_void_p(0)
+          r = vk.vkCreateInstance(ctypes.byref(info), None, ctypes.byref(inst))
+          print("vkCreateInstance ->", ctypes.c_int32(r).value)
+          if r == 0:
+              n = ctypes.c_uint32(0); vk.vkEnumeratePhysicalDevices(inst, ctypes.byref(n), None); print("physical devices:", n.value)
+          PY
+          sed -i 's/^          //' nativeprobe.py
+          export VK_LOADER_DEBUG=driver,error,warn
+          echo "=== VK_ICD_FILENAMES"; VK_ICD_FILENAMES="$icdw" python nativeprobe.py 2>&1 | head -40
+          echo "=== VK_DRIVER_FILES"; VK_DRIVER_FILES="$icdw" python nativeprobe.py 2>&1 | head -40
