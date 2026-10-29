@@ -21,3 +21,15 @@ Dawn on Windows: the "Windows Error 87" came from Dawn's own `DynamicLib::Open` 
 Wine: Cosmopolitan APE hangs on Wine 11 because Cosmopolitan picks `0x6ffffffe0000` for a small shared mapping and Wine 11 has its ntdll image at `0x6fffffc00000-0x6ffffffedfff`; the mapping fails with STATUS_CONFLICTING_ADDRESSES and Cosmopolitan re-picks the same address forever (735k identical iterations traced). (Plain Windows executables run fine under Wine 11 once `XDG_RUNTIME_DIR` is set.)
 
 Darling: the 2026 release has no kernel module (userspace `darlingserver`); installs and runs on ubuntu-24.04 runners and in the Claude sandbox (user namespaces + overlayfs available). Runs x86-64 Mach-O (zig-built launcher reports `macos-x86_64`). The APE loader printed nothing under Darling (not investigated). No Metal, so no GPU tests.
+
+## Dawn built from source as a shared library (workflow `dawn-shared`, commit 106704a9)
+| target | built | C source linked directly | ONE Cosmopolitan file `dlopen`ing Dawn's own library |
+|---|---|---|---|
+| macOS arm64 | yes (~18 min) | PASS Metal | PASS Metal |
+| macOS x64 | yes (~29 min) | PASS Metal | FAIL: Cosmopolitan has no dlopen on x86-64 macOS |
+| Windows arm64 | yes (~33 min) | (not read) | FAIL as expected: arm64 DLL cannot load into the x86-64 emulated file; needs an x64 build of Dawn for this route |
+| Windows x64 | still building at 17:21 UTC | | |
+| Linux x64 / arm64 | CMake 4 refused to configure (`dawncpp_module` module scan); fixed with `-DCMAKE_CXX_SCAN_FOR_MODULES=OFF`, re-run queued | | |
+
+## Dawn compiled with the Cosmopolitan compiler (workflow `dawn-cosmo`, Vulkan backend only, no windowing)
+Configure now succeeds (needed the APE loader as `CMAKE_CROSSCOMPILING_EMULATOR`). The compile reached step 755 of 1009 (Tint and SPIR-V-Tools largely built) and stopped on 2 failed targets; the failure text was not printed (workflow fixed to print it, re-run queued).
