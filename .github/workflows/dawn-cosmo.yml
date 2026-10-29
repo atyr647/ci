@@ -125,8 +125,9 @@ jobs:
         run: |
           mkdir mesa && cd mesa && gh release download -R pal1000/mesa-dist-win -p '*release-msvc.7z' --clobber && 7z x -y *.7z -ox >/dev/null && cd ..
           icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); echo "ICD: $icd"
-          echo "VK_ICD_FILENAMES=$(cygpath -w "$icd")" >> "$GITHUB_ENV"
-          cat "$icd"; ls "$(dirname "$icd")"
+          icdw=$(cygpath -w "$(pwd)/$icd"); echo "ICD: $icdw"
+          # the loader ignores VK_ICD_FILENAMES / VK_DRIVER_FILES when the process is elevated (GitHub's Windows runners are), so register the driver
+          powershell -NoProfile -Command "New-Item -Path 'HKLM:\\SOFTWARE\\Khronos\\Vulkan\\Drivers' -Force | Out-Null; New-ItemProperty -Path 'HKLM:\\SOFTWARE\\Khronos\\Vulkan\\Drivers' -Name '$icdw' -Value 0 -PropertyType DWord -Force | Out-Null"
           ls -la /c/Windows/System32/vulkan-1.dll || true
       - name: Vulkan loader + MoltenVK (macOS)
         if: runner.os == 'macOS'

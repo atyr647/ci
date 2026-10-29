@@ -21,28 +21,14 @@ typedef VkResult (*enum_t)(VkInstance, uint32_t *, VkPhysicalDevice *);
 typedef void (MS *props_ms_t)(VkPhysicalDevice, VkPhysicalDeviceProperties *);
 typedef void (*props_t)(VkPhysicalDevice, VkPhysicalDeviceProperties *);
 
-/* Windows: Cosmopolitan turns every unknown SEH exception into a fatal SIGSEGV, including the harmless DBG_PRINTEXCEPTION_C that OutputDebugString raises
- * (the Vulkan loader, Dawn and many DLLs call it). A first-in-line vectored handler that swallows the debugger-message exceptions prevents that. */
-typedef struct { uint32_t ExceptionCode; } ExRec;
-typedef struct { ExRec *rec; void *ctx; } ExPtrs;
-static MS long swallow_debug_exceptions(ExPtrs *ep) {
-  uint32_t c = ep->rec->ExceptionCode;
-  if (c == 0x40010006u || c == 0x4001000Au || c == 0x406D1388u) return -1;   /* EXCEPTION_CONTINUE_EXECUTION */
-  return 0;                                                                   /* EXCEPTION_CONTINUE_SEARCH */
-}
-typedef void *(MS *addveh_t)(unsigned long first, void *handler);
-static void install_exception_shield(void) {
-  void *k32 = cosmo_dlopen("kernel32.dll", RTLD_NOW);
-  addveh_t f = k32 ? (addveh_t)cosmo_dlsym(k32, "AddVectoredExceptionHandler") : 0;
-  printf("exception shield: %s\n", f && f(1, (void *)swallow_debug_exceptions) ? "installed" : "NOT installed"); fflush(stdout);
-}
+#include "win_shield.h"
 
 #define STEP(...) do { printf("step: " __VA_ARGS__); printf("\n"); fflush(stdout); } while (0)
 
 int main(void) {
   ShowCrashReports();
   int win = IsWindows();
-  if (win && !getenv("NO_SHIELD")) install_exception_shield();
+  if (win && !getenv("NO_SHIELD")) { printf("exception shield: %s\n", win_shield_install() ? "installed" : "NOT installed"); fflush(stdout); }
   const char *name = win ? "vulkan-1.dll" : IsXnu() ? "libvulkan.dylib" : "libvulkan.so.1";
   STEP("windows=%d, dlopen(%s)", win, name);
   void *h = cosmo_dlopen(name, RTLD_NOW);

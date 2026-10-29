@@ -13,6 +13,7 @@
 #include <webgpu/webgpu.h>
 #if defined(__COSMOPOLITAN__)
 #include <cosmo.h>
+#include "win_shield.h"
 #endif
 #ifdef DLSHIM
 #include <cosmo.h>
@@ -54,6 +55,7 @@ static void pump(void){ int n=0; while(!done && n++<20000){ wgpuInstanceProcessE
 int main(int argc,char**argv){
 #if defined(__COSMOPOLITAN__)
   ShowCrashReports();   /* a crash prints a backtrace with symbol names instead of just "uncaught SIGSEGV" */
+  if (!getenv("NO_SHIELD")) win_shield_install();   /* Windows: keep OutputDebugString from killing the process */
 #endif
 #ifdef DLSHIM
   { void*h=cosmo_dlopen(argc>1?argv[1]:"libwgpu_native.so",RTLD_NOW); if(!h){printf("dlopen failed: %s\n",cosmo_dlerror());return 8;} {int r=dl_load(h); if(r) return r;} }

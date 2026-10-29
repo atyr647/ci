@@ -53,29 +53,19 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = Windows ]; then cp vkprobe.com vkprobe.exe; run=./vkprobe.exe; else chmod +x vkprobe.com; run="sh ./vkprobe.com"; fi
           ( $run 2>&1 | cat ) | tr '\r' '\n' | head -60
-      - name: Windows - add Mesa lavapipe as the software driver, run again
+      - name: "Windows - install Mesa lavapipe as THE software driver (registry entry, because the loader ignores VK_ICD_FILENAMES for elevated processes)"
         if: runner.os == 'Windows'
-        continue-on-error: true
         run: |
           mkdir mesa && cd mesa && gh release download -R pal1000/mesa-dist-win -p '*release-msvc.7z' --clobber && 7z x -y *.7z -ox >/dev/null && cd ..
-          icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); echo "ICD: $icd"; cat "$icd"
-          export VK_ICD_FILENAMES="$(cygpath -w "$icd")"
-          ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -50
-          echo "=== again with the loader's debug output (OutputDebugString raises an SEH exception that Cosmopolitan reports as SIGSEGV)"
-          export VK_LOADER_DEBUG=error,warn,driver
-          echo "--- without the shield"; ( NO_SHIELD=1 ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -8
-          echo "--- with the shield"; ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -30
-      - name: Windows - the same question asked by a NATIVE process (Python ctypes), with the loader's full debug output
+          icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); icdw=$(cygpath -w "$(pwd)/$icd"); echo "ICD: $icdw"
+          powershell -NoProfile -Command "New-Item -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Force | Out-Null; New-ItemProperty -Path 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers' -Name '$icdw' -Value 0 -PropertyType DWord -Force | Out-Null; (Get-Item 'HKLM:\SOFTWARE\Khronos\Vulkan\Drivers').Property"
+      - name: "Windows - does a native process (Python ctypes) see the driver"
         if: runner.os == 'Windows' && matrix.label == 'win-x64'
         continue-on-error: true
         run: |
-          icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); icdw=$(cygpath -w "$icd"); dir=$(dirname "$icdw")
-          ls "$(cygpath -u "$dir")" | head -20
           cat > nativeprobe.py <<'PY'
-          import ctypes, sys
+          import ctypes
           vk = ctypes.WinDLL("vulkan-1.dll")
-          ver = ctypes.c_uint32(0); vk.vkEnumerateInstanceVersion(ctypes.byref(ver))
-          print("loader instance version", ver.value >> 22, (ver.value >> 12) & 0x3ff)
           info = (ctypes.c_uint64 * 8)(); info[0] = 1
           inst = ctypes.c_void_p(0)
           r = vk.vkCreateInstance(ctypes.byref(info), None, ctypes.byref(inst))
@@ -84,6 +74,13 @@ jobs:
               n = ctypes.c_uint32(0); vk.vkEnumeratePhysicalDevices(inst, ctypes.byref(n), None); print("physical devices:", n.value)
           PY
           sed -i 's/^          //' nativeprobe.py
-          export VK_LOADER_DEBUG=driver,error,warn
-          echo "=== VK_ICD_FILENAMES"; VK_ICD_FILENAMES="$icdw" python nativeprobe.py 2>&1 | head -40
-          echo "=== VK_DRIVER_FILES"; VK_DRIVER_FILES="$icdw" python nativeprobe.py 2>&1 | head -40
+          python nativeprobe.py 2>&1 | head
+      - name: Windows - the Cosmopolitan probe, three ways
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        run: |
+          cp vkprobe.com vkprobe.exe
+          echo "=== plain"; ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
+          export VK_LOADER_DEBUG=error,warn,driver
+          echo "=== loader debug on, shield OFF"; ( NO_SHIELD=1 ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -8 || true
+          echo "=== loader debug on, shield ON"; ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -40 || true
