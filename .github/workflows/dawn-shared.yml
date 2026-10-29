@@ -10,7 +10,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: Build wgt.com against Dawn's own webgpu.h (one file: x86-64 + arm64, no WebGPU linked in)
+      - name: "Build wgt.com against Dawn's own webgpu.h (one file, x86-64 and arm64, no WebGPU linked in)"
         run: |
           curl -fsSL https://github.com/google/dawn/releases/download/$DAWN_TAG/dawn-headers-$DAWN_SHA.tar.gz | tar xz
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
