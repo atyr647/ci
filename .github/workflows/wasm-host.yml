@@ -1,0 +1,54 @@
+name: wasm-host
+# One Cosmopolitan file dlopens the OFFICIAL prebuilt Wasmtime C-API library and runs a wasm guest whose imports (the celori:wire/transport shape) are served by C.
+on:
+  workflow_dispatch:
+  push:
+    paths: ['ci-wasm-host/**', '.github/workflows/wasm-host.yml']
+env: { WT: v50.0.0 }
+jobs:
+  ape:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux-c-api.tar.xz | tar xJ
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/4.0.2/cosmocc-4.0.2.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo && cp cosmo/bin/ape-x86_64.elf ~/.ape-1.10 && chmod +x ~/.ape-1.10
+          cd ci-wasm-host
+          cat ../wasmtime-$WT-x86_64-linux-c-api/include/wasmtime.h ../wasmtime-$WT-x86_64-linux-c-api/include/wasmtime/*.h ../wasmtime-$WT-x86_64-linux-c-api/include/wasm.h ../wasmtime-$WT-x86_64-linux-c-api/include/wasi.h > all.h
+          python3 gen-shim.py wt-host.c all.h
+          ../cosmo/bin/cosmocc -O2 -I../wasmtime-$WT-x86_64-linux-c-api/include -o wt-host.com wt-host.c && ls -la wt-host.com
+      - uses: actions/upload-artifact@v4
+        with: { name: wt-host, path: "ci-wasm-host/wt-host.com\nci-wasm-host/guest.wasm" }
+  test:
+    needs: ape
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    cap: x86_64-linux,    lib: libwasmtime.so }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, cap: aarch64-linux,   lib: libwasmtime.so }
+          - { label: win-x64,     os: windows-latest,   cap: x86_64-windows,  lib: wasmtime.dll }
+          - { label: win-arm64,   os: windows-11-arm,   cap: x86_64-windows,  lib: wasmtime.dll }   # APE runs as x86-64 under emulation, so it needs the x64 DLL
+          - { label: mac-arm64,   os: macos-latest,     cap: aarch64-macos,   lib: libwasmtime.dylib }
+          - { label: mac-x64,     os: macos-15-intel,   cap: x86_64-macos,    lib: libwasmtime.dylib }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env: { RUNNER_LABEL: '${{ matrix.label }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: wt-host, path: ape }
+      - name: Fetch the official Wasmtime C-API build
+        run: |
+          ext=tar.xz; [ "${{ matrix.os }}" = windows-latest ] || [ "${{ matrix.os }}" = windows-11-arm ] && ext=zip
+          curl -fsSL -o wt.$ext https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.cap }}-c-api.$ext
+          mkdir wt && if [ $ext = zip ]; then cmake -E chdir wt cmake -E tar xf ../wt.zip; else tar xJf wt.tar.xz -C wt; fi
+          find wt -name '${{ matrix.lib }}' | head -2
+      - name: "APE -> dlopen Wasmtime -> wasm guest -> imports served by C"
+        continue-on-error: true
+        run: |
+          lib=$(find "$PWD/wt" -name '${{ matrix.lib }}' | head -1)
+          cd ape
+          if [ "$RUNNER_OS" = Windows ]; then cp wt-host.com wt-host.exe; ../ci-wasm-host/run-one.sh "ape + libwasmtime" ./wt-host.exe "$(cygpath -w "$lib")" guest.wasm
+          else chmod +x wt-host.com; ../ci-wasm-host/run-one.sh "ape + libwasmtime" sh ./wt-host.com "$lib" guest.wasm; fi
