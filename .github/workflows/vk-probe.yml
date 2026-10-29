@@ -59,5 +59,8 @@ jobs:
         run: |
           mkdir mesa && cd mesa && gh release download -R pal1000/mesa-dist-win -p '*release-msvc.7z' --clobber && 7z x -y *.7z -ox >/dev/null && cd ..
           icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); echo "ICD: $icd"; cat "$icd"
-          export VK_ICD_FILENAMES="$(cygpath -w "$icd")" VK_LOADER_DEBUG=error,warn,driver
-          ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -80
+          export VK_ICD_FILENAMES="$(cygpath -w "$icd")"
+          ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -50
+          echo "=== again with the loader's debug output (OutputDebugString raises an SEH exception that Cosmopolitan reports as SIGSEGV)"
+          export VK_LOADER_DEBUG=error,warn,driver
+          ( ./vkprobe.exe 2>&1 | cat ) | tr '\r' '\n' | head -12
