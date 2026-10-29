@@ -8,6 +8,7 @@
 #include <stdint.h>
 #include <webgpu/webgpu.h>
 #ifdef DLSHIM
+#include <cosmo.h>
 #include "dl_shim.h"
 #endif
 #ifdef _WIN32
@@ -23,9 +24,24 @@ static WGPUAdapter adapter; static WGPUDevice device;
 static volatile int done; static int status;
 
 static void sv(WGPUStringView s){ if(s.data) fwrite(s.data,1,s.length==WGPU_STRLEN?strlen(s.data):s.length,stdout); }
-static void on_adapter(WGPURequestAdapterStatus s, WGPUAdapter a, WGPUStringView m, void*u1, void*u2){ status=s; adapter=a; if(s!=1){printf("adapter err: ");sv(m);puts("");} done=1; }
-static void on_device(WGPURequestDeviceStatus s, WGPUDevice d, WGPUStringView m, void*u1, void*u2){ status=s; device=d; if(s!=1){printf("device err: ");sv(m);puts("");} done=1; }
-static void on_map(WGPUMapAsyncStatus s, WGPUStringView m, void*u1, void*u2){ status=s; done=1; }
+#define ADAPTER_ARGS WGPURequestAdapterStatus s, WGPUAdapter a, WGPUStringView m, void*u1, void*u2
+#define DEVICE_ARGS  WGPURequestDeviceStatus s, WGPUDevice d, WGPUStringView m, void*u1, void*u2
+#define MAP_ARGS     WGPUMapAsyncStatus s, WGPUStringView m, void*u1, void*u2
+static void adapter_body(ADAPTER_ARGS){ status=s; adapter=a; if(s!=1){printf("adapter err: ");sv(m);puts("");} done=1; }
+static void device_body(DEVICE_ARGS){ status=s; device=d; if(s!=1){printf("device err: ");sv(m);puts("");} done=1; }
+static void map_body(MAP_ARGS){ status=s; done=1; }
+static void on_adapter(ADAPTER_ARGS){ adapter_body(s,a,m,u1,u2); }
+static void on_device(DEVICE_ARGS){ device_body(s,d,m,u1,u2); }
+static void on_map(MAP_ARGS){ map_body(s,m,u1,u2); }
+#ifdef DLSHIM
+/* one APE serves every OS: a Windows DLL calls back with the Microsoft ABI, everything else with System V */
+static __attribute__((ms_abi)) void on_adapter_ms(ADAPTER_ARGS){ adapter_body(s,a,m,u1,u2); }
+static __attribute__((ms_abi)) void on_device_ms(DEVICE_ARGS){ device_body(s,d,m,u1,u2); }
+static __attribute__((ms_abi)) void on_map_ms(MAP_ARGS){ map_body(s,m,u1,u2); }
+#define CB(f,T) (IsWindows() ? (T)(void*)f##_ms : (f))
+#else
+#define CB(f,T) (f)
+#endif
 static void pump(void){ int n=0; while(!done && n++<20000){ wgpuInstanceProcessEvents(inst); SLEEP1(); } }
 
 int main(int argc,char**argv){
@@ -37,14 +53,14 @@ int main(int argc,char**argv){
   if(!inst){puts("FAIL create instance");return 1;}
   WGPURequestAdapterOptions ao = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
   WGPURequestAdapterCallbackInfo ci = WGPU_REQUEST_ADAPTER_CALLBACK_INFO_INIT;
-  ci.mode = WGPUCallbackMode_AllowProcessEvents; ci.callback = on_adapter;
+  ci.mode = WGPUCallbackMode_AllowProcessEvents; ci.callback = CB(on_adapter,WGPURequestAdapterCallback);
   done=0; wgpuInstanceRequestAdapter(inst,&ao,ci); pump();
   if(!adapter){puts("FAIL no adapter");return 2;}
   WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT; wgpuAdapterGetInfo(adapter,&info);
   printf("adapter: backend=%d type=%d vendor=",info.backendType,info.adapterType); sv(info.vendor); printf(" device="); sv(info.device); printf(" desc="); sv(info.description); puts("");
   WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT;
   WGPURequestDeviceCallbackInfo dci = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
-  dci.mode = WGPUCallbackMode_AllowProcessEvents; dci.callback = on_device;
+  dci.mode = WGPUCallbackMode_AllowProcessEvents; dci.callback = CB(on_device,WGPURequestDeviceCallback);
   done=0; wgpuAdapterRequestDevice(adapter,&dd,dci); pump();
   if(!device){puts("FAIL no device");return 3;}
   WGPUQueue q = wgpuDeviceGetQueue(device);
@@ -73,7 +89,7 @@ int main(int argc,char**argv){
   wgpuCommandEncoderCopyBufferToBuffer(e,sb,0,rb,0,bytes);
   WGPUCommandBufferDescriptor cbd = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT;
   WGPUCommandBuffer cb = wgpuCommandEncoderFinish(e,&cbd); wgpuQueueSubmit(q,1,&cb);
-  WGPUBufferMapCallbackInfo mi = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT; mi.mode=WGPUCallbackMode_AllowProcessEvents; mi.callback=on_map;
+  WGPUBufferMapCallbackInfo mi = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT; mi.mode=WGPUCallbackMode_AllowProcessEvents; mi.callback=CB(on_map,WGPUBufferMapCallback);
   done=0; wgpuBufferMapAsync(rb,WGPUMapMode_Read,0,bytes,mi); pump();
   if(status!=WGPUMapAsyncStatus_Success){puts("FAIL map");return 4;}
   const uint32_t *r = wgpuBufferGetConstMappedRange(rb,0,bytes);

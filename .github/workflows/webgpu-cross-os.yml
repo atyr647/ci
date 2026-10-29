@@ -43,7 +43,7 @@ jobs:
           - { label: mac-x64,     os: macos-15-intel,   wgpu: macos-x86_64,           dawn: macos-15-intel, lib: libwgpu_native.dylib, cmake_arch: '' }
     runs-on: ${{ matrix.os }}
     defaults: { run: { shell: bash, working-directory: ci-webgpu-test } }
-    env: { RUNNER_LABEL: '${{ matrix.label }}' }
+    env: { RUNNER_LABEL: '${{ matrix.label }}', GH_TOKEN: '${{ github.token }}' }
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -72,11 +72,25 @@ jobs:
           cmake -S . -B build-dawn ${{ matrix.cmake_arch }} -DBACKEND=dawn -DDawn_DIR="$PWD/$(dirname "$cfg")" -DCMAKE_BUILD_TYPE=Release
           cmake --build build-dawn --config Release
           exe=$(find build-dawn -name 'wgt' -o -name 'wgt.exe' | head -1)
+          if [ "$RUNNER_OS" = Windows ]; then
+            echo "--- DLL probe"; gcc -O1 -o probe.exe probe.c && ./probe.exe || true
+            echo "--- Dawn on Windows loads dxcompiler.dll/dxil.dll; fetch Microsoft's redistributable DXC and put it next to the exe"
+            gh release download -R microsoft/DirectXShaderCompiler -p 'dxc_*.zip' -D dxc
+            (cd dxc && cmake -E tar xf dxc_*.zip)
+            d=$(dirname "$(find dxc -ipath '*x64*' -name dxcompiler.dll | head -1)")
+            cp "$d/dxcompiler.dll" "$d/dxil.dll" "$(dirname "$exe")/"
+          fi
           ./run-one.sh "dawn static" "$exe"
+      - name: "win-arm64: the APE is x86-64 code under emulation, so give it the x64 DLL"
+        if: matrix.label == 'win-arm64'
+        run: |
+          curl -fsSL -o wgpu-x64.zip https://github.com/gfx-rs/wgpu-native/releases/download/$WGPU_TAG/wgpu-windows-x86_64-msvc-release.zip
+          cmake -E make_directory wgpu-x64 && cmake -E chdir wgpu-x64 cmake -E tar xf ../wgpu-x64.zip
       - name: "Cosmopolitan APE -> dlopen native wgpu-native"
         continue-on-error: true
         run: |
           lib="$PWD/wgpu/lib/${{ matrix.lib }}"
+          [ "${{ matrix.label }}" = win-arm64 ] && lib="$PWD/wgpu-x64/lib/${{ matrix.lib }}"
           if [ "$RUNNER_OS" = Windows ]; then cp wgt.com wgt-cosmo.exe; ./run-one.sh "cosmo APE dlopen" ./wgt-cosmo.exe "$(cygpath -w "$lib")"
           else chmod +x wgt.com; ./run-one.sh "cosmo APE dlopen" sh ./wgt.com "$lib"; fi
       - name: "Cosmopolitan APE on Linux without any C compiler (dlopen helper pre-seeded)"
