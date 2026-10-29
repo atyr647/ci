@@ -55,6 +55,8 @@ jobs:
     defaults: { run: { shell: bash } }
     steps:
       - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
       - uses: actions/download-artifact@v4
         with: { name: guests, path: guests }
       - uses: actions/download-artifact@v4
@@ -67,21 +69,29 @@ jobs:
           inc=$(dirname "$(find off -name wasmtime.h | head -1)"); echo "INC=$PWD/$inc" >> "$GITHUB_ENV"
           cp wtp3/linker.h "$inc/wasmtime/component/linker.h"
       - name: "plain-C host on the OFFICIAL library: p2 passes, p3 has no linker call"
+        continue-on-error: true
         run: |
+          ls -la guests
           lib=$(find off -not -path '*/min/*' \( -name libwasmtime.so -o -name libwasmtime.dylib -o -name wasmtime.dll.lib \) | head -1)
           echo "official lib: $lib"
           if [ "$RUNNER_OS" = Windows ]; then
             cl.exe //nologo //I"$(cygpath -w "$INC")" ci-wasm-host/p3-host.c "$(cygpath -w "$lib")" ws2_32.lib advapi32.lib userenv.lib ntdll.lib bcrypt.lib //Fe:official.exe || true
-          else cc -O1 -I"$INC" ci-wasm-host/p3-host.c ci-wasm-host/p3stub.c "$lib" -o official -Wl,-rpath,"$(dirname "$PWD/$lib")" || true; fi
-        continue-on-error: true
+            cp "$(dirname "$lib")/wasmtime.dll" . 2>/dev/null || true
+            run=./official.exe
+          else cc -O1 -I"$INC" ci-wasm-host/p3-host.c ci-wasm-host/p3stub.c "$lib" -o official -Wl,-rpath,"$(dirname "$PWD/$lib")" || true; run=./official; fi
+          set +e
+          for t in p2 p3; do echo "--- official $t"; $run guests/hello-wasi$t.wasm $t 2>&1; echo "exit code: $?"; done
       - name: "plain-C host on the PATCHED library: p3 component"
         run: |
           if [ "$RUNNER_OS" = Windows ]; then
             cl.exe //nologo //I"$(cygpath -w "$INC")" ci-wasm-host/p3-host.c wtp3/wasmtime.dll.lib ws2_32.lib advapi32.lib userenv.lib ntdll.lib bcrypt.lib //Fe:patched.exe
             cp wtp3/wasmtime.dll .
-            ./patched.exe guests/hello-wasip2.wasm p2; ./patched.exe guests/hello-wasip3.wasm p3
+            run=./patched.exe
           else
             lib=$(ls wtp3/libwasmtime.so wtp3/libwasmtime.dylib 2>/dev/null | head -1)
             cc -O1 -I"$INC" ci-wasm-host/p3-host.c "$lib" -o patched -Wl,-rpath,"$PWD/wtp3"
-            ./patched guests/hello-wasip2.wasm p2; ./patched guests/hello-wasip3.wasm p3
+            run=./patched
           fi
+          set +e; rc=0
+          for t in p2 p3; do echo "--- patched $t"; $run guests/hello-wasi$t.wasm $t 2>&1; r=$?; echo "exit code: $r"; [ $r -eq 0 ] || rc=1; done
+          exit $rc
