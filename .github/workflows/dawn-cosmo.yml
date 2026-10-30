@@ -53,8 +53,10 @@ jobs:
           DAWN_COSMO_D3D12: ${{ matrix.arch == 'x86_64' && '1' || '0' }}
           DAWN_COSMO_METAL: ${{ matrix.arch == 'aarch64' && '1' || '0' }}
         run: |
-          git -C dawn checkout -q -- . 
+          python3 dawn-cosmo/keep_mtimes.py save dawn $RUNNER_TEMP/mtimes.json
+          git -C dawn checkout -q -- .
           python3 dawn-cosmo/patch.py dawn
+          python3 dawn-cosmo/keep_mtimes.py restore dawn $RUNNER_TEMP/mtimes.json
       - name: Configure
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
