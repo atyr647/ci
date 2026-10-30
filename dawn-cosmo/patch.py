@@ -283,8 +283,17 @@ if os.environ.get('DAWN_COSMO_D3D12') == '1':
     def instance_cpp(s):
         s = s.replace('#if defined(DAWN_ENABLE_BACKEND_D3D11) || defined(DAWN_ENABLE_BACKEND_D3D12)\n#include "dawn/native/D3DBackend.h"\n#include "src/dawn/native/d3d/BackendD3D.h"\n#include "src/dawn/native/d3d/D3DError.h"\n#endif  // defined(DAWN_ENABLE_BACKEND_D3D11) || defined(DAWN_ENABLE_BACKEND_D3D12)\n',
                       '// COSMO-PATCH-D3D12: the D3D headers need the Windows-flavoured parse; this file only needs the Connect() declaration below\n', 1)
-        s = s.replace('            Register(d3d12::Connect(this), wgpu::BackendType::D3D12);\n', '            if (DawnCosmoIsWindows()) {\n                Register(d3d12::Connect(this), wgpu::BackendType::D3D12);\n            }\n', 1)
-        s = s.replace('namespace dawn::native {\n', 'extern "C" bool DawnCosmoIsWindows();  // COSMO-PATCH-D3D12 (defined in vulkan/VulkanFunctions.cpp)\n\nnamespace dawn::native {\n', 1)
+        s = s.replace('            Register(d3d12::Connect(this), wgpu::BackendType::D3D12);\n', '''            if (DawnCosmoIsWindows()) {
+                BackendConnection* d3d12Connection = d3d12::Connect(this);
+                if (getenv("DAWN_COSMO_TRACE")) {
+                    fprintf(stderr, "[dawn-cosmo] d3d12::Connect -> %p\\n", static_cast<void*>(d3d12Connection));
+                }
+                Register(d3d12Connection, wgpu::BackendType::D3D12);
+            } else if (getenv("DAWN_COSMO_TRACE")) {
+                fprintf(stderr, "[dawn-cosmo] D3D12 skipped: not running on Windows\\n");
+            }
+''', 1)
+        s = s.replace('namespace dawn::native {\n', '#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows();  // COSMO-PATCH-D3D12 (defined in vulkan/VulkanFunctions.cpp)\n\nnamespace dawn::native {\n', 1)
         return s
     edit2('src/dawn/native/Instance.cpp', 'COSMO-PATCH-D3D12', instance_cpp)
 

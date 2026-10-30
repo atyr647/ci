@@ -175,12 +175,12 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = Windows ]; then cp gpu-probe.com gpu-probe.exe; ( ./gpu-probe.exe --bench 2>&1 | cat ) | tr '\r' '\n' | grep -v Warning
           else chmod +x gpu-probe.com; sh ./gpu-probe.com --bench 2>&1 | grep -v Warning; fi
-      - name: "Windows only - the D3D12 backend compiled into the file (WARP, Windows' software adapter: the runner has no GPU)"
+      - name: "Windows only - the D3D12 backend compiled into the file (WARP, Windows' software adapter, shows up as a CPU adapter: the runner has no GPU)"
         if: runner.os == 'Windows'
         continue-on-error: true
         run: |
           cp wgt-dawn.com wgt-dawn.exe
-          export WGT_BACKEND=d3d12 WGT_FALLBACK=1
+          export WGT_BACKEND=d3d12 DAWN_COSMO_TRACE=1
           cp gpu-probe.com gpu-probe.exe
           echo "--- every adapter Dawn finds when D3D12 is requested (all log lines, nothing filtered)"
           ( ./gpu-probe.exe 2>&1 | cat ) | tr '\r' '\n' | grep -v "^  ok\|policy selftest" | head -30
