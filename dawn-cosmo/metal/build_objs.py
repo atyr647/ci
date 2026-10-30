@@ -14,7 +14,7 @@ r = subprocess.run([sys.executable, os.path.join(here, '../../backend-spikes/met
 r = subprocess.run([sys.executable, os.path.join(here, '../patch_metal.py'), os.path.join(inputs, 'dawn')], capture_output=True, text=True); print(r.stdout, r.stderr[-500:])
 assert r.returncode == 0
 shutil.copy(os.path.join(here, 'MetalCosmo.mm'), os.path.join(inputs, 'dawn/src/dawn/native/metal/MetalCosmo.mm'))
-srcs = sorted(glob.glob(os.path.join(inputs, 'dawn/src/dawn/native/metal/*.mm')))
+srcs = sorted(glob.glob(os.path.join(inputs, 'dawn/src/dawn/native/metal/*.mm'))) + [os.path.join(inputs, 'dawn/src/dawn/common', f) for f in ('IOSurfaceUtils.cpp', 'SystemUtils_mac.mm')]   # the last two are Dawn's Apple-only helpers the Metal backend calls
 print(len(srcs), 'translation units')
 cxx = os.path.join(bindir, 'cosmoc++')
 objdir = os.path.join(out, 'fat'); os.makedirs(objdir, exist_ok=True)

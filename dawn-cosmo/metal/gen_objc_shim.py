@@ -26,7 +26,8 @@ lines += ['/* @available(macOS x, *) compiles to a call into the compiler runtim
 lines += ['/* class references: the symbol is a C string holding the class name; the classrefs section is rewritten with the real class objects at start-up */']
 for c in classes:
     n = c[len('OBJC_CLASS_$_'):]
-    lines.append(f'__attribute__((section("dawn_cosmo_classstubs"), aligned(16))) char dawn_cosmo_cls_{n}[32] __asm__("{c}") = "{n}";')
+    size = ((len(n) + 1 + 15) // 16) * 16
+    lines.append(f'__attribute__((section("dawn_cosmo_classstubs"), aligned(16))) char dawn_cosmo_cls_{n}[{size}] __asm__("{c}") = "{n}";')
 for b in blocks:
     lines.append(f'__attribute__((aligned(16))) char dawn_cosmo_block_{b.strip("_")}[64] __asm__("{b}");   /* only its address is stored as a block\'s isa; Block_copy does not look at it */')
 for c in cfclass:
@@ -44,21 +45,21 @@ lines += ['', 'extern char __start_objc_selrefs[] __attribute__((weak)), __stop_
 lines += ['static void *find(void **libs, int n, const char *name) { for (int i = 0; i < n; i++) if (libs[i]) { void *p = cosmo_dlsym(libs[i], name); if (p) return p; } return 0; }', '']
 lines += ['/* returns true when Metal could be reached; false anywhere but macOS or when a framework or symbol is missing */', 'bool dawn_cosmo_objc_init(void) {', '  static int state;', '  if (state) return state > 0;', '  state = -1;', '  if (!IsXnu()) return false;']
 lines += ['  const char *paths[] = {"/usr/lib/libobjc.A.dylib", "/usr/lib/libSystem.B.dylib", "/System/Library/Frameworks/Foundation.framework/Foundation", "/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation",',
-          '    "/System/Library/Frameworks/Metal.framework/Metal", "/System/Library/Frameworks/IOSurface.framework/IOSurface", "/System/Library/Frameworks/QuartzCore.framework/QuartzCore", "/System/Library/Frameworks/IOKit.framework/IOKit"};',
-          '  void *libs[8]; for (int i = 0; i < 8; i++) libs[i] = cosmo_dlopen(paths[i], RTLD_NOW | RTLD_GLOBAL);',
+          '    "/System/Library/Frameworks/Metal.framework/Metal", "/System/Library/Frameworks/IOSurface.framework/IOSurface", "/System/Library/Frameworks/QuartzCore.framework/QuartzCore", "/System/Library/Frameworks/IOKit.framework/IOKit", "/System/Library/Frameworks/CoreVideo.framework/CoreVideo"};',
+          '  void *libs[9]; for (int i = 0; i < 9; i++) libs[i] = cosmo_dlopen(paths[i], RTLD_NOW | RTLD_GLOBAL);',
           '  if (!libs[0] || !libs[2] || !libs[4]) return false;   /* libobjc, Foundation, Metal are required */',
-          '  void *(*getClass)(const char *) = (void *(*)(const char *))find(libs, 8, "objc_getClass");',
-          '  void *(*registerName)(const char *) = (void *(*)(const char *))find(libs, 8, "sel_registerName");',
+          '  void *(*getClass)(const char *) = (void *(*)(const char *))find(libs, 9, "objc_getClass");',
+          '  void *(*registerName)(const char *) = (void *(*)(const char *))find(libs, 9, "sel_registerName");',
           '  if (!getClass || !registerName) return false;',
-          '  { int (*sysctlbyname_)(const char *, void *, size_t *, void *, size_t) = (int (*)(const char *, void *, size_t *, void *, size_t))find(libs, 8, "sysctlbyname");',
+          '  { int (*sysctlbyname_)(const char *, void *, size_t *, void *, size_t) = (int (*)(const char *, void *, size_t *, void *, size_t))find(libs, 9, "sysctlbyname");',
           '    char v[32] = ""; size_t n = sizeof v;',
           '    if (!sysctlbyname_ || sysctlbyname_("kern.osproductversion", v, &n, 0, 0) != 0) return false;',
           '    int part = 0; for (const char *c = v; *c && part < 3; c++) { if (*c == \'.\') part++; else if (*c >= \'0\' && *c <= \'9\') dawn_cosmo_os[part] = dawn_cosmo_os[part] * 10 + (*c - \'0\'); } }']
 for f in funcs:
-    lines.append(f'  if (!(dawn_cosmo_fn_{f} = find(libs, 8, "{f}"))) return false;')
+    lines.append(f'  if (!(dawn_cosmo_fn_{f} = find(libs, 9, "{f}"))) return false;')
 for d in datas:
     sz = data[d]
-    lines.append(f'  {{ void *p = find(libs, 8, "{d}"); if (!p) return false; memcpy(&dawn_cosmo_data_{d}, p, {sz}); }}')
+    lines.append(f'  {{ void *p = find(libs, 9, "{d}"); if (!p) return false; memcpy(&dawn_cosmo_data_{d}, p, {sz}); }}')
 lines += ['  /* selector references: slot holds a pointer to the selector name -> the registered selector */',
           '  for (uint64_t *s = (uint64_t *)__start_objc_selrefs; s < (uint64_t *)__stop_objc_selrefs; s++) *s = (uint64_t)registerName((const char *)*s);',
           '  /* class references: slot holds the address of one of the name stubs above -> the real class object */',
@@ -67,7 +68,7 @@ lines += ['  /* selector references: slot holds a pointer to the selector name -
           '  }']
 if cfclass:
     lines += ['  /* constant strings: {isa, flags, data, length} 32 bytes each; isa -> the real CFString class */',
-              '  { void *cls = find(libs, 8, "__CFConstantStringClassReference"); if (!cls) return false;',
+              '  { void *cls = find(libs, 9, "__CFConstantStringClassReference"); if (!cls) return false;',
               '    for (uint64_t *s = (uint64_t *)__start_cfstring; s < (uint64_t *)__stop_cfstring; s += 4) s[0] = (uint64_t)cls; }']
 lines += ['  state = 1;', '  return true;', '}']
 open(os.path.join(out, 'objc_shim.c'), 'w').write('\n'.join(lines) + '\n')

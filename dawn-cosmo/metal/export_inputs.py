@@ -34,6 +34,8 @@ with tarfile.open(os.path.join(out, 'inputs.tar.gz'), 'w:gz') as tf:
                 p = os.path.join(dp, f)
                 if f.endswith(HDR) and p not in seen:
                     seen.add(p); tf.add(p, arcname=os.path.relpath(p, root)); n += 1
+    for f in ('IOSurfaceUtils.cpp', 'SystemUtils_mac.mm'):
+        p = os.path.join(root, 'dawn/src/dawn/common', f); tf.add(p, arcname=os.path.relpath(p, root)); n += 1
     mdir = os.path.join(root, 'dawn/src/dawn/native/metal')
     for f in sorted(os.listdir(mdir)):
         p = os.path.join(mdir, f)
