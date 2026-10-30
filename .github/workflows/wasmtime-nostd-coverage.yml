@@ -1,0 +1,155 @@
+name: wasmtime-nostd-coverage
+# How much of the modern WebAssembly / Wasmtime surface works in the static, no_std, runtime-only Wasmtime inside one Cosmopolitan file:
+# GC, exceptions, tail calls, memory64, multi-memory, relaxed SIMD, threads (what the loader says), async (fibers), component model, WASI preview 1 (in C) and preview 2 (in no_std Rust), stackless coroutines.
+# Separate from the `wasmtime-nostd` workflow; uses the sources in wasmtime-nostd/coverage/.
+on:
+  workflow_dispatch:
+env:
+  WT: v50.0.0
+  COSMOCC: 4.0.2
+  # cwasm switches that must match the Cargo features of the runtime that loads the file (the loader reports every mismatch)
+  FLAGS_BASE: "-W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n"
+  FLAGS_FULL: "-W concurrency-support=n -W threads=n -W shared-everything-threads=n -W component-model=n"
+jobs:
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+        set: [base, gc, async, full]
+        include:
+          - { set: base,  feats: "" }
+          - { set: gc,    feats: "gc" }
+          - { set: async, feats: "async" }
+          - { set: full,  feats: "gc,async" }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: { path: "~/.cargo/registry\n~/.cargo/git\nwasmtime-nostd/coverage/embedding/target", key: "wnc-cargo-${{ matrix.arch }}-${{ matrix.set }}-v1-${{ hashFiles('wasmtime-nostd/coverage/embedding/Cargo.toml') }}" }
+      - name: Rust nightly with rust-src
+        run: |
+          rustup toolchain install nightly --profile minimal -c rust-src
+          rustc +nightly --version
+      - name: Target description (linux-gnu with the operating system removed, thread pointer register reserved) - same as the wasmtime-nostd workflow
+        working-directory: wasmtime-nostd/coverage/embedding
+        run: |
+          rustc +nightly -Zunstable-options --print target-spec-json --target ${{ matrix.arch }}-unknown-linux-gnu > base.json
+          python3 - <<'PY'
+          import json, os
+          d = json.load(open('base.json'))
+          d['os'] = 'none'
+          for k in ('target-family', 'dynamic-linking', 'crt-static-respected', 'position-independent-executables', 'static-position-independent-executables', 'relro-level', 'supported-sanitizers',
+                    'crt-objects-fallback', 'pre-link-args', 'late-link-args', 'late-link-args-dynamic', 'late-link-args-static', 'link-env', 'supports-xray', 'has-rpath', 'default-dwarf-version'):
+              d.pop(k, None)
+          d['has-thread-local'] = False
+          d['panic-strategy'] = 'abort'
+          if d['arch'] == 'x86_64': d['disable-redzone'] = True
+          else:
+              fs = [x for x in d.get('features', '').split(',') if x and 'outline-atomics' not in x]; d['features'] = ','.join(fs + ['+reserve-x28'])
+          os.makedirs('spec-${{ matrix.arch }}', exist_ok=True); json.dump(d, open('spec-${{ matrix.arch }}/${{ matrix.arch }}-unknown-linux-gnu.json', 'w'), indent=1)
+          PY
+      - name: Build the runtime as a static library (feature set ${{ matrix.set }})
+        working-directory: wasmtime-nostd/coverage/embedding
+        run: |
+          cargo +nightly build --release --target $PWD/spec-${{ matrix.arch }}/${{ matrix.arch }}-unknown-linux-gnu.json -Zbuild-std=core,alloc -Zjson-target-spec --features "${{ matrix.feats }}" > build.log 2>&1 || { echo '=== FIRST ERRORS'; grep -n -m6 -A16 '^error' build.log; echo '=== LAST LINES'; tail -12 build.log; exit 1; }
+          tail -3 build.log
+          ls -la target/${{ matrix.arch }}-unknown-linux-gnu/release/*.a
+      - uses: actions/upload-artifact@v4
+        with: { name: 'lib-${{ matrix.set }}-${{ matrix.arch }}', path: 'wasmtime-nostd/coverage/embedding/target/${{ matrix.arch }}-unknown-linux-gnu/release/libwnc_embedding.a' }
+  guests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the guests and precompile them (official Wasmtime CLI, wasi-sdk 34, wasm-tools, binaryen)
+        env: { GH_TOKEN: "${{ github.token }}" }
+        run: bash wasmtime-nostd/coverage/tools/build-guests.sh
+      - uses: actions/upload-artifact@v4
+        with: { name: guests, path: "wasmtime-nostd/work/out\nwasmtime-nostd/work/wasm\nwasmtime-nostd/work/compile.log\nwasmtime-nostd/work/versions.txt" }
+  link:
+    needs: [rust, guests]
+    strategy:
+      fail-fast: false
+      matrix:
+        set: [base, gc, async, full]
+        include:
+          - { set: base,  defs: "" }
+          - { set: gc,    defs: "" }
+          - { set: async, defs: "" }
+          - { set: full,  defs: "" }
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: 'lib-${{ matrix.set }}-x86_64', path: lib/x86_64 }
+      - uses: actions/download-artifact@v4
+        with: { name: 'lib-${{ matrix.set }}-aarch64', path: lib/aarch64 }
+      - uses: actions/download-artifact@v4
+        with: { name: guests, path: guests }
+      - name: Link both architectures with Cosmopolitan, make ONE file
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+          B=$PWD/cosmo/bin; C=$PWD/wasmtime-nostd/coverage; mkdir -p parts
+          for A in x86_64 aarch64; do
+            $B/$A-unknown-cosmo-cc -O2 -I$PWD/wasmtime-nostd/platform -DWASMTIME_VIRTUAL_MEMORY -DWASMTIME_NATIVE_SIGNALS -c $C/platform/platform.c -o parts/platform.$A.o
+            $B/$A-unknown-cosmo-cc -O2 ${{ matrix.defs }} -c $C/host/host.c -o parts/host.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -c $C/host/wasi_p1.c -o parts/wasi.$A.o
+            $B/$A-unknown-cosmo-cc -O2 parts/host.$A.o parts/wasi.$A.o parts/platform.$A.o lib/$A/libwnc_embedding.a -Wl,--gc-sections -lm -pthread -o parts/wnc.$A.com 2>&1 | tail -30
+          done
+          ls -la parts lib/*
+          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wnc-${{ matrix.set }}.com parts/wnc.x86_64.com.dbg parts/wnc.aarch64.com.dbg
+          cp wnc-${{ matrix.set }}.com wnc-${{ matrix.set }}-bare.com
+          (cd guests/out && zip -q ../../wnc-${{ matrix.set }}.com *.cwasm)
+          { echo "### sizes, feature set ${{ matrix.set }}"; echo "| item | bytes |"; echo "|---|---|"
+            echo "| libwnc_embedding.a x86_64 | $(stat -c %s lib/x86_64/libwnc_embedding.a) |"; echo "| libwnc_embedding.a aarch64 | $(stat -c %s lib/aarch64/libwnc_embedding.a) |"
+            echo "| linked x86_64 half | $(stat -c %s parts/wnc.x86_64.com.dbg) (stripped file $(stat -c %s parts/wnc.x86_64.com)) |"; echo "| linked aarch64 half | $(stat -c %s parts/wnc.aarch64.com.dbg) (stripped file $(stat -c %s parts/wnc.aarch64.com)) |"
+            echo "| fat file, no guests | $(stat -c %s wnc-${{ matrix.set }}-bare.com) |"; echo "| fat file with all guests | $(stat -c %s wnc-${{ matrix.set }}.com) |"; } | tee -a "$GITHUB_STEP_SUMMARY" sizes-${{ matrix.set }}.md
+      - uses: actions/upload-artifact@v4
+        with: { name: 'exe-${{ matrix.set }}', path: "wnc-${{ matrix.set }}.com\nsizes-${{ matrix.set }}.md" }
+  test:
+    needs: link
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: mac-arm64,   os: macos-latest }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: exe-full, path: exe-full }
+      - uses: actions/download-artifact@v4
+        with: { name: exe-base, path: exe-base }
+      - name: All suites
+        env: { LABEL: "${{ matrix.label }}" }
+        run: |
+          export F=$PWD/exe-full/wnc-full.com B=$PWD/exe-base/wnc-base.com
+          bash wasmtime-nostd/coverage/tools/run-tests.sh
+          echo "---- summary for ${{ matrix.label }}"; cat results/${{ matrix.label }}/summary.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'results-${{ matrix.label }}', path: "results/${{ matrix.label }}" }
+  compare:
+    needs: test
+    if: always()
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { pattern: 'results-*', path: results }
+      - name: Do all five targets print the same thing?
+        run: |
+          cd results; ls
+          for f in p1-sig p1-nosig p1-pulley p1-base p2-sig p2-nosig p2-pulley; do
+            ref=results-linux-x64/$f.cmp; [ -f $ref ] || continue
+            for d in results-*; do
+              [ -f $d/$f.cmp ] || { echo "$f: $d has no output"; continue; }
+              if diff -q $ref $d/$f.cmp >/dev/null; then echo "$f: $d identical to linux-x64"; else echo "$f: $d DIFFERS from linux-x64"; diff $ref $d/$f.cmp | head -20; fi
+            done
+          done
+          for d in results-*; do echo "=== $d"; cat $d/summary.txt; done

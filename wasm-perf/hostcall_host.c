@@ -30,14 +30,17 @@ __attribute__((target("avx2,fma"))) static float sdot_avx2(const float *x, const
     s0 = _mm256_add_ps(_mm256_add_ps(s0, s1), _mm256_add_ps(s2, s3)); float t[8]; _mm256_storeu_ps(t, s0); float r = t[0] + t[1] + t[2] + t[3] + t[4] + t[5] + t[6] + t[7];
     for (; i < n; i++) r += x[i] * y[i]; return r;
 }
-__attribute__((target("avx2,fma"))) static void matmul_avx2(const float *A, const float *B, float *C, int n) {   /* 2 rows x 32 columns (8 ymm accumulators) */
-    for (int i = 0; i < n; i += 2) { int j = 0;
-        for (; j + 32 <= n; j += 32) { __m256 c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = _mm256_setzero_ps();
-            for (int k = 0; k < n; k++) { __m256 b[4]; for (int u = 0; u < 4; u++) b[u] = _mm256_loadu_ps(B + k * n + j + 8 * u);
-                for (int r = 0; r < 2; r++) { __m256 a = _mm256_set1_ps(A[(i + r) * n + k]); for (int u = 0; u < 4; u++) c[r][u] = _mm256_fmadd_ps(a, b[u], c[r][u]); } }
-            for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) _mm256_storeu_ps(C + (i + r) * n + j + 8 * u, c[r][u]); }
-        for (; j + 8 <= n; j += 8) { __m256 c0 = _mm256_setzero_ps(), c1 = c0; for (int k = 0; k < n; k++) { __m256 b = _mm256_loadu_ps(B + k * n + j); c0 = _mm256_fmadd_ps(_mm256_set1_ps(A[i * n + k]), b, c0); c1 = _mm256_fmadd_ps(_mm256_set1_ps(A[(i + 1) * n + k]), b, c1); }
-            _mm256_storeu_ps(C + i * n + j, c0); _mm256_storeu_ps(C + (i + 1) * n + j, c1); } }
+__attribute__((target("avx2,fma"))) static void matmul_avx2(const float *A, const float *B, float *C, int n) {   /* tiled over k and j (16 KB tile of B in L1); 2 rows x 32 columns = 8 ymm accumulators */
+    memset(C, 0, (size_t)n * n * 4);
+    for (int kb = 0; kb < n; kb += 64) { int ke = kb + 64 < n ? kb + 64 : n;
+        for (int jb = 0; jb < n; jb += 64) { int je = jb + 64 < n ? jb + 64 : n;
+            for (int i = 0; i < n; i += 2) { int j = jb;
+                for (; j + 32 <= je; j += 32) { __m256 c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = _mm256_loadu_ps(C + (i + r) * n + j + 8 * u);
+                    for (int k = kb; k < ke; k++) { __m256 b[4]; for (int u = 0; u < 4; u++) b[u] = _mm256_loadu_ps(B + k * n + j + 8 * u);
+                        for (int r = 0; r < 2; r++) { __m256 a = _mm256_set1_ps(A[(i + r) * n + k]); for (int u = 0; u < 4; u++) c[r][u] = _mm256_fmadd_ps(a, b[u], c[r][u]); } }
+                    for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) _mm256_storeu_ps(C + (i + r) * n + j + 8 * u, c[r][u]); }
+                for (; j + 8 <= je; j += 8) { __m256 c0 = _mm256_loadu_ps(C + i * n + j), c1 = _mm256_loadu_ps(C + (i + 1) * n + j); for (int k = kb; k < ke; k++) { __m256 b = _mm256_loadu_ps(B + k * n + j); c0 = _mm256_fmadd_ps(_mm256_set1_ps(A[i * n + k]), b, c0); c1 = _mm256_fmadd_ps(_mm256_set1_ps(A[(i + 1) * n + k]), b, c1); }
+                    _mm256_storeu_ps(C + i * n + j, c0); _mm256_storeu_ps(C + (i + 1) * n + j, c1); } } } }
 }
 __attribute__((target("avx512f"))) static void saxpy_avx512(float a, const float *x, float *y, int n) {
     __m512 av = _mm512_set1_ps(a); int i = 0;
@@ -50,16 +53,19 @@ __attribute__((target("avx512f"))) static float sdot_avx512(const float *x, cons
     for (; i + 64 <= n; i += 64) { s0 = _mm512_fmadd_ps(_mm512_loadu_ps(x + i), _mm512_loadu_ps(y + i), s0); s1 = _mm512_fmadd_ps(_mm512_loadu_ps(x + i + 16), _mm512_loadu_ps(y + i + 16), s1); s2 = _mm512_fmadd_ps(_mm512_loadu_ps(x + i + 32), _mm512_loadu_ps(y + i + 32), s2); s3 = _mm512_fmadd_ps(_mm512_loadu_ps(x + i + 48), _mm512_loadu_ps(y + i + 48), s3); }
     float r = _mm512_reduce_add_ps(_mm512_add_ps(_mm512_add_ps(s0, s1), _mm512_add_ps(s2, s3))); for (; i < n; i++) r += x[i] * y[i]; return r;
 }
-__attribute__((target("avx512f"))) static void matmul_avx512(const float *A, const float *B, float *C, int n) {   /* 2 rows x 64 columns (8 zmm accumulators) */
-    for (int i = 0; i < n; i += 2) { int j = 0;
-        for (; j + 64 <= n; j += 64) { __m512 c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = _mm512_setzero_ps();
-            for (int k = 0; k < n; k++) { __m512 b[4]; for (int u = 0; u < 4; u++) b[u] = _mm512_loadu_ps(B + k * n + j + 16 * u);
-                for (int r = 0; r < 2; r++) { __m512 a = _mm512_set1_ps(A[(i + r) * n + k]); for (int u = 0; u < 4; u++) c[r][u] = _mm512_fmadd_ps(a, b[u], c[r][u]); } }
-            for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) _mm512_storeu_ps(C + (i + r) * n + j + 16 * u, c[r][u]); }
-        for (; j + 16 <= n; j += 16) { __m512 c0 = _mm512_setzero_ps(), c1 = c0; for (int k = 0; k < n; k++) { __m512 b = _mm512_loadu_ps(B + k * n + j); c0 = _mm512_fmadd_ps(_mm512_set1_ps(A[i * n + k]), b, c0); c1 = _mm512_fmadd_ps(_mm512_set1_ps(A[(i + 1) * n + k]), b, c1); }
-            _mm512_storeu_ps(C + i * n + j, c0); _mm512_storeu_ps(C + (i + 1) * n + j, c1); }
-        for (; j + 8 <= n; j += 8) { __m256 c0 = _mm256_setzero_ps(), c1 = c0; for (int k = 0; k < n; k++) { __m256 b = _mm256_loadu_ps(B + k * n + j); c0 = _mm256_add_ps(c0, _mm256_mul_ps(_mm256_set1_ps(A[i * n + k]), b)); c1 = _mm256_add_ps(c1, _mm256_mul_ps(_mm256_set1_ps(A[(i + 1) * n + k]), b)); }
-            _mm256_storeu_ps(C + i * n + j, c0); _mm256_storeu_ps(C + (i + 1) * n + j, c1); } }
+__attribute__((target("avx512f"))) static void matmul_avx512(const float *A, const float *B, float *C, int n) {   /* tiled; 2 rows x 64 columns = 8 zmm accumulators */
+    memset(C, 0, (size_t)n * n * 4);
+    for (int kb = 0; kb < n; kb += 64) { int ke = kb + 64 < n ? kb + 64 : n;
+        for (int jb = 0; jb < n; jb += 64) { int je = jb + 64 < n ? jb + 64 : n;
+            for (int i = 0; i < n; i += 2) { int j = jb;
+                for (; j + 64 <= je; j += 64) { __m512 c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = _mm512_loadu_ps(C + (i + r) * n + j + 16 * u);
+                    for (int k = kb; k < ke; k++) { __m512 b[4]; for (int u = 0; u < 4; u++) b[u] = _mm512_loadu_ps(B + k * n + j + 16 * u);
+                        for (int r = 0; r < 2; r++) { __m512 a = _mm512_set1_ps(A[(i + r) * n + k]); for (int u = 0; u < 4; u++) c[r][u] = _mm512_fmadd_ps(a, b[u], c[r][u]); } }
+                    for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) _mm512_storeu_ps(C + (i + r) * n + j + 16 * u, c[r][u]); }
+                for (; j + 16 <= je; j += 16) { __m512 c0 = _mm512_loadu_ps(C + i * n + j), c1 = _mm512_loadu_ps(C + (i + 1) * n + j); for (int k = kb; k < ke; k++) { __m512 b = _mm512_loadu_ps(B + k * n + j); c0 = _mm512_fmadd_ps(_mm512_set1_ps(A[i * n + k]), b, c0); c1 = _mm512_fmadd_ps(_mm512_set1_ps(A[(i + 1) * n + k]), b, c1); }
+                    _mm512_storeu_ps(C + i * n + j, c0); _mm512_storeu_ps(C + (i + 1) * n + j, c1); }
+                for (; j + 8 <= je; j += 8) { __m256 c0 = _mm256_loadu_ps(C + i * n + j), c1 = _mm256_loadu_ps(C + (i + 1) * n + j); for (int k = kb; k < ke; k++) { __m256 b = _mm256_loadu_ps(B + k * n + j); c0 = _mm256_add_ps(c0, _mm256_mul_ps(_mm256_set1_ps(A[i * n + k]), b)); c1 = _mm256_add_ps(c1, _mm256_mul_ps(_mm256_set1_ps(A[(i + 1) * n + k]), b)); }
+                    _mm256_storeu_ps(C + i * n + j, c0); _mm256_storeu_ps(C + (i + 1) * n + j, c1); } } } }
 }
 #elif defined(__aarch64__)
 static void saxpy_neon(float a, const float *x, float *y, int n) {
@@ -71,14 +77,17 @@ static float sdot_neon(const float *x, const float *y, int n) {
     for (; i + 16 <= n; i += 16) { s0 = vfmaq_f32(s0, vld1q_f32(x + i), vld1q_f32(y + i)); s1 = vfmaq_f32(s1, vld1q_f32(x + i + 4), vld1q_f32(y + i + 4)); s2 = vfmaq_f32(s2, vld1q_f32(x + i + 8), vld1q_f32(y + i + 8)); s3 = vfmaq_f32(s3, vld1q_f32(x + i + 12), vld1q_f32(y + i + 12)); }
     float r = vaddvq_f32(vaddq_f32(vaddq_f32(s0, s1), vaddq_f32(s2, s3))); for (; i < n; i++) r += x[i] * y[i]; return r;
 }
-static void matmul_neon(const float *A, const float *B, float *C, int n) {   /* 2 rows x 16 columns (8 q accumulators) */
-    for (int i = 0; i < n; i += 2) { int j = 0;
-        for (; j + 16 <= n; j += 16) { float32x4_t c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = vdupq_n_f32(0);
-            for (int k = 0; k < n; k++) { float32x4_t b[4]; for (int u = 0; u < 4; u++) b[u] = vld1q_f32(B + k * n + j + 4 * u);
-                for (int r = 0; r < 2; r++) { float a = A[(i + r) * n + k]; for (int u = 0; u < 4; u++) c[r][u] = vfmaq_n_f32(c[r][u], b[u], a); } }
-            for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) vst1q_f32(C + (i + r) * n + j + 4 * u, c[r][u]); }
-        for (; j + 4 <= n; j += 4) { float32x4_t c0 = vdupq_n_f32(0), c1 = c0; for (int k = 0; k < n; k++) { float32x4_t b = vld1q_f32(B + k * n + j); c0 = vfmaq_n_f32(c0, b, A[i * n + k]); c1 = vfmaq_n_f32(c1, b, A[(i + 1) * n + k]); }
-            vst1q_f32(C + i * n + j, c0); vst1q_f32(C + (i + 1) * n + j, c1); } }
+static void matmul_neon(const float *A, const float *B, float *C, int n) {   /* tiled; 2 rows x 16 columns = 8 q accumulators */
+    memset(C, 0, (size_t)n * n * 4);
+    for (int kb = 0; kb < n; kb += 64) { int ke = kb + 64 < n ? kb + 64 : n;
+        for (int jb = 0; jb < n; jb += 64) { int je = jb + 64 < n ? jb + 64 : n;
+            for (int i = 0; i < n; i += 2) { int j = jb;
+                for (; j + 16 <= je; j += 16) { float32x4_t c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = vld1q_f32(C + (i + r) * n + j + 4 * u);
+                    for (int k = kb; k < ke; k++) { float32x4_t b[4]; for (int u = 0; u < 4; u++) b[u] = vld1q_f32(B + k * n + j + 4 * u);
+                        for (int r = 0; r < 2; r++) { float a = A[(i + r) * n + k]; for (int u = 0; u < 4; u++) c[r][u] = vfmaq_n_f32(c[r][u], b[u], a); } }
+                    for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) vst1q_f32(C + (i + r) * n + j + 4 * u, c[r][u]); }
+                for (; j + 4 <= je; j += 4) { float32x4_t c0 = vld1q_f32(C + i * n + j), c1 = vld1q_f32(C + (i + 1) * n + j); for (int k = kb; k < ke; k++) { float32x4_t b = vld1q_f32(B + k * n + j); c0 = vfmaq_n_f32(c0, b, A[i * n + k]); c1 = vfmaq_n_f32(c1, b, A[(i + 1) * n + k]); }
+                    vst1q_f32(C + i * n + j, c0); vst1q_f32(C + (i + 1) * n + j, c1); } } } }
 }
 #endif
 static void (*k_saxpy)(float, const float *, float *, int) = saxpy_c; static float (*k_sdot)(const float *, const float *, int) = sdot_c; static void (*k_matmul)(const float *, const float *, float *, int) = matmul_c;
