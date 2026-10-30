@@ -92,9 +92,10 @@ jobs:
           if [ "$A" = aarch64 ]; then
             # Cosmopolitan keeps its thread pointer in x28 and every libc call reads it. Rust must therefore never use x28: rebuild the standard library with it reserved.
             rustup toolchain install nightly --profile minimal --component rust-src
-            RUSTFLAGS="-C target-feature=+reserve-x28" cargo +nightly rustc -Zbuild-std=std,panic_abort -p wasmtime-c-api --release --target aarch64-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
+            RUSTFLAGS="-C target-feature=+reserve-x28 --cfg mio_unsupported_force_poll_poll" cargo +nightly rustc -Zbuild-std=std,panic_abort -p wasmtime-c-api --release --target aarch64-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
           else
-            cargo rustc -p wasmtime-c-api --release --target ${A}-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
+            # no epoll in Cosmopolitan: make the I/O reactor (mio) use poll(2) instead
+            RUSTFLAGS="--cfg mio_unsupported_force_poll_poll" cargo rustc -p wasmtime-c-api --release --target ${A}-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
           fi
           find target -name '*.a' -size +5M -exec ls -la {} \;
       - name: Link it into a Cosmopolitan executable and report every unresolved symbol

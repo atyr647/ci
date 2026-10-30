@@ -11,3 +11,15 @@ int epoll_wait(int ep, void *evs, int max, int timeout) { (void)ep; (void)evs; (
 int eventfd(unsigned int initval, int flags) { (void)initval; (void)flags; return fail(); }
 int mkfifo(const char *path, unsigned int mode) { (void)path; (void)mode; return fail(); }
 int waitid(int idtype, unsigned int id, void *info, int options) { (void)idtype; (void)id; (void)info; (void)options; return fail(); }
+
+/* Rust's musl target calls the POSIX (XSI) strerror_r that returns an int; Cosmopolitan's is the GNU one that returns a pointer, which Rust reads as a failure and
+ * turns into "strerror_r failure" while it is already printing an error. Provide the XSI behaviour. */
+extern char *strerror(int);
+extern unsigned long strlen(const char *);
+int strerror_r(int errnum, char *buf, unsigned long buflen) {
+  const char *m = strerror(errnum); unsigned long n = strlen(m);
+  if (buflen == 0) return 34;
+  if (n >= buflen) n = buflen - 1;
+  for (unsigned long i = 0; i < n; i++) buf[i] = m[i];
+  buf[n] = 0; return 0;
+}
