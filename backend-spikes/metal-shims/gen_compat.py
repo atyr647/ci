@@ -50,7 +50,8 @@ lines += ['/* NOW pretend to be Apple: nothing above (libc++, C library) may see
           '/* things Apple\'s clang provides itself or Apple\'s headers expect from it */',
           '#define __APPLE_CC__ 6000', '#define __APPLE_CPP__ 1',
           '#ifndef __nullable\n#define __nullable _Nullable\n#endif', '#ifndef __nonnull\n#define __nonnull _Nonnull\n#endif', '#ifndef __null_unspecified\n#define __null_unspecified _Null_unspecified\n#endif', '#ifndef __nullable_result\n#define __nullable_result _Nullable_result\n#endif',
-          '/* a typedef Cosmopolitan has under the same name with another type */', '#define syscall_arg_t apple_syscall_arg_t']
+          '/* a typedef Cosmopolitan has under the same name with another type */', '#define syscall_arg_t apple_syscall_arg_t',
+          '/* Carbon\'s fp.h redeclares scalb() and defines isnan/isfinite/signbit/fpclassify as macros, which breaks std::isnan & co */', '#define __FP__ 1']
 open(out, 'w').write('\n'.join(lines) + '\n')
 print(f'{len(set(guards))} guards predefined; skipped headers: {" ".join(skipped)}')
 print('kept (Apple definitions used):', ' '.join(kept[:80]))

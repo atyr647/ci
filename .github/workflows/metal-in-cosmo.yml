@@ -51,6 +51,8 @@ jobs:
               s=s.replace('#elif defined(__linux__)\n','#elif (defined(__linux__) || defined(__COSMOPOLITAN__)) && !defined(DAWN_COSMO_AS_APPLE)\n',1); open(p,'w').write(s)
           PY
           grep -n "DAWN_COSMO_AS_APPLE" dawn/src/utils/platform.h
+      - name: Edits to Dawn's Metal sources (integer literal types)
+        run: python3 dawn-cosmo/patch_metal.py dawn
       - name: The spike
         run: |
           python3 backend-spikes/metal_spike.py build "$PWD/cosmo/bin/cosmocc" "$(xcrun --show-sdk-path)" 2>&1 | tee spike.log | tail -80
