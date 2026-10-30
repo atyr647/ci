@@ -87,8 +87,9 @@ CB(stress_mix) {
     struct TState *ts = wn_inst_user(inst);
     tl_probe = 0xA5A5000000000000ull | x;   /* a thread-local, an errno, a malloc and the thread identity must all survive the transition wasm -> host */
     errno = (int)(x & 0x7fff) + 1;
+    int e1 = errno;   /* read at once: a library call that waits on a contended lock (malloc below) is allowed to change errno, which is not what this probe is about */
     size_t sz = 16 + (y & 255); uint8_t *p = malloc(sz); memset(p, (int)y, sz);
-    int bad = errno != (int)(x & 0x7fff) + 1 || p[sz - 1] != (uint8_t)y || tl_probe != (0xA5A5000000000000ull | x) || (ts && !pthread_equal(ts->self, pthread_self()));
+    int bad = e1 != (int)(x & 0x7fff) + 1 || p[sz - 1] != (uint8_t)y || tl_probe != (0xA5A5000000000000ull | x) || (ts && !pthread_equal(ts->self, pthread_self()));
     free(p);
     atomic_fetch_add(&g_hostcalls, 1); if (bad) atomic_fetch_add(&g_hostbad, 1);
     r[0] = wn_mix(x, y); return 0;
