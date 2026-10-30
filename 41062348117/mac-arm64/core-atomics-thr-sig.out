@@ -1,0 +1,1 @@
+host : platform=macos arch=aarch64 mode=sig name=atomics-thr (198304 bytes) features=0xf

@@ -1,0 +1,3 @@
+host : platform=macos arch=aarch64 mode=sig name=asy-d0 (198736 bytes) features=0xf
+host : engine+load 0.1 ms, instantiate 0.0 ms, linear memory 0 MiB
+CALL run(0) -> 400000000 in 1.622 ms, suspensions 0
