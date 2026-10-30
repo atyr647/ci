@@ -1,0 +1,4 @@
+host : platform=windows arch=x86_64 mode=sig name=coro (83848 bytes) features=0xf
+host : engine+load 0.2 ms, instantiate 0.1 ms, linear memory 0 MiB
+CALL s_coro(3000000) -> 13499998500000 in 7.891 ms, suspensions 0
+CALL s_plain(3000000) -> 13499998500000 in 4.096 ms, suspensions 0
