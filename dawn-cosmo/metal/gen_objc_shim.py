@@ -10,7 +10,14 @@ out = sys.argv[2]; os.makedirs(out, exist_ok=True)
 classes = [s for s in syms if s.startswith('OBJC_CLASS_$_')]
 blocks = [s for s in syms if s.startswith('_NSConcrete')]
 data = {'kCFAllocatorDefault': 8, 'kIOMainPortDefault': 8, 'MTLCommonCounterSetTimestamp': 8, 'MTLCommonCounterTimestamp': 8, 'kCFBooleanTrue': 8, 'kCFBooleanFalse': 8}
-datas = [s for s in syms if s in data]
+BIG = {'kCFTypeDictionaryKeyCallBacks': 48, 'kCFTypeDictionaryValueCallBacks': 48, 'kCFTypeArrayCallBacks': 48}   # structures whose address is taken: copied whole
+# optional second argument: file listing the symbols the objects CALL (relocation types CALL26/JUMP26); every other undefined Apple symbol is data
+calls = {l.strip() for l in open(sys.argv[3])} if len(sys.argv) > 3 else None
+if calls is not None:
+    for sy in syms:
+        if sy not in calls and not sy.startswith(('OBJC_CLASS_$_', '_NSConcrete', '_Z', '__cxa', '__gxx', '_Unwind', 'dawn_cosmo_')) and sy != '__CFConstantStringClassReference':
+            data.setdefault(sy, BIG.get(sy, 8))
+datas = [s for s in syms if s in data and s not in ('abort',)]
 cfclass = [s for s in syms if s == '__CFConstantStringClassReference']
 # Apple functions (everything else that is not C library / compiler support, which Cosmopolitan provides)
 libc = {'__isPlatformVersionAtLeast', '__isOSVersionAtLeast', 'abort', 'ceilf', 'memchr', 'memcmp', 'memcpy', 'memmove', 'memset', 'setenv', 'strlen', 'memcpy', '__demangle', 'floorf', 'sqrtf', 'getenv'}
@@ -33,7 +40,7 @@ for b in blocks:
 for c in cfclass:
     lines.append(f'__attribute__((aligned(16))) char dawn_cosmo_cfstring_class[64] __asm__("{c}");   /* replaced by the real class in every cfstring literal at start-up */')
 for d in datas:
-    lines.append(f'uint64_t dawn_cosmo_data_{d} __asm__("{d}");')
+    lines.append(f'__attribute__((aligned(16))) char dawn_cosmo_data_{d}[{max(data[d], 8)}] __asm__("{d}");')
 lines += ['', '/* trampolines: each jumps through a pointer filled in at start-up. x16/x17 are the only registers used, so all argument registers and the link register are untouched. */']
 for f in funcs:
     lines.append(f'void *dawn_cosmo_fn_{f};')

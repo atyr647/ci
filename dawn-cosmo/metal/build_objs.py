@@ -61,5 +61,12 @@ print(len(provided), 'symbols provided by Cosmopolitan libc/libc++')
 und = sorted(s for s in und if s not in defined and s not in provided and not s.startswith('dawn_cosmo_'))
 open(os.path.join(out, 'undefined.txt'), 'w').write('\n'.join(und) + '\n')
 print(len(und), 'undefined symbols:'); print('\n'.join('  ' + s for s in und if not s.startswith(('_Z', '__cxa', '__gxx', '_Unwind'))))
-r = subprocess.run([sys.executable, os.path.join(here, 'gen_objc_shim.py'), os.path.join(out, 'undefined.txt'), out], capture_output=True, text=True); print(r.stdout, r.stderr[-800:])
+# symbols reached by call/jump relocations are functions; the rest of the undefined symbols are data
+readelf = os.path.join(bindir, 'aarch64-linux-cosmo-readelf'); called = set()
+for o in objs:
+    for l in subprocess.run(['sh', readelf, '-r', '-W', o], capture_output=True, text=True).stdout.splitlines():
+        parts = l.split()
+        if len(parts) >= 5 and parts[2] in ('R_AARCH64_CALL26', 'R_AARCH64_JUMP26'): called.add(parts[4].split('+')[0].split('-')[0])
+open(os.path.join(out, 'calls.txt'), 'w').write('\n'.join(sorted(called)) + '\n')
+r = subprocess.run([sys.executable, os.path.join(here, 'gen_objc_shim.py'), os.path.join(out, 'undefined.txt'), out, os.path.join(out, 'calls.txt')], capture_output=True, text=True); print(r.stdout, r.stderr[-800:])
 assert r.returncode == 0
