@@ -35,7 +35,7 @@ jobs:
         run: |
           curl -fsSL -o c.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
           mkdir c && tar xJf c.tar.xz -C c; D=$(ls -d $PWD/c/*/); ls $D $D/lib | tr '\n' ' '; echo
-          cc -O2 -I$D/include wasm-perf/hostcall_host.c -o host -L$D/lib -lwasmtime -Wl,-rpath,$D/lib -lm 2>&1 | grep -E 'error|warning: impl' | head -20 || true
+          CCX=$(command -v clang || echo cc); $CCX --version | head -1; $CCX -O3 -I$D/include wasm-perf/hostcall_host.c -o host -L$D/lib -lwasmtime -Wl,-rpath,$D/lib -lm 2>&1 | grep -E 'error|warning: impl' | head -20 || true
           test -x host && ls -la host
           (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true
       - name: Run (checked and unchecked calling conventions, best kernel; then forced AVX2 / portable)
