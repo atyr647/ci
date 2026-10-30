@@ -59,7 +59,7 @@ jobs:
           d3d=""
           if [ "$COSMO_ARCH" = x86_64 ]; then
             DXH=$PWD/dxh/include; SH=$PWD/dawn-cosmo/d3d12-shims; FILES=$PWD/dawn-cosmo/files; WINE=$PWD/wine/x/usr/include/wine/wine
-            FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;SHELL:-include $FILES/win32_rename.h;SHELL:-include $SH/pre.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
+            FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;-include$FILES/win32_rename.h;-include$SH/pre.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
             d3d="-DDAWN_ENABLE_D3D12=ON -DDAWN_COSMO_D3D12=ON -DDAWN_COSMO_FILES_DIR=$FILES"
           fi
           cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release \
