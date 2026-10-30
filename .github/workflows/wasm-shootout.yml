@@ -70,7 +70,8 @@ jobs:
         run: |
           mkdir bin; cd wasm-perf; CC=cc
           $CC -O3 -DSIMD=0 shootout.c -o ../bin/n-scalar -lm                       # baseline ISA, compiler may auto-vectorise
-          $CC -O3 -fno-tree-vectorize -fno-slp-vectorize -DSIMD=0 shootout.c -o ../bin/n-novec -lm 2>/dev/null || $CC -O3 -fno-vectorize -fno-slp-vectorize -DSIMD=0 shootout.c -o ../bin/n-novec -lm
+          if $CC --version | grep -qi clang; then NOVEC="-fno-vectorize -fno-slp-vectorize"; else NOVEC="-fno-tree-vectorize -fno-tree-slp-vectorize"; fi
+          $CC -O3 $NOVEC -DSIMD=0 shootout.c -o ../bin/n-novec -lm                   # scalar code as written
           $CC -O3 -DSIMD=1 shootout.c -o ../bin/n-simd128 -lm                      # explicit 128-bit vectors, baseline ISA
           $CC -O3 ${{ matrix.march }} -DSIMD=0 shootout.c -o ../bin/n-hostisa -lm  # whole host ISA (AVX2/AVX-512/NEON...), auto-vectorised
           $CC -O3 ${{ matrix.march }} -DSIMD=1 shootout.c -o ../bin/n-hostisa-simd128 -lm
