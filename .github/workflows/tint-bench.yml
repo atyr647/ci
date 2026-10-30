@@ -1,0 +1,66 @@
+name: tint-bench
+# Tint (Dawn's WGSL compiler) built two ways from the same Dawn revision, run on the same real shaders: native, and as a wasm32-wasip1 module under Wasmtime.
+# Question (decisions/tint-in-wasm.md): what does running Tint inside the sandbox cost in time, and is the output identical?
+on:
+  workflow_dispatch:
+env:
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+  WT: v50.0.0
+jobs:
+  bench:
+    runs-on: ubuntu-latest
+    timeout-minutes: 150
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux.tar.xz | tar xJ
+          mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
+          git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
+          sed -i 's/^#elif defined(__linux__)$/#elif defined(__linux__) || defined(__wasi__)/' src/utils/platform.h
+          # the benchmark shaders Dawn ships (a Unity game's real vertex/fragment/compute shaders)
+          cd .. && mkdir -p shaders && cp dawn/third_party/benchmark_shaders/unity_boat_attack/*.wgsl shaders/ 2>/dev/null || true
+          ls -la shaders | head -20
+      - name: Native tint (same options as the wasm build, Release)
+        run: |
+          cmake -S dawn -B build-native -G Ninja -DCMAKE_BUILD_TYPE=Release -DDAWN_FETCH_DEPENDENCIES=ON \
+            -DDAWN_ENABLE_VULKAN=OFF -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON \
+            -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DDAWN_BUILD_PROTOBUF=OFF -DDAWN_ENABLE_INSTALL=OFF \
+            -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=ON -DTINT_BUILD_HLSL_WRITER=ON -DTINT_BUILD_MSL_WRITER=ON -DTINT_BUILD_SPV_WRITER=ON -DTINT_BUILD_SPV_READER=OFF \
+            -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_WGSL_READER=ON -DTINT_BUILD_WGSL_WRITER=ON -DDAWN_WERROR=OFF > cfg-native.log 2>&1
+          cmake --build build-native --target tint_cmd_tint_cmd > build-native.log 2>&1; tail -2 build-native.log
+          find build-native -name tint -type f -perm -u+x | head -1
+      - name: Wasm tint (wasi-sdk 34, wasm32-wasip1, the stack made large enough)
+        run: |
+          S=$PWD/$(ls -d wasi-sdk-34*); tc=$S/share/cmake/wasi-sdk-p1.cmake; [ -f $tc ] || tc=$S/share/cmake/wasi-sdk.cmake
+          cmake -S dawn -B build-wasm -G Ninja -DCMAKE_TOOLCHAIN_FILE=$tc -DWASI_SDK_PREFIX=$S -DCMAKE_BUILD_TYPE=Release -DDAWN_FETCH_DEPENDENCIES=ON \
+            -DDAWN_ENABLE_VULKAN=OFF -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON \
+            -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DDAWN_BUILD_PROTOBUF=OFF -DDAWN_ENABLE_INSTALL=OFF \
+            -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=ON -DTINT_BUILD_HLSL_WRITER=ON -DTINT_BUILD_MSL_WRITER=ON -DTINT_BUILD_SPV_WRITER=ON -DTINT_BUILD_SPV_READER=OFF \
+            -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_WGSL_READER=ON -DTINT_BUILD_WGSL_WRITER=ON -DDAWN_WERROR=OFF \
+            -DCMAKE_CXX_FLAGS="-D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN" \
+            -DCMAKE_EXE_LINKER_FLAGS="-lwasi-emulated-process-clocks -lwasi-emulated-signal -lwasi-emulated-mman -Wl,-z,stack-size=16777216 -Wl,--initial-memory=335544320" > cfg-wasm.log 2>&1
+          cmake --build build-wasm --target tint_cmd_tint_cmd > build-wasm.log 2>&1; tail -2 build-wasm.log
+          find build-wasm -name 'tint*' -type f -size +1M ! -name '*.a' ! -name '*.o'
+      - name: Time both on the same shaders; compare the outputs byte for byte
+        run: |
+          N=$(find build-native -name tint -type f -perm -u+x | head -1); W=$(find build-wasm -name 'tint*' -type f -size +1M ! -name '*.a' ! -name '*.o' | head -1)
+          WT_BIN=$PWD/wasmtime-$WT-x86_64-linux/wasmtime
+          $WT_BIN compile -o tint.cwasm "$W" && ls -la tint.cwasm "$W" "$N"
+          t() { local s=$(date +%s%N); "$@" > /dev/null 2>&1; local rc=$?; echo "$(( ($(date +%s%N) - s) / 1000000 ))"; return $rc; }
+          best() { local b=999999; for i in 1 2 3 4 5; do v=$(t "$@") || { echo FAIL; return; }; [ $v -lt $b ] && b=$v; done; echo $b; }
+          mkdir -p out; : > results.txt
+          for f in shaders/*.wgsl; do
+            b=$(basename $f .wgsl); sz=$(stat -c %s $f)
+            for fmt in spirv msl hlsl wgsl; do
+              tn=$(best "$N" --format $fmt -o out/n.$fmt $f); "$N" --format $fmt -o out/n.$fmt $f > /dev/null 2>&1
+              tw=$(best $WT_BIN run --allow-precompiled --dir=. tint.cwasm --format $fmt -o out/w.$fmt $f); $WT_BIN run --allow-precompiled --dir=. tint.cwasm --format $fmt -o out/w.$fmt $f > /dev/null 2>&1
+              same=no; cmp -s out/n.$fmt out/w.$fmt && same=yes
+              echo "$b | $sz B | $fmt | native $tn ms | wasm $tw ms | identical $same" | tee -a results.txt
+            done
+          done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: tint-bench, path: "results.txt\n*.log" }
