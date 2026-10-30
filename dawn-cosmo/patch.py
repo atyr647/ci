@@ -320,3 +320,30 @@ endif()
         s = s.replace('        Ref<PhysicalDeviceBase> physicalDevice;\n        if (GetInstance()->ConsumedErrorAndWarnOnce(\n                GetOrCreatePhysicalDeviceFromIDXGIAdapter(', '        DAWN_COSMO_T("creating the physical device");\n        Ref<PhysicalDeviceBase> physicalDevice;\n        if (GetInstance()->ConsumedErrorAndWarnOnce(\n                GetOrCreatePhysicalDeviceFromIDXGIAdapter(', 1)
         return s
     edit2('src/dawn/native/d3d/BackendD3D.cpp', 'DAWN_COSMO_T', backend_d3d_trace)
+
+    T_MACRO = '#define DAWN_COSMO_T(...) do { if (getenv("DAWN_COSMO_TRACE")) { fprintf(stderr, "[d3d12] " __VA_ARGS__); fprintf(stderr, "\\n"); fflush(stderr); } } while (0)\n\n'
+    def backend_d3d12_trace(s):
+        s = s.replace('namespace dawn::native::d3d12 {\n', T_MACRO + 'namespace dawn::native::d3d12 {\n', 1)
+        old = '    DAWN_TRY(CheckHRESULT(\n        GetFunctions()->CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device)),\n        "D3D12CreateDevice"));\n'
+        new = '    DAWN_COSMO_T("D3D12CreateDevice(adapter=%p)", (void*)adapter);\n    HRESULT cosmoHr = GetFunctions()->CreateDevice(adapter, D3D_FEATURE_LEVEL_11_0, IID_PPV_ARGS(&device));\n    DAWN_COSMO_T("D3D12CreateDevice -> 0x%08x device=%p", unsigned(cosmoHr), (void*)device.Get());\n    DAWN_TRY(CheckHRESULT(cosmoHr, "D3D12CreateDevice"));\n'
+        assert old in s
+        s = s.replace(old, new, 1)
+        s = s.replace('    ComPtr<IDXGIAdapter3> dxgiAdapter3;\n    DAWN_TRY(CheckHRESULT(dxgiAdapter.As(&dxgiAdapter3), "DXGIAdapter retrieval"));\n', '    DAWN_COSMO_T("CreatePhysicalDeviceFromIDXGIAdapter: asking for IDXGIAdapter3");\n    ComPtr<IDXGIAdapter3> dxgiAdapter3;\n    DAWN_TRY(CheckHRESULT(dxgiAdapter.As(&dxgiAdapter3), "DXGIAdapter retrieval"));\n    DAWN_COSMO_T("have IDXGIAdapter3, initializing the physical device");\n', 1)
+        return s
+    edit2('src/dawn/native/d3d12/BackendD3D12.cpp', 'DAWN_COSMO_T', backend_d3d12_trace)
+    def physdev_trace(s):
+        s = s.replace('namespace dawn::native::d3d12 {\n', T_MACRO + 'namespace dawn::native::d3d12 {\n', 1)
+        old = '    DAWN_TRY(Base::InitializeImpl());\n    // D3D12 cannot check for feature support without a device.'
+        new = '    DAWN_COSMO_T("PhysicalDevice::InitializeImpl begin");\n    DAWN_TRY(Base::InitializeImpl());\n    DAWN_COSMO_T("base initialized");\n    // D3D12 cannot check for feature support without a device.'
+        assert old in s
+        s = s.replace(old, new, 1)
+        s = s.replace('    DAWN_TRY(CheckD3D12Blocklist());\n', '    DAWN_COSMO_T("device created, checking the blocklist");\n    DAWN_TRY(CheckD3D12Blocklist());\n    DAWN_COSMO_T("blocklist ok, debug layer filters");\n', 1)
+        s = s.replace('    DAWN_TRY_ASSIGN(mDeviceInfo, GatherDeviceInfo(*this));\n', '    DAWN_COSMO_T("gathering device info");\n    DAWN_TRY_ASSIGN(mDeviceInfo, GatherDeviceInfo(*this));\n    DAWN_COSMO_T("device info gathered");\n', 1)
+        return s
+    edit2('src/dawn/native/d3d12/PhysicalDeviceD3D12.cpp', 'DAWN_COSMO_T', physdev_trace)
+    def info_trace(s):
+        s = s.replace('namespace dawn::native::d3d12 {\n', T_MACRO + 'namespace dawn::native::d3d12 {\n', 1)
+        s = s.replace('    D3D12DeviceInfo info = {};\n\n    ComPtr<ID3D12Device> d3d12Device = physicalDevice.GetDevice();\n', '    D3D12DeviceInfo info = {};\n\n    ComPtr<ID3D12Device> d3d12Device = physicalDevice.GetDevice();\n    DAWN_COSMO_T("GatherDeviceInfo: device %p", (void*)d3d12Device.Get());\n', 1)
+        s = s.replace('    info.isUMA = arch.UMA;\n', '    DAWN_COSMO_T("architecture query ok");\n    info.isUMA = arch.UMA;\n', 1)
+        return s
+    edit2('src/dawn/native/d3d12/D3D12Info.cpp', 'DAWN_COSMO_T', info_trace)
