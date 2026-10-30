@@ -186,6 +186,8 @@ jobs:
           ls -la wgt-dawn.com gpu-probe.com dawn-bench.com d3d12min.com
       - uses: actions/upload-artifact@v4
         with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com\ndawn-bench.com\nd3d12min.com" }
+      - uses: actions/upload-artifact@v4
+        with: { name: dbg-dawn-bench, path: "parts/dawn-bench.x86_64.com.dbg\nparts/dawn-bench.aarch64.com.dbg", compression-level: 6 }
 
   test:
     needs: link

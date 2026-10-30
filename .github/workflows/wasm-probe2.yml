@@ -1,0 +1,45 @@
+name: wasm-probe2
+# Facts needed before measuring: Wasmtime v50 CLI flag names (Cranelift ISA flags, bounds checks), what the runner CPUs offer, latest releases and assets of the wasm engines/tools,
+# whether Node's V8 has the experimental 256-bit revectoriser flag.
+on:
+  workflow_dispatch:
+env: { WT: v50.0.0 }
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    asset: x86_64-linux.tar.xz }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux.tar.xz }
+    runs-on: ${{ matrix.os }}
+    env: { GH_TOKEN: "${{ github.token }}" }
+    steps:
+      - name: CPU
+        run: |
+          grep -m1 'model name\|Model name' /proc/cpuinfo || lscpu | head -20
+          grep -m1 -o 'flags.*\|Features.*' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx|avx2|fma|bmi1|bmi2|avx512[a-z_0-9]*|lzcnt|popcnt|sse4_1|sse4_2|ssse3|asimd|sve|sve2|asimddp|fphp|aes|sha2|atomics|lse|bf16|i8mm)$' | tr '\n' ' '; echo
+      - name: Wasmtime CLI flags
+        run: |
+          curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
+          mkdir wt && tar xJf wt.tar.xz -C wt; W=$(find $PWD/wt -name wasmtime -type f | head -1); $W --version
+          echo "=== -C help"; $W compile -C help 2>&1 | head -80
+          echo "=== -O help"; $W compile -O help 2>&1 | head -120
+          echo "=== -W help (head)"; $W compile -W help 2>&1 | head -70
+          echo "=== settings (host)"; $W settings 2>&1 | head -150
+      - name: Latest releases and assets
+        run: |
+          for r in WebAssembly/wabt bytecodealliance/wasmtime wasmerio/wasmer bytecodealliance/wasm-micro-runtime WasmEdge/WasmEdge turbolent/w2c2 WebAssembly/binaryen WebAssembly/wasi-sdk wasm3/wasm3 wasmi-labs/wasmi; do
+            echo "== $r: $(gh api repos/$r/releases/latest --jq '.tag_name + " " + .published_at' 2>&1 | head -1)"
+            gh api repos/$r/releases/latest --jq '[.assets[].name]|join(" ")' 2>&1 | fold -w 200 | head -6
+          done
+      - name: Node V8 flags
+        if: matrix.label == 'linux-x64'
+        run: |
+          node --version; node --v8-options | grep -i -A1 "revec\|simd256\|wasm-simd" | head -20 || true
+          node --v8-options | grep -c . 
+      - name: wabt master wasm2c SIMD support
+        run: |
+          git clone --depth 1 https://github.com/WebAssembly/wabt wabt-src 2>&1 | tail -1
+          cd wabt-src; git log -1 --format='%h %ad %s' --date=short; git describe --tags --abbrev=0 2>/dev/null || true
+          grep -c 'simde' src/c-writer.cc; grep -n -i "simd" wasm2c/README.md | head; grep -n -i -B1 -A3 simd CHANGELOG.md 2>/dev/null | head -30; ls third_party | head -20; ls wasm2c
