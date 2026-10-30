@@ -50,6 +50,7 @@ static __attribute__((ms_abi)) void on_map_ms(MAP_ARGS){ map_body(s,m,u1,u2); }
 #else
 #define CB(f,T) (f)
 #endif
+#define STAGE(msg) do { fprintf(stderr, "stage: %s\n", msg); fflush(stderr); } while (0)
 static void pump(void){ int n=0; while(!done && n++<20000){ wgpuInstanceProcessEvents(inst); SLEEP1(); } }
 
 int main(int argc,char**argv){
@@ -81,27 +82,33 @@ int main(int argc,char**argv){
     wgpuAdapterGetFeatures(adapter,&F);
     printf("features(%zu):",F.featureCount); for(size_t i=0;i<F.featureCount;i++) printf(" %x",(unsigned)F.features[i]); puts("");
     wgpuSupportedFeaturesFreeMembers(F); }
+  STAGE("request device");
   WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT;
   WGPURequestDeviceCallbackInfo dci = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
   dci.mode = WGPUCallbackMode_AllowProcessEvents; dci.callback = CB(on_device,WGPURequestDeviceCallback);
   done=0; wgpuAdapterRequestDevice(adapter,&dd,dci); pump();
   if(!device){puts("FAIL no device");return 3;}
+  STAGE("device ok");
   WGPUQueue q = wgpuDeviceGetQueue(device);
 
   const char *wgsl = "@group(0) @binding(0) var<storage,read_write> d: array<u32>;\n"
     "@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) g: vec3<u32>){ d[g.x] = g.x*g.x + 7u; }\n";
   WGPUShaderSourceWGSL w = WGPU_SHADER_SOURCE_WGSL_INIT; w.chain.sType = WGPUSType_ShaderSourceWGSL; w.code = (WGPUStringView){wgsl, strlen(wgsl)};
   WGPUShaderModuleDescriptor smd = WGPU_SHADER_MODULE_DESCRIPTOR_INIT; smd.nextInChain = &w.chain;
+  STAGE("create shader module");
   WGPUShaderModule sm = wgpuDeviceCreateShaderModule(device,&smd);
   WGPUComputePipelineDescriptor cpd = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT;
   cpd.compute.module = sm; cpd.compute.entryPoint = (WGPUStringView){"main",4};
+  STAGE("create compute pipeline");
   WGPUComputePipeline p = wgpuDeviceCreateComputePipeline(device,&cpd);
+  STAGE("pipeline ok");
   enum{N=256}; size_t bytes=N*4;
   WGPUBufferDescriptor bd = WGPU_BUFFER_DESCRIPTOR_INIT; bd.size=bytes; bd.usage=WGPUBufferUsage_Storage|WGPUBufferUsage_CopySrc;
   WGPUBuffer sb = wgpuDeviceCreateBuffer(device,&bd);
   bd.usage=WGPUBufferUsage_MapRead|WGPUBufferUsage_CopyDst; WGPUBuffer rb = wgpuDeviceCreateBuffer(device,&bd);
   WGPUBindGroupEntry be = WGPU_BIND_GROUP_ENTRY_INIT; be.binding=0; be.buffer=sb; be.size=bytes;
   WGPUBindGroupDescriptor bgd = WGPU_BIND_GROUP_DESCRIPTOR_INIT; bgd.layout=wgpuComputePipelineGetBindGroupLayout(p,0); bgd.entryCount=1; bgd.entries=&be;
+  STAGE("create bind group");
   WGPUBindGroup bg = wgpuDeviceCreateBindGroup(device,&bgd);
   WGPUCommandEncoderDescriptor ed = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT;
   WGPUCommandEncoder e = wgpuDeviceCreateCommandEncoder(device,&ed);
@@ -111,8 +118,11 @@ int main(int argc,char**argv){
   wgpuComputePassEncoderDispatchWorkgroups(cp,N/64,1,1); wgpuComputePassEncoderEnd(cp);
   wgpuCommandEncoderCopyBufferToBuffer(e,sb,0,rb,0,bytes);
   WGPUCommandBufferDescriptor cbd = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT;
+  STAGE("finish + submit");
   WGPUCommandBuffer cb = wgpuCommandEncoderFinish(e,&cbd); wgpuQueueSubmit(q,1,&cb);
+  STAGE("submitted");
   WGPUBufferMapCallbackInfo mi = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT; mi.mode=WGPUCallbackMode_AllowProcessEvents; mi.callback=CB(on_map,WGPUBufferMapCallback);
+  STAGE("map readback");
   done=0; wgpuBufferMapAsync(rb,WGPUMapMode_Read,0,bytes,mi); pump();
   if(status!=WGPUMapAsyncStatus_Success){puts("FAIL map");return 4;}
   const uint32_t *r = wgpuBufferGetConstMappedRange(rb,0,bytes);
