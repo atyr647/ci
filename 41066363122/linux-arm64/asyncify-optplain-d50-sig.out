@@ -1,0 +1,3 @@
+host : platform=linux arch=aarch64 mode=sig name=asy-d50-opt (199408 bytes) features=0xf
+host : engine+load 0.2 ms, instantiate 0.1 ms, linear memory 0 MiB
+CALL run(0) -> 401000000 in 1.926 ms, suspensions 0

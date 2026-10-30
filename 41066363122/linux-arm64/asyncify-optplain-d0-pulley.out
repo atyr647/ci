@@ -1,0 +1,3 @@
+host : platform=linux arch=aarch64 mode=pulley name=asy-d0-opt (68192 bytes) features=0xf
+host : engine+load 0.1 ms, instantiate 0.1 ms, linear memory 0 MiB
+CALL run(0) -> 400000000 in 4.000 ms, suspensions 0
