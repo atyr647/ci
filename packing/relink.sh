@@ -26,18 +26,23 @@ link() {   # name arch "stub objects" [extra linker flags...]    (NOMETAL=1 leav
 }
 S() { local A=$1; shift; local r=""; for b in "$@"; do r="$r work/stub_$b.$A.o"; done; echo $r; }
 
+GC="-Wl,--gc-sections"; AMD="-Wl,--allow-multiple-definition"   # a stubbed connector's own object may still be pulled by another reference; the stub (first on the command line) wins
 link base   x86_64 ""
 link nogc   x86_64 "" -Wl,--no-gc-sections
-link gc     x86_64 "" -Wl,--gc-sections
-link nonull x86_64 "$(S x86_64 null)"
-link lnx    x86_64 "$(S x86_64 d3d12 null)"
-link win    x86_64 "$(S x86_64 vulkan null)"
+link gc     x86_64 "" $GC
+link nonull x86_64 "$(S x86_64 null)" $GC $AMD
+link lnx    x86_64 "$(S x86_64 d3d12 null)" $GC $AMD
+link win    x86_64 "$(S x86_64 vulkan null)" $GC $AMD
 link base   aarch64 ""
 link nogc   aarch64 "" -Wl,--no-gc-sections
-link gc     aarch64 "" -Wl,--gc-sections
-link nonull aarch64 "$(S aarch64 null)"
-NOMETAL=1 link lnx aarch64 "$(S aarch64 null)"
-link mac    aarch64 "$(S aarch64 vulkan null)"
+link gc     aarch64 "" $GC
+link nonull aarch64 "$(S aarch64 null)" $GC $AMD
+NOMETAL=1 link lnx aarch64 "$(S aarch64 null)" $GC $AMD
+link mac    aarch64 "$(S aarch64 vulkan null)" $GC $AMD
+# identical-code folding: GNU ld (the only linker in cosmocc 4.0.2) has none; try LLD, which has --icf (non-fatal if the Cosmopolitan link script or the driver does not accept it)
+if command -v ld.lld >/dev/null; then
+  link icf x86_64 "" $GC -B$(dirname $(command -v ld.lld)) -fuse-ld=lld -Wl,--icf=all || echo "ICF with lld: link failed (see above)"
+fi
 echo "== linked halves"; ls -l parts | awk '{print $5, $9}'
 
 $B/cosmocc -O2 packing/hello.c -o out/hello.com
@@ -48,6 +53,8 @@ fat nom1.com       $AL     parts/base.x86_64.com.dbg parts/base.aarch64.com.dbg
 fat x64only.com    -l $B/ape-x86_64.elf parts/base.x86_64.com.dbg
 fat arm64only.com  -l $B/ape-aarch64.elf $M1 parts/base.aarch64.com.dbg
 fat gc.com         $AL $M1 parts/gc.x86_64.com.dbg parts/gc.aarch64.com.dbg
+fat gcx64.com      -l $B/ape-x86_64.elf parts/gc.x86_64.com.dbg
+fat gcarm64.com    -l $B/ape-aarch64.elf $M1 parts/gc.aarch64.com.dbg
 fat nonull.com     $AL $M1 parts/nonull.x86_64.com.dbg parts/nonull.aarch64.com.dbg
 fat lnx.com        $AL     parts/lnx.x86_64.com.dbg parts/lnx.aarch64.com.dbg
 fat win.com        -l $B/ape-x86_64.elf parts/win.x86_64.com.dbg

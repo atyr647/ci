@@ -19,7 +19,7 @@ jobs:
         with: { ref: '${{ inputs.src_sha }}', path: pin }
       - name: Tools
         run: |
-          sudo apt-get update && sudo apt-get install -y llvm unzip zip
+          sudo apt-get update && sudo apt-get install -y llvm lld unzip zip
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
           mkdir -p cosmo && unzip -q cosmocc.zip -d cosmo
           cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
@@ -28,6 +28,7 @@ jobs:
       - { uses: actions/download-artifact@v4, with: { name: metal-objs, path: metal, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
       - { uses: actions/download-artifact@v4, with: { name: wgt-dawn, path: wgt-dawn, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
       - name: Relink (exact original link, gc variants, per-OS variants) and fat files
+        shell: bash
         run: packing/relink.sh 2>&1 | tee relink.log | tail -120
       - name: Structure of the files
         run: |
