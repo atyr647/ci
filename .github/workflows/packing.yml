@@ -54,6 +54,10 @@ jobs:
         with: { name: packing-parts, path: "out/*.com\nparts/base.x86_64.com\nparts/base.aarch64.com\ninventory.md\nrelink.log", compression-level: 1 }
       - uses: actions/upload-artifact@v4
         with: { name: packing-maps, path: maps, compression-level: 6 }
+      - name: RESULTS (printed last so a short log tail shows them)
+        run: |
+          grep -E 'IDENTICAL|differs' relink.log; ls -l out/*.com parts/*.com | awk '{printf "%s %s\n", $5, $9}'
+          cat inventory.md | grep -v '^$' | cut -c1-170
 
   compress:
     needs: link
@@ -91,7 +95,7 @@ jobs:
           [ -f assets/Default_albedo.jpg ] && args="$args jpg-texture=assets/Default_albedo.jpg"
           python3 -I packing/prep_data.py data-assets $args 2>&1 | tee ratios-assets.md
           # per-file view of the cwasm modules: what one zip entry per module costs compared with one bundle
-          python3 -I - <<'PY'
+          python3 -I - <<'PY' | tee -a ratios-assets.md
           import glob, subprocess, os
           fs = sorted(glob.glob('guests/**/*.cwasm', recursive=True))
           tot = {'raw': 0}
@@ -106,7 +110,7 @@ jobs:
         continue-on-error: true
         run: |
           ls -l old pp/out/all.com | awk '{print $5, $9}'
-          python3 -I packing/chunks.py old/wgt-dawn.com pp/out/all.com
+          python3 -I packing/chunks.py old/wgt-dawn.com pp/out/all.com 2>&1 | tee chunks.txt
       - name: Merge the benchmark inputs
         run: |
           mkdir -p bench/data && cp data/* bench/data/ && for d in data-assets; do cp $d/* bench/data/ 2>/dev/null || true; done
@@ -117,6 +121,9 @@ jobs:
         with: { name: packing-data, path: bench/data, compression-level: 0 }
       - uses: actions/upload-artifact@v4
         with: { name: packing-ratios, path: "ratios-*.md" }
+      - name: RESULTS (printed last)
+        run: |
+          for f in ratios-halves.md ratios-variants.md ratios-assets.md chunks.txt; do echo "##### $f"; cat $f 2>/dev/null; done
 
   benchbuild:
     runs-on: ubuntu-latest
@@ -173,15 +180,16 @@ jobs:
       - { uses: actions/download-artifact@v4, with: { name: packing-parts, path: pp } }
       - name: Decode speed (best / median / fresh-memory MB/s of output) - ${{ matrix.label }}
         run: |
-          if [ "$RUNNER_OS" = Windows ]; then cp packbench.com packbench.exe; ./packbench.exe data/manifest.txt | tr -d '\r'; else chmod +x packbench.com; sh ./packbench.com data/manifest.txt; fi
+          if [ "$RUNNER_OS" = Windows ]; then cp packbench.com packbench.exe; ./packbench.exe data/manifest.txt | tr -d '\r' | tee res-decode.txt; else chmod +x packbench.com; sh ./packbench.com data/manifest.txt | tee res-decode.txt; fi
       - name: Can code inside the file become executable without extraction? - ${{ matrix.label }}
         continue-on-error: true
         run: |
           if [ "$RUNNER_OS" = Windows ]; then cp slice_probe.com slice_probe.exe; R=./slice_probe.exe; else chmod +x slice_probe.com; R="sh ./slice_probe.com"; fi
-          for t in info copy-rx rwx map-rx map-rw-rx; do echo "--- $t"; ( set +e; $R $t 2>&1 | tr -d '\r'; echo "exit=${PIPESTATUS[0]}" ); done
+          for t in info copy-rx rwx map-rx map-rw-rx; do echo "--- $t"; ( set +e; $R $t 2>&1 | tr -d '\r'; echo "exit=${PIPESTATUS[0]}" ); done 2>&1 | tee res-slice.txt
       - name: Start-up cold / warm, memory split, decompress-then-run (Linux)
         if: runner.os == 'Linux'
         run: |
+          exec > >(tee res-startup.txt) 2>&1
           sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 zstd lz4 xz-utils
           chmod +x pp/out/*.com; A=$(uname -m); if [ "$A" = x86_64 ]; then H=x64only; HL=x86; else H=arm64only; HL=arm; fi
           sh pp/out/hello.com; mkdir -p cache
@@ -196,3 +204,8 @@ jobs:
           done
           ls -l data/half-$HL.* | awk '{print $5, $9}'
           echo "##### one WebGPU run result, to see the program really works"; sh pp/out/lnx.com 2>&1 | tail -4
+      - name: RESULTS (${{ matrix.label }}; printed last)
+        if: always()
+        run: |
+          echo "machine: $(uname -sm) $(nproc) cpus"
+          for f in res-decode.txt res-slice.txt res-startup.txt; do echo "##### $f"; cat $f 2>/dev/null | cut -c1-200; done
