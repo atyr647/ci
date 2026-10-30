@@ -52,6 +52,23 @@ jobs:
         run: |
           python3 wasm-perf/wt_matrix.py "$WASMTIME" so spec-a.json
           python3 wasm-perf/runner.py spec-a.json --rounds 3 --ref 'default (host CPU features)' --kernels matmul256,nbody1024,transform,interp,hash16MB --title "Phase A ${{ matrix.label }}: Wasmtime v50 settings, so-simd.wasm"
+      - name: Instruction mix of the code Cranelift generates (Linux only)
+        if: runner.os == 'Linux'
+        run: |
+          mkdir -p dis; W=$WASMTIME; arch=$(uname -m)
+          if [ "$arch" = x86_64 ]; then T=x86_64-unknown-linux-gnu; else T=aarch64-unknown-linux-gnu; fi
+          mix() { objdump -d --no-show-raw-insn "$1" | awk -F'\t' 'NF>=2{split($2,a," "); print a[1]}' | sort | uniq -c | sort -rn; }
+          for v in simd relaxed simd-vb32-u2; do
+            $W compile -o dis/host-$v.cwasm so/so-$v.wasm; $W compile --target $T -o dis/base-$v.cwasm so/so-$v.wasm
+            for k in host base; do mix dis/$k-$v.cwasm > dis/$k-$v.txt; done
+            echo "== $v: total instructions host=$(awk '{s+=$1}END{print s}' dis/host-$v.txt) baseline-target=$(awk '{s+=$1}END{print s}' dis/base-$v.txt)"
+            if [ "$arch" = x86_64 ]; then
+              for k in host base; do echo "   $k: VEX(v*)=$(awk '$2 ~ /^v/{s+=$1}END{print s+0}' dis/$k-$v.txt) vfmadd/vfnmadd=$(awk '$2 ~ /^vfn?madd/{s+=$1}END{print s+0}' dis/$k-$v.txt) packed-single/double mul+add=$(awk '$2 ~ /^v?(mul|add)p[sd]$/{s+=$1}END{print s+0}' dis/$k-$v.txt) ymm-or-zmm operands=$(objdump -d --no-show-raw-insn dis/$k-$v.cwasm | grep -c -E '%(y|z)mm')"; done
+            else
+              echo "   fmla=$(awk '$2 == "fmla"{s+=$1}END{print s+0}' dis/host-$v.txt) fmul=$(awk '$2 == "fmul"{s+=$1}END{print s+0}' dis/host-$v.txt) fadd=$(awk '$2 == "fadd"{s+=$1}END{print s+0}' dis/host-$v.txt) ldr=$(awk '$2 == "ldr"{s+=$1}END{print s+0}' dis/host-$v.txt) ldp=$(awk '$2 == "ldp"{s+=$1}END{print s+0}' dis/host-$v.txt)"
+            fi
+          done
+          echo "top mnemonics, host, simd:"; head -22 dis/host-simd.txt | tr '\n' ';' | tr -s ' '; echo
       - name: Native builds
         run: |
           mkdir bin; cd wasm-perf; CC=cc; M="${{ matrix.march }}"; F="-O3 -fno-math-errno shootout.c -lm"

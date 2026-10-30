@@ -73,7 +73,7 @@ int main(int argc, char **argv) {
     }
     fd = open(p, O_WRONLY | O_APPEND); CHECK("open append", fd >= 0);
     if (fd >= 0) { CHECK("append write", write(fd, "+tail", 5) == 5); close(fd); }
-    b = slurp(p, &n); CHECK("content after edits", b && n == 17 && !memcmp(b, "HELLO, wasi\n+tail", 17) == 0 ? 1 : (b && n == 17 && !memcmp(b, "HELLO, wasi\n+tail", 17))); free(b);
+    b = slurp(p, &n); CHECK("content after edits", b && n == 17 && !memcmp(b, "HELLO, wasi\n+tail", 17)); free(b);
     fd = open(p, O_WRONLY | O_CREAT | O_EXCL, 0644); CHECK("O_EXCL on existing fails EEXIST", fd < 0 && errno == EEXIST);
     snprintf(q, sizeof q, "%s/work/none.txt", D);
     CHECK("open missing fails ENOENT", open(q, O_RDONLY) < 0 && errno == ENOENT);
@@ -116,7 +116,7 @@ int main(int argc, char **argv) {
     if (sl == 0) { char tgt[64] = {0}; ssize_t rl = readlink("/sandbox/work/link-to-b", tgt, sizeof tgt - 1); CHECK("readlink", rl == 5 && !strcmp(tgt, "b.txt"));
         size_t m = 0; char *c = slurp("/sandbox/work/link-to-b", &m); CHECK("read through symlink", c && m == 17); free(c); }
     int esc = symlink("../../..", "/sandbox/work/escape");
-    if (esc == 0) { FILE *x = fopen("/sandbox/work/escape/etc/hostname", "r"); CHECK("symlink pointing out of the sandbox is not followed", x == NULL); if (x) fclose(x); }
+    if (esc == 0) { FILE *x = fopen("/sandbox/work/escape/etc/hostname", "r"); CHECK("symlink pointing out of the sandbox is not followed", x == NULL); if (x) fclose(x); } else printf("escape symlink: not supported here\n");
     CHECK("dot-dot out of the preopen is refused", fopen("/sandbox/../escape.txt", "w") == NULL);
     CHECK("absolute path outside the preopens is refused", fopen("/etc/passwd", "r") == NULL);
     CHECK("relative dot-dot inside is fine", stat("/sandbox/work/../work/b.txt", &st) == 0);

@@ -10,7 +10,7 @@ def ok(flags, wasm='so-simd.wasm'):
     r = subprocess.run(f'"{W}" run {flags} {D}/{wasm} zzz', shell=True, capture_output=True, text=True, timeout=120)
     return r.returncode == 0, (r.stderr.strip().splitlines() or [''])[-1][:160]
 
-def spelling(key, val='n'):
+def spelling(key, val='false'):
     for sp in (f'cranelift-{key}', f'cranelift-{key.replace("_", "-")}', f'cranelift_{key}'):
         good, msg = ok(f'-C {sp}={val}')
         print(f'probe -C {sp}={val}: {"ok" if good else "REJECTED " + msg}')
@@ -23,7 +23,7 @@ S = 'so-simd.wasm'
 add('default (host CPU features)', '')
 if x64:
     sp = {k: spelling(k) for k in ('has_avx', 'has_avx2', 'has_fma', 'has_bmi1', 'has_bmi2', 'has_lzcnt', 'has_popcnt', 'has_sse41', 'has_sse42', 'has_ssse3')}
-    def off(*keys): return ' '.join(f'-C {sp[k]}=n' for k in keys if sp.get(k))
+    def off(*keys): return ' '.join(f'-C {sp[k]}=false' for k in keys if sp.get(k))
     add('no AVX2/FMA (AVX only)', off('has_avx2', 'has_fma'))
     add('no AVX/AVX2/FMA (SSE4.2)', off('has_avx', 'has_avx2', 'has_fma'))
     add('no FMA only', off('has_fma'))
@@ -36,7 +36,6 @@ add('explicit bounds checks (signals-based-traps=n)', '-O signals-based-traps=n'
 add('dynamic memory (reservation 0, guard 0)', '-O memory-reservation=0 -O memory-guard-size=0')
 add('memory-may-move=y', '-O memory-may-move=y')
 add('memory-reservation=4GiB, guard=0', '-O memory-reservation=4294967296 -O memory-guard-size=0')
-add('epoch-interruption=y', '-W epoch-interruption=y')
 add('fuel=1e15', '-W fuel=1000000000000000')
 add('nan-canonicalization=y', '-W nan-canonicalization=y')
 add('inlining=y', '-C inlining=y')
@@ -54,13 +53,16 @@ def cw(name, cflags, rflags=''):
     if r.returncode == 0: rows.append({'name': name, 'cmd': f'"{W}" run --allow-precompiled {rflags} {out}'})
 if trip:
     cw('cwasm-baseline (--target only, no extra flags)', '')
+    out = 'cwasm/hostdefault.cwasm'
+    r = subprocess.run(f'"{W}" compile -o {out} {D}/{S}', shell=True, capture_output=True, text=True)
+    if r.returncode == 0: rows.append({'name': 'cwasm-host-default (compile without --target)', 'cmd': f'"{W}" run --allow-precompiled {out}'})
     if x64:
         for pre in ('x86-64-v3', 'x86_64_v3', 'haswell'):
             r = subprocess.run(f'"{W}" compile --target {trip} -C cranelift-{pre} -o /dev/null {D}/{S}', shell=True, capture_output=True, text=True)
             print(f'probe preset -C cranelift-{pre}: rc={r.returncode} {(r.stderr.strip().splitlines() or [""])[-1][:100]}')
             if r.returncode == 0:
                 cw(f'cwasm-{pre} (preset)', f'-C cranelift-{pre}'); break
-        feats = ' '.join(f'-C {sp[k]}=y' for k in ('has_sse41', 'has_sse42', 'has_avx', 'has_avx2', 'has_fma', 'has_bmi1', 'has_bmi2', 'has_lzcnt', 'has_popcnt') if sp.get(k))
+        feats = ' '.join(f'-C {sp[k]}=true' for k in ('has_sse41', 'has_sse42', 'has_avx', 'has_avx2', 'has_fma', 'has_bmi1', 'has_bmi2', 'has_lzcnt', 'has_popcnt') if sp.get(k))
         cw('cwasm-explicit-flags (sse41,sse42,avx,avx2,fma,bmi1,bmi2,lzcnt,popcnt)', feats)
 json.dump(rows, open(OUT, 'w'), indent=1)
 print(f'{len(rows)} configurations')
