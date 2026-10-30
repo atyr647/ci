@@ -34,14 +34,14 @@ jobs:
           cp wabt-$WABT/wasm2c/*.c wabt-$WABT/wasm2c/*.h wabt-$WABT/wasm2c/*.inc wabt-install/rt/ 2>/dev/null || true
           cp -r wabt-$WABT/third_party/simde/simde wabt-install/simde/ 2>/dev/null || true
           ls -R wabt-install | head -40
-      - name: wasm2c translation
+      - name: wasm2c translation (one directory per variant, module name "so")
         run: |
-          ls wabt-install/rt | head -20
           for v in scalar simd simd-relaxed autovec; do
             flags=""; case $v in simd*|autovec) flags="--enable-simd" ;; esac; case $v in *relaxed) flags="$flags --enable-relaxed-simd" ;; esac
-            ./wabt-install/bin/wasm2c $flags out/so-$v.wasm -n so_$(echo $v | tr - _) -o out/so_$(echo $v | tr - _).c || echo "wasm2c FAILED for $v"
+            mkdir -p out/w2c/$v
+            ./wabt-install/bin/wasm2c $flags out/so-$v.wasm -n so -o out/w2c/$v/so.c 2>&1 | head -5 || true
+            [ -f out/w2c/$v/so.c ] && echo "wasm2c ok: $v ($(wc -c < out/w2c/$v/so.c) bytes of C)" || echo "wasm2c FAILED: $v"
           done
-          ls -la out
       - uses: actions/upload-artifact@v4
         with: { name: so-wasm, path: "out\nwabt-install/rt\nwabt-install/simde" }
   run:
@@ -79,13 +79,12 @@ jobs:
           ../cosmo/bin/cosmocc -O3 -DSIMD=1 shootout.c -o ../bin/n-cosmo-simd128.com -lm 2>&1 | tail -2
       - name: wasm2c builds (ahead-of-time translation of the wasm, then the C compiler)
         run: |
-          RT=so/wabt-install/rt; ls $RT | head
-          for v in scalar simd simd_relaxed autovec; do
-            [ -f so/out/so_$v.c ] || { echo "no wasm2c output for $v"; continue; }
+          RT=so/wabt-install/rt
+          for v in scalar simd simd-relaxed autovec; do
+            [ -f so/out/w2c/$v/so.c ] || { echo "no wasm2c output for $v"; continue; }
             for isa in base host; do
               extra=""; [ $isa = host ] && extra="${{ matrix.march }}"
-              cc -O3 $extra -DW2C_NAME=so_$v -DW2C_HEADER="\"so_$v.h\"" -I$RT -Iso/out -Iso/wabt-install/simde -Wno-everything wasm-perf/w2c_main.c so/out/so_$v.c $RT/wasm-rt-impl.c $RT/wasm-rt-mem-impl.c -o bin/w2c-$v-$isa -lm 2>bin/w2c-$v-$isa.err \
-                && echo "built w2c-$v-$isa" || { echo "FAILED w2c-$v-$isa"; head -5 bin/w2c-$v-$isa.err; }
+              if cc -O3 $extra -DW2C_NAME=so -DW2C_HEADER="\"so.h\"" -I$RT -Iso/out/w2c/$v -Iso/wabt-install/simde -Wno-everything wasm-perf/w2c_main.c so/out/w2c/$v/so.c $RT/wasm-rt-impl.c $RT/wasm-rt-mem-impl.c -o bin/w2c-$v-$isa -lm 2>bin/w2c-$v-$isa.err; then echo "built w2c-$v-$isa"; else echo "FAILED w2c-$v-$isa"; grep -m3 "error" bin/w2c-$v-$isa.err | cut -c1-220; fi
             done
           done
       - name: Run everything, 3 rounds interleaved (best of rounds)
@@ -96,7 +95,7 @@ jobs:
           runs = []
           for v in ('scalar', 'autovec', 'simd', 'simd-relaxed'): runs.append((f'wasmtime {v}', f'{W} run so/out/so-{v}.wasm'))
           for f in sorted(glob.glob('bin/n-*')) + sorted(glob.glob('bin/w2c-*')):
-              if f.endswith(('.err', '.dbg')): continue
+              if f.endswith(('.err', '.dbg', '.elf')): continue
               name = os.path.basename(f).replace('n-', 'native ', 1) if os.path.basename(f).startswith('n-') else os.path.basename(f).replace('w2c-', 'wasm2c ', 1)
               runs.append((name, ('sh ' if f.endswith('.com') else '') + f))
           best = {}; sums = {}
