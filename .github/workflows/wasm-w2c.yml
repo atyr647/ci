@@ -39,7 +39,11 @@ jobs:
           cp -r wabt wabt-p
           python3 wasm-perf/wasm2c-relaxed/patch_wabt.py wabt-p | tee -a results.md
           (cd wabt && git log -1 --format='wabt master %h %ad' --date=short) | tee -a results.md
-          for t in wabt wabt-p; do cmake -S $t -B b-$t -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DWITH_WASI=OFF >/dev/null 2>&1; cmake --build b-$t --target wasm2c wat2wasm 2>&1 | tail -1; done
+          for t in wabt wabt-p; do
+            cmake -S $t -B b-$t -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DWITH_WASI=OFF > cfg-$t.log 2>&1 || { echo "CONFIGURE FAILED $t"; tail -5 cfg-$t.log | cut -c1-300; }
+            cmake --build b-$t --target wasm2c wat2wasm > build-$t.log 2>&1 && echo "built $t" || { echo "BUILD FAILED $t"; grep -m6 -E "error|Error|FAILED" build-$t.log | cut -c1-400; }
+          done 2>&1 | tee -a results.md
+          ls b-wabt/wasm2c b-wabt-p/wasm2c b-wabt/wat2wasm
       - name: Coverage - all 20 relaxed-simd instructions, wasm2c (plain, patched) against Wasmtime
         run: |
           python3 wasm-perf/wasm2c-relaxed/gen_test.py rt
