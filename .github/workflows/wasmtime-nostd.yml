@@ -19,17 +19,32 @@ jobs:
         run: |
           rustup toolchain install nightly --profile minimal -c rust-src
           rustc +nightly --version
-      - name: Build the runtime as a static library for ${{ matrix.arch }}-unknown-linux-gnu (core and alloc rebuilt from source)
+      - name: Target description - the linux-gnu one with the operating system removed (so no libc/rustix/memfd get pulled in, the custom platform is used), thread pointer register reserved
         working-directory: wasmtime-nostd/embedding
         run: |
-          flags="-Cpanic=abort"
-          [ "${{ matrix.arch }}" = aarch64 ] && flags="$flags -Ctarget-feature=+reserve-x28"   # Cosmopolitan keeps its thread pointer in x28
-          [ "${{ matrix.arch }}" = x86_64 ] && flags="$flags -Cno-redzone=yes"
-          RUSTFLAGS="$flags" cargo +nightly build --release --target ${{ matrix.arch }}-unknown-linux-gnu -Zbuild-std=core,alloc > build.log 2>&1 || { echo '=== FIRST ERRORS'; grep -n -m3 -A14 '^error' build.log; echo '=== head of log'; head -100 build.log | cut -c1-200; echo '=== who needs bitflags'; cargo +nightly tree --target ${{ matrix.arch }}-unknown-linux-gnu -i bitflags -e features 2>&1 | head -40; echo '=== LAST LINES'; tail -8 build.log; exit 1; }
+          rustc +nightly -Zunstable-options --print target-spec-json --target ${{ matrix.arch }}-unknown-linux-gnu > base.json
+          python3 - <<'PY'
+          import json
+          d = json.load(open('base.json')); print(json.dumps(d, indent=1))
+          d['os'] = 'none'
+          for k in ('target-family', 'dynamic-linking', 'crt-static-respected', 'position-independent-executables', 'static-position-independent-executables', 'relro-level', 'supported-sanitizers',
+                    'crt-objects-fallback', 'pre-link-args', 'late-link-args', 'late-link-args-dynamic', 'late-link-args-static', 'link-env', 'supports-xray', 'has-rpath', 'default-dwarf-version'):
+              d.pop(k, None)
+          d['has-thread-local'] = False
+          d['panic-strategy'] = 'abort'
+          if d['arch'] == 'x86_64': d['disable-redzone'] = True
+          else:
+              f = d.get('features', ''); d['features'] = (f + ',' if f else '') + '+reserve-x28,-outline-atomics'   # Cosmopolitan keeps its thread pointer in x28
+          json.dump(d, open('nostd-${{ matrix.arch }}.json', 'w'), indent=1)
+          PY
+      - name: Build the runtime as a static library (core and alloc rebuilt from source for that target)
+        working-directory: wasmtime-nostd/embedding
+        run: |
+          cargo +nightly build --release --target $PWD/nostd-${{ matrix.arch }}.json -Zbuild-std=core,alloc -Zjson-target-spec > build.log 2>&1 || { echo '=== FIRST ERRORS'; grep -n -m3 -A14 '^error' build.log; echo '=== LAST LINES'; tail -12 build.log; exit 1; }
           tail -3 build.log
-          ls -la target/${{ matrix.arch }}-unknown-linux-gnu/release/*.a
+          ls -la target/nostd-${{ matrix.arch }}/release/*.a
       - uses: actions/upload-artifact@v4
-        with: { name: 'lib-${{ matrix.arch }}', path: 'wasmtime-nostd/embedding/target/${{ matrix.arch }}-unknown-linux-gnu/release/libwn_embedding.a' }
+        with: { name: 'lib-${{ matrix.arch }}', path: 'wasmtime-nostd/embedding/target/nostd-${{ matrix.arch }}/release/libwn_embedding.a' }
   guests:
     runs-on: ubuntu-latest
     steps:
