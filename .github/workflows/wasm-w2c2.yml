@@ -1,0 +1,86 @@
+name: wasm-w2c2
+# w2c2 (turbolent/w2c2, translates wasm to C, fixed-width SIMD through SIMDe) on the shootout modules, compiled by gcc/clang with the host ISA, against Wasmtime.
+on:
+  workflow_dispatch:
+permissions: { contents: write }
+env: { WT: v50.0.0 }
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          wasm-perf/build_wasm.sh $PWD/$(ls -d wasi-sdk-34*) $PWD/out
+      - uses: actions/upload-artifact@v4
+        with: { name: so-wasm, path: out }
+  run:
+    needs: build-wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    wt: x86_64-linux.tar.xz,  march: "-march=native" }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, wt: aarch64-linux.tar.xz, march: "-mcpu=native" }
+          - { label: mac-arm64,   os: macos-latest,     wt: aarch64-macos.tar.xz, march: "-mcpu=native" }
+    runs-on: ${{ matrix.os }}
+    env: { RESULTS_FILE: results.md }
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: so-wasm, path: so }
+      - name: Build w2c2 and translate
+        run: |
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.wt }} | tar xJ; echo "WASMTIME=$PWD/$(ls -d wasmtime-$WT-*/)wasmtime" >> "$GITHUB_ENV"
+          { echo "## ${{ matrix.label }}: wasm-w2c2 run ${{ github.run_id }}, commit ${{ github.sha }}"; (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true; } | tee -a results.md
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/turbolent/w2c2 w2c2src 2>&1 | tail -1; (cd w2c2src && git log -1 --format='w2c2 %h %ad' --date=short) | tee -a results.md
+          git clone --depth 1 https://github.com/simd-everywhere/simde simde 2>&1 | tail -1
+          { (cd w2c2src/w2c2 && cmake -B build -DCMAKE_BUILD_TYPE=Release >/dev/null && cmake --build build 2>&1 | tail -1) && echo "w2c2 built"; (cd w2c2src/wasi && cmake -B build -DCMAKE_BUILD_TYPE=Release >/dev/null && cmake --build build 2>&1 | tail -1) && echo "wasi lib built"; } 2>&1 | tee -a results.md
+          find w2c2src -name 'w2c2' -type f | head -2; find w2c2src -name 'libw2c2*wasi*' -o -name 'libwasi*' | head -3
+      - name: Translate, compile, run
+        run: |
+          W2C2=$(find $PWD/w2c2src -name w2c2 -type f -perm -u+x | head -1); WASILIB=$(find $PWD/w2c2src -name '*.a' | grep -i wasi | head -1)
+          echo "w2c2=$W2C2 wasilib=$WASILIB" | tee -a results.md
+          mkdir -p build bin; M="${{ matrix.march }}"
+          for v in scalar simd simd-u2 simd-vb32; do
+            mkdir -p build/$v; "$W2C2" so/so-$v.wasm build/$v/so.c 2>&1 | head -3 | tee -a results.md
+            [ -f build/$v/so.h ] || { echo "w2c2 translation FAILED for $v" | tee -a results.md; continue; }
+            P=$(grep -o '[A-Za-z0-9_]*Instantiate' build/$v/so.h | head -1 | sed 's/Instantiate$//')
+            START=$(grep -o '[A-Za-z0-9_]*_X5Fstart' build/$v/so.h | head -1); MEM=$(grep -o '[A-Za-z0-9_]*_memory' build/$v/so.h | head -1)
+            echo "$v: prefix=$P start=$START mem=$MEM" | tee -a results.md
+            cat > build/$v/main.c <<MAIN
+          #include <stdio.h>
+          #include <stdlib.h>
+          #include "w2c2_base.h"
+          #include "wasi.h"
+          #include "so.h"
+          void trap(Trap t) { fprintf(stderr, "TRAP: %s\n", trapDescription(t)); abort(); }
+          wasmMemory* wasiMemory(wasmModuleInstance* i) { return $MEM((${P}Instance*)i); }
+          extern char** environ;
+          int main(int argc, char* argv[]) {
+            if (!wasiInit(argc, argv, environ)) return 1;
+            if (!wasiFileDescriptorAdd(-1, "/", NULL)) return 1;
+            { ${P}Instance inst; ${P}Instantiate(&inst, NULL); $START(&inst); ${P}FreeInstance(&inst); }
+            return 0;
+          }
+          MAIN
+            for cc in gcc clang; do command -v $cc >/dev/null || continue
+              $cc -O3 -ffp-contract=fast $M -std=gnu99 -Wno-everything -Iw2c2src/w2c2 -Iw2c2src/wasi -Ibuild/$v "-DW2C2_SIMDE_HEADER=\"$PWD/simde/simde/wasm/simd128.h\"" build/$v/main.c build/$v/so.c $WASILIB -o bin/w2c2-$v-$cc -lm 2> build/$v/$cc.err || { echo "BUILD FAILED w2c2 $v $cc: $(grep -m3 -E 'error|undefined' build/$v/$cc.err | cut -c1-250 | tr '\n' ' ')" | tee -a results.md; }
+            done
+          done
+          ls bin | tr '\n' ' '
+          mkdir -p nat; cd wasm-perf; cc -O3 -fno-math-errno shootout.c -lm -DSIMD=0 -o ../nat/n-scalar; cc -O3 -fno-math-errno shootout.c -lm $M -DSIMD=0 -o ../nat/n-hostisa-auto; cd ..
+          python3 - <<'PY'
+          import json, glob, os
+          W = os.environ['WASMTIME']; rows = []
+          for f in sorted(glob.glob('nat/*')): rows.append({'name': 'native ' + os.path.basename(f), 'cmd': f})
+          for v in ('scalar', 'simd', 'simd-u2', 'simd-vb32'): rows.append({'name': f'wasmtime {v}', 'cmd': f'{W} run so/so-{v}.wasm'})
+          for f in sorted(glob.glob('bin/*')): rows.append({'name': 'w2c2 ' + os.path.basename(f)[5:], 'cmd': f})
+          json.dump(rows, open('spec.json', 'w'))
+          PY
+          python3 wasm-perf/runner.py spec.json --rounds 3 --ref 'wasmtime simd' --kernels matmul256,nbody1024,transform,interp --title "w2c2 ${{ matrix.label }} (ref = wasmtime simd)"
+      - name: Publish results to the wasm-perf-results branch
+        if: always()
+        uses: ./.github/actions/publish
+        with: { name: "wasm-w2c2-${{ matrix.label }}-${{ github.run_id }}" }
