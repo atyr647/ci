@@ -32,8 +32,9 @@ jobs:
             -DDAWN_ENABLE_VULKAN=OFF -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON \
             -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DDAWN_BUILD_PROTOBUF=OFF -DDAWN_ENABLE_INSTALL=OFF \
             -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=ON -DTINT_BUILD_HLSL_WRITER=ON -DTINT_BUILD_MSL_WRITER=ON -DTINT_BUILD_SPV_WRITER=ON -DTINT_BUILD_SPV_READER=OFF \
-            -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_WGSL_READER=ON -DTINT_BUILD_WGSL_WRITER=ON -DDAWN_WERROR=OFF > cfg-native.log 2>&1
-          cmake --build build-native --target tint_cmd_tint_cmd > build-native.log 2>&1; tail -2 build-native.log
+            -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_WGSL_READER=ON -DTINT_BUILD_WGSL_WRITER=ON -DDAWN_WERROR=OFF > cfg-native.log 2>&1 || { echo '--- configure failed'; tail -40 cfg-native.log; exit 1; }
+          cmake --build build-native --target tint_cmd_tint_cmd > build-native.log 2>&1 || { echo '--- build failed'; grep -E 'error|Error' build-native.log | head -20; tail -15 build-native.log; exit 1; }
+          tail -2 build-native.log
           find build-native -name tint -type f -perm -u+x | head -1
       - name: Wasm tint (wasi-sdk 34, wasm32-wasip1, the stack made large enough)
         run: |
@@ -44,8 +45,9 @@ jobs:
             -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=ON -DTINT_BUILD_HLSL_WRITER=ON -DTINT_BUILD_MSL_WRITER=ON -DTINT_BUILD_SPV_WRITER=ON -DTINT_BUILD_SPV_READER=OFF \
             -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_WGSL_READER=ON -DTINT_BUILD_WGSL_WRITER=ON -DDAWN_WERROR=OFF \
             -DCMAKE_CXX_FLAGS="-D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN" \
-            -DCMAKE_EXE_LINKER_FLAGS="-lwasi-emulated-process-clocks -lwasi-emulated-signal -lwasi-emulated-mman -Wl,-z,stack-size=16777216 -Wl,--initial-memory=335544320" > cfg-wasm.log 2>&1
-          cmake --build build-wasm --target tint_cmd_tint_cmd > build-wasm.log 2>&1; tail -2 build-wasm.log
+            -DCMAKE_EXE_LINKER_FLAGS="-lwasi-emulated-process-clocks -lwasi-emulated-signal -lwasi-emulated-mman -Wl,-z,stack-size=16777216 -Wl,--initial-memory=335544320" > cfg-wasm.log 2>&1 || { echo '--- configure failed'; tail -40 cfg-wasm.log; exit 1; }
+          cmake --build build-wasm --target tint_cmd_tint_cmd > build-wasm.log 2>&1 || { echo '--- build failed'; grep -E 'error|Error' build-wasm.log | head -20; tail -15 build-wasm.log; exit 1; }
+          tail -2 build-wasm.log
           find build-wasm -name 'tint*' -type f -size +1M ! -name '*.a' ! -name '*.o'
       - name: Time both on the same shaders; compare the outputs byte for byte
         run: |
