@@ -69,6 +69,31 @@ jobs:
           echo "--- running the quarantined copy from a shell (no GUI prompt possible in CI):"; chmod +x hello-q.com; ./hello-q.com; echo "exit: $?"
           echo "--- direct execution of the unquarantined file:"; chmod +x hello.com; ./hello.com; echo "exit: $?"
           echo "--- what the first run left behind in the home directory:"; ls -la ~ | grep -i ape || true; ls -la ~/.ape* 2>/dev/null || true
+      - name: Windows - can the file be Authenticode-signed and still run? (self-signed certificate; SmartScreen reputation itself cannot be tested in CI)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          cd out
+          Copy-Item hello.com signed.exe
+          $cert = New-SelfSignedCertificate -Type CodeSigningCert -Subject "CN=Test Signing" -CertStoreLocation Cert:\CurrentUser\My
+          $r = Set-AuthenticodeSignature -FilePath signed.exe -Certificate $cert -HashAlgorithm SHA256
+          "sign status: $($r.Status) / $($r.StatusMessage)"
+          $v = Get-AuthenticodeSignature signed.exe; "verify: $($v.Status) (UnknownError/NotTrusted is expected for a self-signed root); signer: $($v.SignerCertificate.Subject)"
+          ./signed.exe; "run after signing, exit: $LASTEXITCODE"
+          (Get-Item hello.com).Length; (Get-Item signed.exe).Length
+          # does the zip directory (Cosmopolitan's embedded read-only file system) still resolve after the signature was appended?
+          "--- hello.com file listing as a zip, before and after:"
+          try { Add-Type -AssemblyName System.IO.Compression.FileSystem; foreach ($f in 'hello.com','signed.exe') { try { $z = [IO.Compression.ZipFile]::OpenRead((Resolve-Path $f)); "$f : zip entries = $($z.Entries.Count)"; $z.Dispose() } catch { "$f : not readable as zip ($($_.Exception.Message))" } } } catch { "zip check skipped" }
+      - name: macOS - ad-hoc code signature on the file
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          cd out; cp hello.com hello-signed.com
+          codesign --force -s - hello-signed.com 2>&1 | head -5; echo "codesign exit: $?"
+          codesign -dv hello-signed.com 2>&1 | head -5 || true
+          chmod +x hello-signed.com; ./hello-signed.com; echo "run after signing, exit: $?"
+          sh ./hello-signed.com; echo "via sh, exit: $?"
       - name: Sizes and compression
         run: |
           cd out; for f in *.com; do s=$(wc -c < $f); z=$(gzip -9 -c $f | wc -c); x=$(xz -6 -c $f 2>/dev/null | wc -c); echo "$f: $s bytes, gzip -9: $z, xz -6: ${x:-n/a}"; done
