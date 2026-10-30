@@ -1,0 +1,90 @@
+name: platform-distribution
+# How can ONE unmodified Cosmopolitan fat file reach a Mac user from a web store? Embedded ad-hoc signature added on a server (Linux, rcodesign) vs made on the Mac (codesign), with the
+# quarantine attribute of a browser download; what a real Chrome does with a downloaded executable and with a file kept in page storage.
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2, RCODESIGN: 0.29.0 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The game file (unmodified fat executable with an embedded zip) and the loader source
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          mkdir out; cosmo/bin/cosmocc -O2 platform-probes/app.c -o out/game.com
+          echo "hello from the zip" > asset.txt; (cd out && cp ../asset.txt . && zip -q game.com asset.txt && rm asset.txt)
+          # the zip entry must be /zip/asset.txt: zip -j style
+          cp cosmo/bin/ape-m1.c out/ape-m1.c; ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: dist-game, path: out }
+  prep-mac:
+    needs: build
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: dist-game, path: in }
+      - name: Unsigned bundle and bare launcher (arm64 + x86-64), loader built from the stub's source
+        run: |
+          D=platform-probes/distribution; mkdir -p pkg/App.app/Contents/{MacOS,Resources}
+          clang -O2 -arch arm64 -arch x86_64 -Wl,-no_adhoc_codesign -o pkg/launcher $D/launcher.c 2>&1 | tail -3
+          cp pkg/launcher pkg/App.app/Contents/MacOS/launcher
+          clang -O2 -w -o pkg/App.app/Contents/MacOS/ape-loader in/ape-m1.c -Wl,-no_adhoc_codesign 2>&1 | tail -3
+          cp in/game.com pkg/App.app/Contents/Resources/game.com; cp $D/Info.plist pkg/App.app/Contents/Info.plist
+          chmod +x pkg/launcher pkg/App.app/Contents/MacOS/* pkg/App.app/Contents/Resources/game.com
+          for f in pkg/launcher pkg/App.app/Contents/MacOS/*; do codesign --remove-signature "$f" 2>/dev/null; echo "$f: $(codesign -dvvv "$f" 2>&1 | grep -E 'not signed|Signature' | head -1)"; done
+          file pkg/launcher | head -2
+          tar -C pkg -cf unsigned.tar .
+      - uses: actions/upload-artifact@v4
+        with: { name: dist-unsigned, path: unsigned.tar }
+  sign-server:
+    needs: prep-mac
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: dist-unsigned, path: in }
+      - name: Embedded ad-hoc signature added on the server (rcodesign on Linux; no certificate, no Mac)
+        run: |
+          curl -fsSL "https://github.com/indygreg/apple-platform-rs/releases/download/apple-codesign%2F$RCODESIGN/apple-codesign-$RCODESIGN-x86_64-unknown-linux-musl.tar.gz" | tar xz
+          RC=$(find . -name rcodesign -type f | head -1); chmod +x $RC; $RC --version
+          mkdir u s && tar -C u -xf in/unsigned.tar
+          time $RC sign u/launcher s/launcher 2>&1 | tail -3
+          $RC sign u/App.app s/App.app 2>&1 | tail -5
+          $RC print-signature-info s/launcher 2>&1 | head -25
+          ls -la s s/App.app/Contents/MacOS; tar -C s -cf server.tar .
+          # a second signature of the same file with another identifier: what a per-download signature would look like
+          $RC sign --binary-identifier "dl-$(date +%s%N)" u/launcher s/launcher2 2>&1 | tail -2; cmp s/launcher s/launcher2 | head -1
+      - uses: actions/upload-artifact@v4
+        with: { name: dist-server, path: server.tar }
+  mac-run:
+    needs: [prep-mac, sign-server]
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { pattern: dist-*, path: art }
+      - name: Run
+        run: |
+          mkdir -p w/unsigned w/server; tar -C w/unsigned -xf art/dist-unsigned/unsigned.tar; tar -C w/server -xf art/dist-server/server.tar
+          bash platform-probes/distribution/mac_run.sh $PWD/w 2>&1 | tee mac-out.txt
+      - name: Result (last)
+        if: always()
+        run: grep -E '^(RESULT|#####)' mac-out.txt | cut -c1-330
+  browser:
+    needs: prep-mac
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: dist-unsigned, path: art }
+      - name: Chrome download and page storage
+        env: { PLAYWRIGHT_SKIP_BROWSER_DOWNLOAD: '1' }
+        run: |
+          mkdir -p w/pkg && tar -C w/pkg -xf art/unsigned.tar
+          cd w && npm init -y >/dev/null && npm i playwright-core >/dev/null 2>&1
+          ls "/Applications/Google Chrome.app" >/dev/null 2>&1 && echo "Chrome present" || echo "no Chrome"
+          node ../platform-probes/distribution/browser_probe.js pkg/launcher $PWD 2>&1 | tee ../browser-out.txt
+      - name: Result (last)
+        if: always()
+        run: grep -E '^RESULT' browser-out.txt | cut -c1-400

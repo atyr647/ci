@@ -14,9 +14,13 @@ jobs:
           mkdir out; B=$PWD/cosmo/bin
           W="-Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -Wl,--wrap=pthread_mutex_trylock -Wl,--wrap=pthread_cond_wait -Wl,--wrap=pthread_cond_timedwait"
           $B/cosmocc -O2 -c alloc-probe/fast_sync.c -o out/fast_sync.o
+          $B/cosmocc -O2 -c alloc-probe/nsync_fast.c -o out/nsync_fast.o
+          WI="-Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock"
           $B/cosmoc++ -O2 -std=c++17 alloc-probe/sync_stress.cpp -o out/stress-library.com
           $B/cosmoc++ -O2 -std=c++17 -DHAVE_TIMEDLOCK alloc-probe/sync_stress.cpp out/fast_sync.o $W -o out/stress-fast.com
+          $B/cosmoc++ -O2 -std=c++17 -DHAVE_TIMEDLOCK alloc-probe/sync_stress.cpp out/nsync_fast.o $WI -o out/stress-inline.com
           $B/cosmoc++ -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o out/probe-library.com
+          $B/cosmoc++ -O2 -std=c++17 alloc-probe/alloc_probe.cpp out/nsync_fast.o $WI -o out/probe-inline.com
           $B/cosmoc++ -O2 -std=c++17 alloc-probe/alloc_probe.cpp out/fast_sync.o $W -o out/probe-fast.com
           ls -la out
       - uses: actions/upload-artifact@v4
@@ -48,8 +52,8 @@ jobs:
         run: |
           run() { if [ "$RUNNER_OS" = Windows ]; then if [ -f "$1.com" ]; then cp "$1.com" "$1.exe"; fi; "./$1.exe"; elif [ -f "$1.com" ]; then sh "./$1.com"; else "./$1"; fi; }
           set +e; cd out; chmod +x *
-          for v in native library fast; do echo "=== stress $v"; run stress-$v > ../s-$v.txt 2>&1; echo "exit=$?"; grep -E "FAIL|TIME|RESULT" ../s-$v.txt || tail -3 ../s-$v.txt; done
-          for v in native library fast; do echo "=== probe $v"; run probe-$v > ../p-$v.txt 2>&1; echo "exit=$?"; grep -iE "mutex" ../p-$v.txt || tail -3 ../p-$v.txt; done
+          for v in native library inline fast; do echo "=== stress $v"; run stress-$v > ../s-$v.txt 2>&1; echo "exit=$?"; grep -E "FAIL|TIME|RESULT" ../s-$v.txt || tail -3 ../s-$v.txt; done
+          for v in native library inline fast; do echo "=== probe $v"; run probe-$v > ../p-$v.txt 2>&1; echo "exit=$?"; grep -iE "mutex" ../p-$v.txt || tail -3 ../p-$v.txt; done
       - name: Result (last)
         if: always()
         run: echo "(see the Run step; stress lines then probe lines)"
