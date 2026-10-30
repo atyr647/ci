@@ -108,10 +108,12 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
+      - uses: actions/checkout@v4
       - name: Tools
         run: |
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
           mkdir -p cosmo && unzip -q cosmocc.zip -d cosmo
+          cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
       - uses: actions/download-artifact@v4
         with: { name: wgt-x86_64, path: parts }
       - uses: actions/download-artifact@v4
@@ -122,9 +124,10 @@ jobs:
           for n in wgt gpu-probe; do
             $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o $( [ $n = wgt ] && echo wgt-dawn || echo gpu-probe ).com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg
           done
-          ls -la wgt-dawn.com gpu-probe.com
+          $B/cosmocc -O1 -Ici-webgpu-test ci-webgpu-test/d3d12min.c -o d3d12min.com
+          ls -la wgt-dawn.com gpu-probe.com d3d12min.com
       - uses: actions/upload-artifact@v4
-        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com" }
+        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com\nd3d12min.com" }
 
   test:
     needs: link
@@ -191,6 +194,11 @@ jobs:
           ( ./gpu-probe.exe --strace 2>&1 | cat ) > d3dstrace.txt
           tr '\r' '\n' < d3dstrace.txt | tail -60 | cut -c1-220
           set -e
+          cp d3d12min.com d3d12min.exe
+          echo "--- the smallest D3D12 test (no Dawn), with the exception wrapper"
+          ( ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
+          echo "--- and without it"
+          ( NO_SHIELD=1 ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
           echo "--- D3D12, no DXC next to the executable"
           ci-webgpu-test/run-one.sh "dawn built by cosmocc (D3D12 WARP, FXC)" ./wgt-dawn.exe
           echo "--- D3D12 with Microsoft's DXC next to the executable"
