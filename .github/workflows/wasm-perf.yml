@@ -1,0 +1,61 @@
+name: wasm-perf
+# Questions: (1) do threads work in wasm under Wasmtime and do they scale; (2) how much slower is SIMD-heavy code in wasm than native (scalar and 128-bit SIMD)?
+on:
+  workflow_dispatch:
+  push:
+    paths: ['wasm-perf/**', '.github/workflows/wasm-perf.yml']
+env: { WT: v50.0.0, COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Compile the kernels for wasm (4 variants) and natively (Cosmopolitan, 2 variants)
+        run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          S=$(ls -d $PWD/wasi-sdk-34*)
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          mkdir out; cd wasm-perf
+          $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DKERNEL=0 bench.c -o ../out/bench-wasm-scalar.wasm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128    -DKERNEL=0 bench.c -o ../out/bench-wasm-autovec.wasm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128    -DKERNEL=1 bench.c -o ../out/bench-wasm-simd.wasm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DKERNEL=1 bench.c -o ../out/bench-wasm-vec-lowered.wasm
+          $S/bin/clang --target=wasm32-wasip1-threads -pthread -O2 threads.c -o ../out/threads.wasm -lm
+          ../cosmo/bin/cosmocc -O3 -DKERNEL=0 bench.c -o ../out/bench-native-scalar.com
+          ../cosmo/bin/cosmocc -O3 -DKERNEL=1 bench.c -o ../out/bench-native-simd.com
+          ../cosmo/bin/cosmocc -O2 threads.c -o ../out/threads-native.com -lm -lpthread
+          ls -la ../out
+      - uses: actions/upload-artifact@v4
+        with: { name: perf-bins, path: out }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    asset: x86_64-linux.tar.xz }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux.tar.xz }
+          - { label: mac-arm64,   os: macos-latest,     asset: aarch64-macos.tar.xz }
+          - { label: win-x64,     os: windows-latest,   asset: x86_64-windows.zip }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: perf-bins, path: out }
+      - name: Wasmtime CLI
+        run: |
+          curl -fsSL -o wt.${{ matrix.asset }} https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
+          mkdir wt && if [[ "${{ matrix.asset }}" == *.zip ]]; then cd wt && unzip -q ../wt.${{ matrix.asset }} && cd ..; else tar xJf wt.${{ matrix.asset }} -C wt; fi
+          W=$(find wt -name 'wasmtime' -o -name 'wasmtime.exe' | grep -v '\.dll\|\.lib\|\.h$' | head -1); echo "WASMTIME=$PWD/$W" >> "$GITHUB_ENV"; "$PWD/$W" --version
+          nproc 2>/dev/null || echo "$NUMBER_OF_PROCESSORS cpus"; sysctl -n hw.ncpu 2>/dev/null || true
+      - name: SIMD - wasm variants (Wasmtime, Cranelift JIT) against native
+        run: |
+          cd out
+          for v in scalar autovec simd vec-lowered; do echo "--- wasm $v"; "$WASMTIME" run bench-wasm-$v.wasm; done
+          for v in scalar simd; do echo "--- native (Cosmopolitan) $v"; if [ "$RUNNER_OS" = Windows ]; then cp bench-native-$v.com bench-native-$v.exe; ./bench-native-$v.exe; else chmod +x bench-native-$v.com; sh ./bench-native-$v.com; fi; done
+      - name: Threads - wasm (wasi-threads) scaling
+        continue-on-error: true
+        run: |
+          cd out
+          for n in 1 2 4; do echo "--- wasm threads=$n"; "$WASMTIME" run -W threads=y -S threads=y threads.wasm $n; done
+          for n in 1 4; do echo "--- native threads=$n"; if [ "$RUNNER_OS" = Windows ]; then cp threads-native.com threads-native.exe; ./threads-native.exe $n; else chmod +x threads-native.com; sh ./threads-native.com $n; fi; done
