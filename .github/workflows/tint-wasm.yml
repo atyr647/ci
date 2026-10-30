@@ -26,6 +26,9 @@ jobs:
         run: |
           sed -i 's/^#elif defined(__linux__)$/#elif defined(__linux__) || defined(__wasi__)/' dawn/src/utils/platform.h
           grep -n "__wasi__" dawn/src/utils/platform.h
+          # outside a browser the wasm 'debugger' statement does not exist: trap instead
+          sed -i 's/#define DAWN_DETAIL_TRAP() EM_ASM(debugger;);/#define DAWN_DETAIL_TRAP() __builtin_trap();/' dawn/src/utils/force_crash.h
+          grep -n "__builtin_trap" dawn/src/utils/force_crash.h
       - name: Configure for wasm32-wasip1 (only Tint's command-line tool)
         run: |
           S=$PWD/$(ls -d wasi-sdk-34*)
