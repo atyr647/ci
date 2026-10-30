@@ -1,0 +1,106 @@
+name: wasmtime-bundle
+# Two ways to get Wasmtime INTO the single file at build time instead of fetching it at run time:
+#  (1) bundled: the official per-OS libraries are stored inside the executable (an APE is a zip archive), extracted once, dlopen'ed. Tested on all five targets.
+#  (2) static: Wasmtime compiled from source as a static library (Rust musl target, C parts built with the Cosmopolitan compiler) and LINKED into the
+#      Cosmopolitan executable: one implementation, no dlopen. Spike: do the symbols resolve, does it run?
+on:
+  workflow_dispatch:
+env:
+  WT: v50.0.0
+  COSMOCC: 4.0.2
+jobs:
+  bundled-build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the host and put the four official libraries inside it
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo && cp cosmo/bin/ape-x86_64.elf ~/.ape-1.10 && chmod +x ~/.ape-1.10
+          base=https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT
+          mkdir -p dl stage/wasmtime
+          curl -fsSL $base-x86_64-linux-c-api.tar.xz  | tar xJ -C dl
+          curl -fsSL $base-aarch64-linux-c-api.tar.xz | tar xJ -C dl
+          curl -fsSL $base-aarch64-macos-c-api.tar.xz | tar xJ -C dl
+          curl -fsSL -o dl/win.zip $base-x86_64-windows-c-api.zip && (cd dl && unzip -q win.zip)
+          find dl -name 'libwasmtime.so' -o -name 'libwasmtime.dylib' -o -name 'wasmtime.dll' | grep -v '/min/' | sort
+          cp "$(find dl -path '*x86_64-linux*' -name libwasmtime.so   | grep -v /min/ | head -1)" stage/wasmtime/libwasmtime-x64.so
+          cp "$(find dl -path '*aarch64-linux*' -name libwasmtime.so  | grep -v /min/ | head -1)" stage/wasmtime/libwasmtime-arm64.so
+          cp "$(find dl -path '*aarch64-macos*' -name libwasmtime.dylib | grep -v /min/ | head -1)" stage/wasmtime/libwasmtime-arm64.dylib
+          cp "$(find dl -path '*windows*' -name wasmtime.dll | grep -v /min/ | head -1)" stage/wasmtime/wasmtime-x64.dll
+          inc=$(dirname "$(find dl -path '*x86_64-linux*' -name wasmtime.h | head -1)")
+          cd ci-wasm-host
+          cat $inc/wasmtime.h $inc/wasmtime/*.h $inc/wasm.h $inc/wasi.h > all.h
+          python3 gen-shim.py wt-host.c all.h
+          ../cosmo/bin/cosmocc -O2 -I$inc -o wt-host.com wt-host.c
+          ls -la wt-host.com
+          cp wt-host.com ../wt-bundled.com
+          cd ../stage && zip -q -9 ../wt-bundled.com wasmtime/* && cd ..
+          ls -la wt-bundled.com; unzip -l wt-bundled.com | tail -8
+      - uses: actions/upload-artifact@v4
+        with: { name: wt-bundled, path: "wt-bundled.com\nci-wasm-host/guest.wasm" }
+  bundled-test:
+    needs: bundled-build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: mac-arm64,   os: macos-latest }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env: { RUNNER_LABEL: '${{ matrix.label }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: wt-bundled, path: b }
+      - name: One file, no network, no library path - Wasmtime comes out of the file itself
+        continue-on-error: true
+        run: |
+          chmod +x ci-wasm-host/run-one.sh
+          cd b
+          if [ "$RUNNER_OS" = Windows ]; then cp wt-bundled.com wt-bundled.exe; ../ci-wasm-host/run-one.sh "bundled wasmtime" ./wt-bundled.exe --bundled ci-wasm-host/guest.wasm
+          else chmod +x wt-bundled.com; ../ci-wasm-host/run-one.sh "bundled wasmtime" sh ./wt-bundled.com --bundled ci-wasm-host/guest.wasm; fi
+  static-link:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo && cp cosmo/bin/ape-x86_64.elf ~/.ape-1.10 && chmod +x ~/.ape-1.10
+          rustup target add ${{ matrix.arch }}-unknown-linux-musl
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux-c-api.tar.xz | tar xJ
+          git clone -q --depth 1 --branch $WT https://github.com/bytecodealliance/wasmtime wt
+      - name: Build libwasmtime.a from source for the musl target (C parts with the Cosmopolitan compiler)
+        working-directory: wt
+        run: |
+          A=${{ matrix.arch }}; T=${A}_unknown_linux_musl
+          export CC_$T=$GITHUB_WORKSPACE/cosmo/bin/${A}-unknown-cosmo-cc AR_$T=$GITHUB_WORKSPACE/cosmo/bin/${A}-linux-cosmo-ar
+          cargo rustc -p wasmtime-c-api --release --target ${A}-unknown-linux-musl --no-default-features \
+            --features wasi,wat,async,cranelift,pulley,component-model,component-model-async,gc,gc-drc,threads,pooling-allocator --crate-type staticlib 2>&1 | tail -15
+          find target -name '*.a' -size +5M -exec ls -la {} \;
+      - name: Link it into a Cosmopolitan executable and report every unresolved symbol
+        run: |
+          A=${{ matrix.arch }}
+          lib=$(find wt/target/${A}-unknown-linux-musl/release -maxdepth 1 -name 'lib*.a' -size +5M | head -1); echo "lib: $lib"
+          inc=$(dirname "$(find wasmtime-$WT-x86_64-linux-c-api -name wasmtime.h | head -1)")
+          cosmo/bin/${A}-unknown-cosmo-c++ -O2 -DWT_STATIC -I$inc ci-wasm-host/wt-host.c "$lib" -o wt-static.$A.com -lm -lpthread -ldl 2>&1 | tee link.log | grep -E "undefined reference|multiple definition|error" | sed -E 's/.*(undefined reference to|multiple definition of)/\1/' | sort | uniq -c | sort -rn | head -60
+          ls -la wt-static.$A.com* 2>&1 | head
+      - name: "Run it (x86_64 only, because this runner is x86-64)"
+        if: matrix.arch == 'x86_64'
+        continue-on-error: true
+        run: |
+          chmod +x ci-wasm-host/run-one.sh
+          ci-wasm-host/run-one.sh "wasmtime LINKED INTO the Cosmopolitan executable" sh ./wt-static.x86_64.com ci-wasm-host/guest.wasm
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'static-${{ matrix.arch }}', path: "link.log" }

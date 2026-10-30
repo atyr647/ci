@@ -8,7 +8,13 @@
 #include <cosmo.h>
 #include <dlfcn.h>
 #include <wasmtime.h>
+#ifdef WT_STATIC
+/* Wasmtime linked straight into this executable (libwasmtime.a built from source): no dlopen, no ABI shim */
+#define WT_CB(f, T) ((T)(void *)(f))
+static int wt_load(void *h) { (void)h; return 0; }
+#else
 #include "wt_shim.h"
+#endif
 
 static char g_reply[64]; static int g_reply_len;
 
@@ -50,17 +56,56 @@ static wasm_functype_t *mk_i32i32_i32(void) {   /* (i32, i32) -> i32 */
   wasm_valtype_t *ps[2] = {wasm_valtype_new(WASM_I32), wasm_valtype_new(WASM_I32)}, *rs[1] = {wasm_valtype_new(WASM_I32)};
   wasm_valtype_vec_t pv, rv; wasm_valtype_vec_new(&pv, 2, ps); wasm_valtype_vec_new(&rv, 1, rs); return wasm_functype_new(&pv, &rv);
 }
+
+#ifndef WT_STATIC
+/* --bundled: the official library for THIS OS/arch is stored inside the executable (it is a zip archive); copy it out once and dlopen the copy */
+static const char *bundled_name(void) {
+  if (IsWindows()) return "wasmtime-x64.dll";                 /* Windows on ARM runs this file as x86-64 under emulation */
+  if (IsXnu()) return "libwasmtime-arm64.dylib";
+#ifdef __aarch64__
+  return "libwasmtime-arm64.so";
+#else
+  return "libwasmtime-x64.so";
+#endif
+}
+static int extract_bundled(char *out, size_t outsz) {
+  char src[256]; snprintf(src, sizeof src, "/zip/wasmtime/%s", bundled_name());
+  FILE *in = fopen(src, "rb"); if (!in) { fprintf(stderr, "not bundled: %s\n", src); return 0; }
+  const char *t = getenv("TMPDIR"); if (!t) t = getenv("TEMP"); if (!t) t = "/tmp";
+  snprintf(out, outsz, "%s/wt-bundled-%s", t, bundled_name());
+  fseek(in, 0, SEEK_END); long n = ftell(in); fseek(in, 0, SEEK_SET);
+  FILE *chk = fopen(out, "rb"); long have = -1; if (chk) { fseek(chk, 0, SEEK_END); have = ftell(chk); fclose(chk); }
+  if (have != n) {
+    FILE *o = fopen(out, "wb"); if (!o) { perror(out); fclose(in); return 0; }
+    char buf[1 << 16]; size_t k; while ((k = fread(buf, 1, sizeof buf, in)) > 0) fwrite(buf, 1, k, o);
+    fclose(o); fprintf(stderr, "extracted %ld bytes to %s\n", n, out);
+  } else fprintf(stderr, "already extracted: %s\n", out);
+  fclose(in); return 1;
+}
+#endif
 int main(int argc, char **argv) {
-  if (argc < 3) { fprintf(stderr, "usage: %s <libwasmtime> <guest.wasm>\n", argv[0]); return 1; }
+#ifdef WT_STATIC
+  if (argc < 2) { fprintf(stderr, "usage: %s <guest.wasm>\n", argv[0]); return 1; }
+  const char *guest = argv[1];
+#else
+  if (argc < 3) { fprintf(stderr, "usage: %s <libwasmtime | --bundled> <guest.wasm>\n", argv[0]); return 1; }
+  const char *guest = argv[2];
+#endif
   setvbuf(stdout, NULL, _IONBF, 0);
 #ifdef __aarch64__
   __asm__ volatile("mov %0, x28" : "=r"(g_tls));
 #endif
 #define STAGE(s) fprintf(stderr, "stage: %s\n", s)
   STAGE("dlopen");
-  void *h = cosmo_dlopen(argv[1], RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 8; }
+#ifdef WT_STATIC
+  void *h = 0;
+#else
+  char extracted[512]; const char *libpath = argv[1];
+  if (!strcmp(libpath, "--bundled")) { if (!extract_bundled(extracted, sizeof extracted)) return 7; libpath = extracted; }
+  void *h = cosmo_dlopen(libpath, RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 8; }
+#endif
   STAGE("load symbols"); { int r = wt_load(h); if (r) return r; }
-  FILE *f = fopen(argv[2], "rb"); if (!f) { perror("guest"); return 1; } fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
+  FILE *f = fopen(guest, "rb"); if (!f) { perror("guest"); return 1; } fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
   uint8_t *wasm = malloc(len); if (fread(wasm, 1, len, f) != (size_t)len) return 1; fclose(f);
 
   STAGE("engine_new");
