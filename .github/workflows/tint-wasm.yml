@@ -22,6 +22,10 @@ jobs:
         run: |
           mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
           git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
+      - name: Teach Dawn's platform detection that WASI is POSIX
+        run: |
+          sed -i 's/^#elif defined(__linux__)$/#elif defined(__linux__) || defined(__wasi__)/' dawn/src/utils/platform.h
+          grep -n "__wasi__" dawn/src/utils/platform.h
       - name: Configure for wasm32-wasip1 (only Tint's command-line tool)
         run: |
           S=$PWD/$(ls -d wasi-sdk-34*)
