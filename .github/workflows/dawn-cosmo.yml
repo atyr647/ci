@@ -64,17 +64,20 @@ jobs:
             dawn
             build
           key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3-${{ github.run_id }}
-      - name: Link the WebGPU test against it (one architecture)
+      - name: Link the WebGPU test and the GPU probe against it (one architecture)
         run: |
           B=$HOME/cosmo/bin; lib=$(find $PWD/build -name libwebgpu_dawn.a | head -1)
-          $B/$COSMO_ARCH-unknown-cosmo-cc -O2 -I$PWD/dawn/include -I$PWD/build/gen/include -c ci-webgpu-test/wgt.c -o wgt.o
+          INC="-I$PWD/dawn/include -I$PWD/build/gen/include -I$PWD/ci-webgpu-test"
+          $B/$COSMO_ARCH-unknown-cosmo-cc -O2 $INC -c ci-webgpu-test/wgt.c -o wgt.o
           $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 wgt.o "$lib" -o wgt.$COSMO_ARCH.com
-          ls -la wgt.$COSMO_ARCH.com*
+          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 -std=c++20 $INC -c ci-webgpu-test/gpu_probe.cpp -o gpu_probe.o
+          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 gpu_probe.o "$lib" -o gpu-probe.$COSMO_ARCH.com
+          ls -la wgt.$COSMO_ARCH.com* gpu-probe.$COSMO_ARCH.com*
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'logs-${{ matrix.arch }}', path: "*.log" }
       - uses: actions/upload-artifact@v4
-        with: { name: 'wgt-${{ matrix.arch }}', path: 'wgt.${{ matrix.arch }}.com.dbg' }
+        with: { name: 'wgt-${{ matrix.arch }}', path: "wgt.${{ matrix.arch }}.com.dbg\ngpu-probe.${{ matrix.arch }}.com.dbg" }
 
   link:
     needs: build
@@ -91,10 +94,12 @@ jobs:
       - name: One fat file
         run: |
           B=$PWD/cosmo/bin
-          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wgt-dawn.com parts/wgt.x86_64.com.dbg parts/wgt.aarch64.com.dbg
-          ls -la wgt-dawn.com
+          for n in wgt gpu-probe; do
+            $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o $( [ $n = wgt ] && echo wgt-dawn || echo gpu-probe ).com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg
+          done
+          ls -la wgt-dawn.com gpu-probe.com
       - uses: actions/upload-artifact@v4
-        with: { name: wgt-dawn, path: wgt-dawn.com }
+        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com" }
 
   test:
     needs: link
@@ -141,6 +146,11 @@ jobs:
           chmod +x ci-webgpu-test/run-one.sh
           if [ "$RUNNER_OS" = Windows ]; then cp wgt-dawn.com wgt-dawn.exe; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" ./wgt-dawn.exe
           else chmod +x wgt-dawn.com; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" sh ./wgt-dawn.com; fi
+      - name: Which GPU would the game use (policy self-test + every adapter Dawn sees)
+        continue-on-error: true
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then cp gpu-probe.com gpu-probe.exe; ( ./gpu-probe.exe 2>&1 | cat ) | tr '\r' '\n' | grep -v Warning
+          else chmod +x gpu-probe.com; sh ./gpu-probe.com 2>&1 | grep -v Warning; fi
       - name: Windows only - last Vulkan calls before a crash (DAWN_COSMO_TRACE) and the syscall tail
         if: runner.os == 'Windows'
         continue-on-error: true

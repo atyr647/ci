@@ -12,10 +12,11 @@ static __attribute__((ms_abi)) long win_shield_handler(WinShieldPtrs *ep) {
   if (c == 0x40010006u || c == 0x4001000Au || c == 0x406D1388u) return -1;   /* EXCEPTION_CONTINUE_EXECUTION: OutputDebugString A/W, SetThreadName */
   return 0;                                                                   /* EXCEPTION_CONTINUE_SEARCH */
 }
+typedef void *(__attribute__((ms_abi)) *win_shield_add_t)(unsigned long, void *);
 static int win_shield_install(void) {
   if (!IsWindows()) return 0;
   void *k32 = cosmo_dlopen("kernel32.dll", RTLD_NOW);
-  void *(__attribute__((ms_abi)) *add)(unsigned long, void *) = k32 ? cosmo_dlsym(k32, "AddVectoredExceptionHandler") : 0;
+  win_shield_add_t add = k32 ? (win_shield_add_t)cosmo_dlsym(k32, "AddVectoredExceptionHandler") : 0;
   return add && add(1, (void *)win_shield_handler) ? 1 : 0;
 }
 #endif
