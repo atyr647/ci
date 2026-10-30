@@ -1,0 +1,119 @@
+name: wasm-shootout
+# How fast can wasm be made, compared with native, for game-style kernels (matrix multiply, n-body, bytecode interpreter, memory streaming, hashing, sorting, vertex transform)?
+# Same C source (wasm-perf/shootout.c), built for: native GCC/clang (scalar, explicit 128-bit SIMD, host-ISA with AVX2/NEON), wasm run by Wasmtime's Cranelift JIT (scalar, SIMD128,
+# SIMD128 with relaxed FMA), and wasm translated to C by wasm2c then compiled ahead of time by the host compiler (baseline ISA, host ISA) and by Cosmopolitan.
+on:
+  workflow_dispatch:
+env: { WT: v50.0.0, WABT: 1.0.37, COSMOCC: 4.0.2 }
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: wasm builds
+        run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          S=$(ls -d $PWD/wasi-sdk-34*); mkdir out; cd wasm-perf
+          $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DSIMD=0 shootout.c -o ../out/so-scalar.wasm -lm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 -DSIMD=1 shootout.c -o ../out/so-simd.wasm -lm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 -mrelaxed-simd -ffp-contract=fast -DSIMD=1 shootout.c -o ../out/so-simd-relaxed.wasm -lm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 -DSIMD=0 shootout.c -o ../out/so-autovec.wasm -lm
+          ls -la ../out
+      - uses: actions/cache@v4
+        id: wabt
+        with: { path: wabt-install, key: 'wabt-${{ env.WABT }}-linux-v1' }
+      - name: Build wasm2c (wabt from source)
+        if: steps.wabt.outputs.cache-hit != 'true'
+        run: |
+          sudo apt-get install -y ninja-build >/dev/null
+          curl -fsSL https://github.com/WebAssembly/wabt/releases/download/$WABT/wabt-$WABT.tar.xz | tar xJ
+          cmake -S wabt-$WABT -B wb -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DWITH_WASI=OFF 2>&1 | tail -3
+          cmake --build wb --target wasm2c wasm-validate 2>&1 | tail -3
+          mkdir -p wabt-install/bin wabt-install/rt wabt-install/simde
+          cp wb/wasm2c wabt-install/bin/
+          cp wabt-$WABT/wasm2c/*.c wabt-$WABT/wasm2c/*.h wabt-$WABT/wasm2c/*.inc wabt-install/rt/ 2>/dev/null || true
+          cp -r wabt-$WABT/third_party/simde/simde wabt-install/simde/ 2>/dev/null || true
+          ls -R wabt-install | head -40
+      - name: wasm2c translation
+        run: |
+          ls wabt-install/rt | head -20
+          for v in scalar simd simd-relaxed autovec; do
+            flags=""; case $v in simd*|autovec) flags="--enable-simd" ;; esac; case $v in *relaxed) flags="$flags --enable-relaxed-simd" ;; esac
+            ./wabt-install/bin/wasm2c $flags out/so-$v.wasm -n so_$(echo $v | tr - _) -o out/so_$(echo $v | tr - _).c || echo "wasm2c FAILED for $v"
+          done
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: so-wasm, path: "out\nwabt-install/rt\nwabt-install/simde" }
+  run:
+    needs: build-wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    asset: x86_64-linux.tar.xz,   march: "-march=native" }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux.tar.xz,  march: "-mcpu=native" }
+          - { label: mac-arm64,   os: macos-latest,     asset: aarch64-macos.tar.xz,  march: "-mcpu=native" }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: so-wasm, path: so }
+      - name: Wasmtime CLI and Cosmopolitan
+        run: |
+          curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
+          mkdir wt && tar xJf wt.tar.xz -C wt; echo "WASMTIME=$PWD/$(find wt -name wasmtime -type f | head -1)" >> "$GITHUB_ENV"
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cc --version | head -1; echo "cpus: $(nproc 2>/dev/null || sysctl -n hw.ncpu)"
+          grep -m1 'model name\|Model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null || true
+      - name: Native builds
+        run: |
+          mkdir bin; cd wasm-perf; CC=cc
+          $CC -O3 -DSIMD=0 shootout.c -o ../bin/n-scalar -lm                       # baseline ISA, compiler may auto-vectorise
+          $CC -O3 -fno-tree-vectorize -fno-slp-vectorize -DSIMD=0 shootout.c -o ../bin/n-novec -lm 2>/dev/null || $CC -O3 -fno-vectorize -fno-slp-vectorize -DSIMD=0 shootout.c -o ../bin/n-novec -lm
+          $CC -O3 -DSIMD=1 shootout.c -o ../bin/n-simd128 -lm                      # explicit 128-bit vectors, baseline ISA
+          $CC -O3 ${{ matrix.march }} -DSIMD=0 shootout.c -o ../bin/n-hostisa -lm  # whole host ISA (AVX2/AVX-512/NEON...), auto-vectorised
+          $CC -O3 ${{ matrix.march }} -DSIMD=1 shootout.c -o ../bin/n-hostisa-simd128 -lm
+          ../cosmo/bin/cosmocc -O3 -DSIMD=0 shootout.c -o ../bin/n-cosmo-scalar.com -lm 2>&1 | tail -2
+          ../cosmo/bin/cosmocc -O3 -DSIMD=1 shootout.c -o ../bin/n-cosmo-simd128.com -lm 2>&1 | tail -2
+      - name: wasm2c builds (ahead-of-time translation of the wasm, then the C compiler)
+        run: |
+          RT=so/wabt-install/rt; ls $RT | head
+          for v in scalar simd simd_relaxed autovec; do
+            [ -f so/out/so_$v.c ] || { echo "no wasm2c output for $v"; continue; }
+            for isa in base host; do
+              extra=""; [ $isa = host ] && extra="${{ matrix.march }}"
+              cc -O3 $extra -DW2C_NAME=so_$v -DW2C_HEADER="\"so_$v.h\"" -I$RT -Iso/out -Iso/wabt-install/simde -Wno-everything wasm-perf/w2c_main.c so/out/so_$v.c $RT/wasm-rt-impl.c $RT/wasm-rt-mem-impl.c -o bin/w2c-$v-$isa -lm 2>bin/w2c-$v-$isa.err \
+                && echo "built w2c-$v-$isa" || { echo "FAILED w2c-$v-$isa"; head -5 bin/w2c-$v-$isa.err; }
+            done
+          done
+      - name: Run everything, 3 rounds interleaved (best of rounds)
+        run: |
+          python3 - <<'PY'
+          import subprocess, os, re, glob, sys, json
+          W = os.environ['WASMTIME']
+          runs = []
+          for v in ('scalar', 'autovec', 'simd', 'simd-relaxed'): runs.append((f'wasmtime {v}', f'{W} run so/out/so-{v}.wasm'))
+          for f in sorted(glob.glob('bin/n-*')) + sorted(glob.glob('bin/w2c-*')):
+              if f.endswith(('.err', '.dbg')): continue
+              name = os.path.basename(f).replace('n-', 'native ', 1) if os.path.basename(f).startswith('n-') else os.path.basename(f).replace('w2c-', 'wasm2c ', 1)
+              runs.append((name, ('sh ' if f.endswith('.com') else '') + f))
+          best = {}; sums = {}
+          for rnd in range(3):
+              for name, cmd in (runs if rnd % 2 == 0 else list(reversed(runs))):
+                  try: out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=300).stdout
+                  except Exception as e: out = ''
+                  for m in re.finditer(r'^KERNEL (\S+) (\S+) (\d+)', out, re.M):
+                      k = (name, m.group(1)); t = float(m.group(2)); best[k] = min(best.get(k, 1e30), t); sums.setdefault(m.group(1), set()).add(m.group(3))
+          kernels = ['matmul256', 'nbody1024', 'interp', 'triad32MB', 'hash16MB', 'sort1M', 'transform']
+          names = [n for n, _ in runs]
+          ref = 'native scalar'
+          lines = ['### ${{ matrix.label }}: ms per kernel (best of 3 rounds); the last column group is speed relative to `native scalar` (above 1.00x = faster)', '', '| engine | ' + ' | '.join(kernels) + ' | ' + ' | '.join('x ' + k for k in kernels) + ' |', '|---|' + '---|' * (2 * len(kernels))]
+          for n in names:
+              row = [f'{best[(n, k)]:.2f}' if (n, k) in best else '-' for k in kernels]
+              rel = [f'{best[(ref, k)] / best[(n, k)]:.2f}' if (n, k) in best and (ref, k) in best else '-' for k in kernels]
+              lines.append(f'| {n} | ' + ' | '.join(row) + ' | ' + ' | '.join(rel) + ' |')
+          bad = {k: s for k, s in sums.items() if len(s) > 1}
+          lines += ['', 'checksums identical across all engines: ' + ('yes' if not bad else 'NO - ' + json.dumps({k: sorted(v) for k, v in bad.items()}))]
+          text = '\n'.join(lines); print(text); open(os.environ['GITHUB_STEP_SUMMARY'], 'a').write(text + '\n')
+          PY
