@@ -45,6 +45,7 @@ jobs:
         run: |
           export WGT_BACKEND=vulkan
           N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+          export BENCH_TINT_REPEAT=400   # only Tint (WGSL parse/validate/translate) in a loop, so the profile is not dominated by the host baselines and the software GPU
           for v in native cosmo native2 cosmo2; do
             case $v in native*) BIN=$N;; *) BIN=$C;; esac
             "$PERF" record -e cpu-clock -F 20000 -o perf.$v.data -- $BIN > run.$v.txt 2>&1 || { echo "perf record failed for $v"; tail -5 run.$v.txt; }

@@ -108,7 +108,8 @@ int main(int argc, char **argv) {
     if (const char *e = getenv("BENCH_SCALE")) g_scale = atof(e) > 0 ? atof(e) : 1.0;
     bool hostOnly = argc > 1 && !strcmp(argv[1], "--host-only");
     auto tProc = Clock::now();
-    host_baselines();
+    const char *tintRepeat = getenv("BENCH_TINT_REPEAT");   // profiling aid: only start-up and N shader-module creations, nothing else
+    if (!tintRepeat) host_baselines();
     if (hostOnly) return 0;
 
     auto t = Clock::now();
@@ -136,9 +137,10 @@ int main(int argc, char **argv) {
 
     // ---- shader front end (Tint) and pipeline creation (backend compiler)
     {
-        std::vector<double> mod; const int reps = scaled(6);
+        std::vector<double> mod; const int reps = tintRepeat ? atoi(tintRepeat) : scaled(6);
         for (int i = 0; i < reps; i++) { std::string w = big_wgsl(160, i); auto t0 = Clock::now(); WGPUShaderModule m = make_module(dev, w); mod.push_back(ms_since(t0)); wgpuShaderModuleRelease(m); }
         bench("shader_module_160fn_ms", median(mod), "ms");
+        if (tintRepeat) return 0;
         std::vector<double> pip;
         for (int i = 0; i < scaled(5); i++) { std::string w = big_wgsl(12, 100 + i); auto t0 = Clock::now(); WGPUShaderModule m = make_module(dev, w); WGPUComputePipeline p = make_pipeline(dev, m); pip.push_back(ms_since(t0)); wgpuComputePipelineRelease(p); wgpuShaderModuleRelease(m); }
         bench("shader_pipeline_12fn_ms", median(pip), "ms");

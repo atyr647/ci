@@ -11,4 +11,5 @@ $C -msimd128 -DSIMD=1 -DUNROLL=4 -o "$O/so-simd-u4.wasm"
 $C -msimd128 -DSIMD=1 -DVB=32 -o "$O/so-simd-vb32.wasm"
 $C -msimd128 -DSIMD=1 -DVB=32 -DUNROLL=2 -o "$O/so-simd-vb32-u2.wasm"
 $C -msimd128 -mrelaxed-simd -ffp-contract=fast -DSIMD=1 -o "$O/so-relaxed.wasm"
+$C -msimd128 -mrelaxed-simd -ffp-contract=fast -DSIMD=1 -DUNROLL=2 -o "$O/so-relaxed-u2.wasm"
 ls -la "$O" | awk '{print $5, $9}'

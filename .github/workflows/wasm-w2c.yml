@@ -1,0 +1,81 @@
+name: wasm-w2c
+# wasm2c (wabt master) with and without the relaxed-SIMD patch kept in wasm-perf/wasm2c-relaxed: coverage test of all 20 relaxed opcodes against Wasmtime, then speed of the translated kernels (gcc / clang, host ISA).
+on:
+  workflow_dispatch:
+permissions: { contents: write }
+env: { WT: v50.0.0 }
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          wasm-perf/build_wasm.sh $PWD/$(ls -d wasi-sdk-34*) $PWD/out
+      - uses: actions/upload-artifact@v4
+        with: { name: so-wasm, path: out }
+  run:
+    needs: build-wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    wt: x86_64-linux.tar.xz,  march: "-march=native" }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, wt: aarch64-linux.tar.xz, march: "-mcpu=native" }
+          - { label: mac-arm64,   os: macos-latest,     wt: aarch64-macos.tar.xz, march: "-mcpu=native" }
+    runs-on: ${{ matrix.os }}
+    env: { RESULTS_FILE: results.md }
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: so-wasm, path: so }
+      - name: Setup, build wabt master twice (plain and patched)
+        run: |
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.wt }} | tar xJ; echo "WASMTIME=$PWD/$(ls -d wasmtime-$WT-*/)wasmtime" >> "$GITHUB_ENV"
+          { echo "## ${{ matrix.label }}: wasm-w2c run ${{ github.run_id }}, commit ${{ github.sha }}"; (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true; } | tee -a results.md
+          sudo apt-get install -y ninja-build >/dev/null 2>&1 || brew install ninja >/dev/null 2>&1 || true
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/WebAssembly/wabt wabt 2>&1 | tail -1
+          cp -r wabt wabt-p
+          python3 wasm-perf/wasm2c-relaxed/patch_wabt.py wabt-p | tee -a results.md
+          (cd wabt && git log -1 --format='wabt master %h %ad' --date=short) | tee -a results.md
+          for t in wabt wabt-p; do cmake -S $t -B b-$t -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DWITH_WASI=OFF >/dev/null 2>&1; cmake --build b-$t --target wasm2c wat2wasm 2>&1 | tail -1; done
+      - name: Coverage - all 20 relaxed-simd instructions, wasm2c (plain, patched) against Wasmtime
+        run: |
+          python3 wasm-perf/wasm2c-relaxed/gen_test.py rt
+          F="--enable-relaxed-simd"
+          ./b-wabt/wat2wasm $F rt/relaxed_ops.wasm 2>/dev/null; ./b-wabt/wat2wasm $F rt/relaxed_ops.wat -o rt/relaxed_ops.wasm
+          {
+          echo "### relaxed-SIMD coverage ($(wc -l < rt/names.txt) opcodes tested)"
+          echo "plain wabt master: $(./b-wabt/wasm2c $F rt/relaxed_ops.wasm -n rt -o rt/plain.c 2>&1 | head -1)"
+          ./b-wabt-p/wasm2c $F rt/relaxed_ops.wasm -n rt -o rt/rt.c && echo "patched wasm2c: translated ($(wc -c < rt/rt.c) bytes of C)"
+          R=b-wabt/../wabt-p/wasm2c; for cc in gcc clang; do
+            command -v $cc >/dev/null || continue
+            $cc -O2 -ffp-contract=fast ${{ matrix.march }} -Wno-everything -Irt -Iwabt-p/wasm2c -Iwabt-p/third_party/simde rt/main.c rt/rt.c wabt-p/wasm2c/wasm-rt-impl.c wabt-p/wasm2c/wasm-rt-mem-impl.c -o rt/t-$cc -lm 2>rt/$cc.err || { echo "$cc build FAILED: $(grep -m3 error rt/$cc.err | cut -c1-200)"; continue; }
+            ./rt/t-$cc > rt/out-$cc.txt || echo "$cc run failed"
+          done
+          pass=0; fail=0
+          for n in $(cat rt/names.txt); do
+            w=$($WASMTIME run --invoke $n rt/relaxed_ops.wasm 2>/dev/null | tail -1)
+            line="$n wasmtime=$w"
+            for cc in gcc clang; do [ -f rt/out-$cc.txt ] || continue; v=$(grep "^$n " rt/out-$cc.txt | cut -d' ' -f2); line="$line $cc=$v"; if [ "$v" = "$w" ]; then :; else line="$line(MISMATCH)"; fi; done
+            echo "$line"; case "$line" in *MISMATCH*) fail=$((fail+1));; *) pass=$((pass+1));; esac
+          done
+          echo "agree with Wasmtime: $pass, differ: $fail"
+          } 2>&1 | tee -a results.md
+      - name: Speed - kernels translated by the patched wasm2c
+        run: |
+          mkdir aot; W2C=$PWD/b-wabt-p/wasm2c WABT=$PWD/wabt-p MARCH="${{ matrix.march }}" python3 wasm-perf/aot_matrix.py so aot spec.json 2>&1 | cut -c1-300 | tee -a results.md
+          mkdir -p bin; cd wasm-perf; M="${{ matrix.march }}"; F="-O3 -fno-math-errno shootout.c -lm"
+          cc $F -DSIMD=0 -o ../bin/n-scalar; cc $F $M -DSIMD=0 -o ../bin/n-hostisa-auto; cc $F $M -DSIMD=1 -DVB=32 -DUNROLL=2 -o ../bin/n-hostisa-vb32-u2; cd ..
+          python3 - <<'PY'
+          import json, glob
+          rows = json.load(open('spec.json'))
+          for f in sorted(glob.glob('bin/*')): rows.append({'name': 'native ' + f[4:], 'cmd': f})
+          json.dump(rows, open('spec.json', 'w'))
+          PY
+          python3 wasm-perf/runner.py spec.json --rounds 3 --ref 'wasmtime simd' --kernels matmul256,nbody1024,transform --title "wasm2c (patched) ${{ matrix.label }} (ref = wasmtime simd)"
+      - name: Publish results to the wasm-perf-results branch
+        if: always()
+        uses: ./.github/actions/publish
+        with: { name: "wasm-w2c-${{ matrix.label }}-${{ github.run_id }}" }

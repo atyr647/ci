@@ -15,7 +15,7 @@ def smoke(name, cmd):
     if rc == 0: rows.append({'name': name, 'cmd': cmd}); return True
     note(f'SMOKE FAIL {name}: rc={rc} {out.strip().splitlines()[-1][:150] if out.strip() else ""}'); return False
 W = E['WASMTIME']
-for v in ('scalar', 'autovec', 'simd', 'simd-u2', 'simd-vb32', 'relaxed'):
+for v in ('scalar', 'autovec', 'simd', 'simd-u2', 'simd-vb32', 'relaxed', 'relaxed-u2'):
     smoke(f'wasmtime {v}', f'"{W}" run {D}/so-{v}.wasm')
 VARS = ('scalar', 'simd', 'simd-u2', 'simd-vb32')
 # ---- wasmer: three compiler backends
@@ -57,13 +57,13 @@ if E.get('NODE'):
 if E.get('W2C'):
     RT = f'{E["WABT"]}/wasm2c'; SIMDE = f'{E["WABT"]}/third_party/simde'; M = E.get('MARCH', '-march=native')
     jobs = []
-    for v in ('scalar', 'autovec', 'simd', 'simd-u2', 'simd-vb32'):
+    for v in ('scalar', 'autovec', 'simd', 'simd-u2', 'simd-vb32', 'relaxed', 'relaxed-u2'):
         d = f'{WD}/w2c-{v}'; os.makedirs(d, exist_ok=True)
-        rc, out = sh(f'"{E["W2C"]}" {D}/so-{v}.wasm -n so -o {d}/so.c')
+        rc, out = sh(f'"{E["W2C"]}" {"--enable-relaxed-simd " if "relaxed" in v else ""}{D}/so-{v}.wasm -n so -o {d}/so.c')
         if rc != 0: note(f'wasm2c {v}: rc={rc} {out.strip()[-300:]}'); continue
         note(f'wasm2c {v}: ok, {os.path.getsize(d + "/so.c")} bytes of C')
         for cc in E.get('CCS', 'gcc,clang').split(','):
-            for isa, flags in (('base', ''), ('host', M), ('host+oobelim', M + ' -DWASM_RT_NONCONFORMING_ALLOW_OOB_READ_ELIMINATION=1')):
+            for isa, flags in (('base', ''), ('host', M), ('host+oobelim', M + ' -ffp-contract=fast -DWASM_RT_NONCONFORMING_ALLOW_OOB_READ_ELIMINATION=1')):
                 if isa != 'host+oobelim' and v != 'simd': continue
                 jobs.append((v, cc, isa, flags, d))
     def build(j):
