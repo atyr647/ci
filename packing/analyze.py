@@ -22,6 +22,7 @@ def cls_of(sec):
     return 'other'
 
 items = []   # (secname, size, path)
+outsz = collections.Counter()
 pending = None
 started = False
 for l in open(mapf, errors='replace'):
@@ -31,7 +32,10 @@ for l in open(mapf, errors='replace'):
     if l.startswith('Cross Reference Table'): break
     if not l.strip(): continue
     if l[0] != ' ':
-        pending = None; continue
+        pending = None
+        mo = re.match(r'^(\.\S+|malloc_hook)\s+0x[0-9a-f]+\s+0x([0-9a-f]+)', l)
+        if mo and not mo.group(1).startswith('.debug'): outsz[mo.group(1)] += int(mo.group(2), 16)
+        continue
     m = re.match(r'^ (\S+)\s+0x([0-9a-f]+)\s+0x([0-9a-f]+)\s+(\S.*)$', l)
     if m:
         pending = None
@@ -116,16 +120,17 @@ for sec, size, path in items:
     k = cls_of(sec)
     tot['other symbols (C names, third-party, misc)' if c.startswith('other:') else c][k] += size
     bymem[(c, mem or base)][k] += size
-FILE = ('text', 'rodata', 'relro', 'data', 'eh_frame', 'except', 'initarr', 'other', 'fill')
+FILE = ('text', 'rodata', 'relro', 'data', 'initarr', 'other', 'fill')   # the shipped image has no .eh_frame/.gcc_except_table output sections (listed separately)
 def fsize(cn): return sum(cn[k] for k in FILE)
-print(f'### {label}: bytes in the linked image by component (from the linker map; bss/tbss not counted, they take no file space)')
-print('| component | total | text | rodata | data.rel.ro | data | eh_frame+except | other |')
+print(f'### {label}: bytes in the linked image by component (from the linker map; bss/tbss, debug info and the discarded unwind tables are not counted)')
+print('| component | total | text | rodata | data.rel.ro | data | other | (unwind tables, not shipped) |')
 print('|---|---:|---:|---:|---:|---:|---:|---:|')
 g = 0
 for c in sorted(tot, key=lambda c: -fsize(tot[c])):
     cn = tot[c]; g += fsize(cn)
-    print(f'| {c} | {fsize(cn):,} | {cn["text"]:,} | {cn["rodata"]:,} | {cn["relro"]:,} | {cn["data"]:,} | {cn["eh_frame"] + cn["except"]:,} | {cn["initarr"] + cn["other"] + cn["fill"]:,} |')
+    print(f'| {c} | {fsize(cn):,} | {cn["text"]:,} | {cn["rodata"]:,} | {cn["relro"]:,} | {cn["data"]:,} | {cn["initarr"] + cn["other"] + cn["fill"]:,} | {cn["eh_frame"] + cn["except"]:,} |')
 print(f'| **sum** | **{g:,}** | | | | | | |')
+print('(output sections of the map: ' + ', '.join(f'{k} {v:,}' for k, v in sorted(outsz.items(), key=lambda kv: -kv[1])[:8]) + ')')
 print()
 print(f'bss+tbss (memory only): {sum(tot[c]["bss"] + tot[c]["tbss"] for c in tot):,}; debug/non-alloc sections in the unstripped link (not in the shipped file): {sum(tot[c]["debug"] for c in tot):,}')
 print()

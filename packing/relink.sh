@@ -59,5 +59,8 @@ fat nonull.com     $AL $M1 parts/nonull.x86_64.com.dbg parts/nonull.aarch64.com.
 fat lnx.com        $AL     parts/lnx.x86_64.com.dbg parts/lnx.aarch64.com.dbg
 fat win.com        -l $B/ape-x86_64.elf parts/win.x86_64.com.dbg
 fat mac.com        -l $B/ape-aarch64.elf $M1 parts/mac.aarch64.com.dbg
+# the .symtab.amd64 / .symtab.arm64 entries of the zip are the symbol tables Cosmopolitan uses to name functions in crash reports; the same symbols are in the .dbg files that stay on the build machine
+for f in all lnx win mac; do cp out/$f.com out/$f-nosym.com; zip -q -d out/$f-nosym.com '.symtab.*' || echo "zip -d failed for $f"; done
+unzip -v out/all-nosym.com | tail -1
 echo "== file sizes"; ls -l out parts | awk '{print $5, $9}'
 echo "== original artifact vs relink"; ls -l wgt-dawn/wgt-dawn.com | awk '{print $5}'; cmp wgt-dawn/wgt-dawn.com out/all.com && echo "IDENTICAL to the dawn-cosmo artifact" || echo "differs from the dawn-cosmo artifact"
