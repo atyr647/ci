@@ -75,5 +75,5 @@ jobs:
           d=$PWD/wasmtime-$WT-${{ matrix.asset }}-c-api; lib=$(find $d -not -path '*/min/*' \( -name libwasmtime.so -o -name libwasmtime.dylib \) | head -1)
           cc -O2 -I$d/include ci-wasm-host/threads-host.c "$lib" -o threads-host -lpthread -Wl,-rpath,$(dirname "$lib")
           nproc 2>/dev/null || sysctl -n hw.ncpu
-          for n in 1 2 4; do echo "--- wasm threads=$n"; ./threads-host out/threads.wasm $n 2>&1 | tail -4; done
+          for n in 1 2 4; do echo "--- wasm threads=$n"; ./threads-host out/threads.wasm $n 2>&1 | grep -v "host : import"; done
           for n in 1 4; do echo "--- native threads=$n"; chmod +x out/threads-native.com; sh out/threads-native.com $n; done

@@ -12,6 +12,7 @@
 typedef struct { wasm_engine_t *engine; wasmtime_module_t *module; wasmtime_sharedmemory_t *mem; char memmod[64], memname[64]; atomic_int next_tid;
                  pthread_t th[256]; int nth; pthread_mutex_t mu; } Shared;
 static Shared G;
+static int g_argc; static const char **g_argv;   /* guest argv: module name and the arguments after it */
 
 static void die(wasmtime_error_t *e, wasm_trap_t *t, const char *what) {
   wasm_byte_vec_t m; if (e) wasmtime_error_message(e, &m); else wasm_trap_message(t, &m);
@@ -28,7 +29,7 @@ typedef struct { int tid; int start_arg; } ThreadArg;
 /* store + linker with everything a module instance needs: WASI, the shared memory, thread-spawn */
 static void build_instance(wasmtime_store_t **store_out, wasmtime_context_t **cx_out, wasmtime_instance_t *inst) {
   wasmtime_store_t *store = wasmtime_store_new(G.engine, NULL, NULL); wasmtime_context_t *cx = wasmtime_store_context(store);
-  wasi_config_t *wc = wasi_config_new(); wasi_config_inherit_stdout(wc); wasi_config_inherit_stderr(wc);
+  wasi_config_t *wc = wasi_config_new(); wasi_config_inherit_stdout(wc); wasi_config_inherit_stderr(wc); wasi_config_set_argv(wc, g_argc, g_argv);
   wasmtime_error_t *err = wasmtime_context_set_wasi(cx, wc); if (err) die(err, NULL, "set_wasi");
   wasmtime_linker_t *linker = wasmtime_linker_new(G.engine);
   err = wasmtime_linker_define_wasi(linker); if (err) die(err, NULL, "define_wasi");
@@ -57,6 +58,7 @@ static wasm_trap_t *spawn_cb(void *env, wasmtime_caller_t *caller, const wasmtim
 }
 int main(int argc, char **argv) {
   if (argc < 2) { fprintf(stderr, "usage: %s module.wasm [args]\n", argv[0]); return 1; }
+  g_argc = argc - 1; g_argv = (const char **)(argv + 1);
   FILE *f = fopen(argv[1], "rb"); if (!f) { perror(argv[1]); return 1; } fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
   uint8_t *wasm = malloc(len); if (fread(wasm, 1, len, f) != (size_t)len) return 1; fclose(f);
   wasm_config_t *cfg = wasm_config_new(); wasmtime_config_wasm_threads_set(cfg, true); wasmtime_config_shared_memory_set(cfg, true);
