@@ -14,7 +14,8 @@ EXPORT("grow") uint32_t grow(uint32_t n) {   /* memory.grow is a call from wasm 
     return pages * 1000 + okc;
 }
 EXPORT("oob") int oob(void) { return *(volatile int *)0xFFFFFFF0u; }                        /* base + 0xFFFFFFF0: 16 bytes below 4 GiB */
-EXPORT("oob2") int oob2(void) { return ((volatile int *)0xFFFFFFF0u)[20]; }                  /* base + 0xFFFFFFF0 + 80: beyond 4 GiB, inside the 2 GiB guard region */
+static volatile uint32_t oob2_base = 0xFFFFFFF0u;   /* a variable: with a constant clang folds 0xFFFFFFF0 + 80 modulo 2^32 into the in-bounds address 0x40 and nothing traps */
+EXPORT("oob2") int oob2(void) { return ((volatile int *)(uintptr_t)oob2_base)[20]; }   /* load with static offset 80 on base 0xFFFFFFF0: effective address 0x100000040, beyond 4 GiB, inside the 2 GiB guard region */
 EXPORT("oob3") int oob3(void) { return *(volatile int *)(__builtin_wasm_memory_size(0) * 65536u); }   /* first byte after the current end of the memory */
 EXPORT("div0") int div0(void) { return 100 / zero; }
 EXPORT("unreach") void unreach(void) { __builtin_trap(); }
