@@ -12,10 +12,13 @@ def run_once():
     a = pgpgin(); t = time.perf_counter()
     p = subprocess.run(cmd, stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
     dt = time.perf_counter() - t; time.sleep(0.05)
+    global last_out; last_out = p.stdout.decode(errors='replace')
     return dt * 1000, pgpgin() - a, p.returncode
 def stat(v): return f'median {statistics.median(v):.1f} min {min(v):.1f} max {max(v):.1f}'
 subprocess.run(cmd, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)   # first run installs the APE loader if needed
+last_out = ''
 warm = [run_once() for _ in range(runs)]
+print('STARTUP', label, 'output of a run:', ' | '.join(last_out.strip().splitlines()[-3:])[:260])
 cold = []
 for _ in range(runs):
     drop(); cold.append(run_once())
