@@ -100,7 +100,8 @@ jobs:
       - name: Build libwebgpu_dawn.a
         run: |
           cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
-          echo '=== failed objects'; grep 'FAILED:' build.log | cut -c1-200 | head -20
+          echo '=== failed objects'; grep 'FAILED:' build.log | cut -c1-200 | head -8
+          echo '=== first failure in full'; grep -m1 -A14 '^FAILED:' build.log | cut -c1-400
           tail -3 build.log
           find build -name 'libwebgpu_dawn.a' -exec ls -l {} \;
           ! grep -q '^FAILED:' build.log
