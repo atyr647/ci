@@ -103,7 +103,7 @@ jobs:
           A=${{ matrix.arch }}
           lib=$(find wt/target/${A}-unknown-linux-musl/release -maxdepth 1 -name 'lib*.a' -size +5M | head -1); echo "lib: $lib"
           inc=$(dirname "$(find wasmtime-$WT-x86_64-linux-c-api -name wasmtime.h | head -1)")
-          cosmo/bin/${A}-unknown-cosmo-cc -O2 -DWT_STATIC -I$inc ci-wasm-host/wt-host.c ci-wasm-host/static-stubs.c "$lib" -o wt-static.$A.com -lm -lpthread -ldl 2>&1 | tee link.log | grep -E "undefined reference|multiple definition|error" | sed -E 's/.*(undefined reference to|multiple definition of)/\1/' | sort | uniq -c | sort -rn | head -60
+          cosmo/bin/${A}-unknown-cosmo-cc -O2 -DWT_STATIC -I$inc ci-wasm-host/wt-host.c ci-wasm-host/static-stubs.c "$lib" -o wt-static.$A.com -Wl,--wrap=strerror_r -lm -lpthread -ldl 2>&1 | tee link.log | grep -E "undefined reference|multiple definition|error" | sed -E 's/.*(undefined reference to|multiple definition of)/\1/' | sort | uniq -c | sort -rn | head -60
           ls -la wt-static.$A.com* 2>&1 | head
       - name: "Run it (x86_64 only, because this runner is x86-64)"
         if: matrix.arch == 'x86_64'
