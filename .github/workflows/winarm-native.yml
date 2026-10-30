@@ -1,0 +1,66 @@
+name: winarm-native
+# Windows 11 on ARM: how much does running the Cosmopolitan file (its x86-64 half, under Windows' x86-64 emulation) cost, and does a native arm64 host built with stock tools work?
+# (1) the same wasm kernels: official Wasmtime v50 arm64 CLI (native) vs the static Wasmtime in the Cosmopolitan file (emulated x86-64), interleaved;
+# (2) a 60-line native host (winarm/host.c, MSVC/clang-cl arm64 + the official Wasmtime C API) that runs the same module; (3) the native arm64 Dawn benchmark build as in dawn-bench.
+on:
+  workflow_dispatch:
+    inputs:
+      wn_run: { description: 'wasmtime-nostd run with artifacts wn (the Cosmopolitan file) and guests', required: true, default: '41063560278' }
+      wasm_run: { description: 'wasm-platforms run with artifact so-wasm (wasm kernels)', required: true, default: '41064377721' }
+      rounds: { description: 'interleaved rounds', required: false, default: '5' }
+env: { WT: v50.0.0 }
+jobs:
+  winarm:
+    runs-on: windows-11-arm
+    timeout-minutes: 60
+    defaults: { run: { shell: bash } }
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with: { arch: arm64 }
+      - name: Inputs - official Wasmtime CLI and C API (native arm64), the Cosmopolitan file, the wasm kernels
+        run: |
+          curl -fsSL -o cli.zip https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-aarch64-windows.zip && mkdir cli && unzip -q cli.zip -d cli
+          curl -fsSL -o capi.zip https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-aarch64-windows-c-api.zip && mkdir capi && unzip -q capi.zip -d capi
+          gh run download ${{ inputs.wn_run }} -R ${{ github.repository }} -n wn -D wn; gh run download ${{ inputs.wn_run }} -R ${{ github.repository }} -n guests -D guests
+          gh run download ${{ inputs.wasm_run }} -R ${{ github.repository }} -n so-wasm -D so
+          cp wn/wn.com wn/wn.exe; WT_EXE=$(find "$PWD/cli" -name wasmtime.exe | head -1); echo "WT_EXE=$WT_EXE" >> "$GITHUB_ENV"
+          ls so | head; find capi -maxdepth 2 | head -12; file wn/wn.exe 2>/dev/null | head -1 || true
+      - name: Native arm64 host with stock tools (cl.exe, the official C API DLL)
+        run: |
+          C=$(find "$PWD/capi" -maxdepth 1 -type d -name 'wasmtime-*' | head -1)
+          cl.exe /nologo /O2 /DWASM_API_EXTERN= /DWASI_API_EXTERN= /I"$(cygpath -w $C/include)" winarm/host.c /Fe:wt-host.exe /link "$(cygpath -w $C/lib/wasmtime.dll.lib)" 2>&1 | tail -5
+          cp $C/lib/wasmtime.dll . 2>/dev/null || cp $C/bin/wasmtime.dll . ; ls -la wt-host.exe wasmtime.dll
+          dumpbin.exe //headers wt-host.exe 2>/dev/null | grep -i -E "machine|AA64|ARM" | head -2
+      - name: Same kernels - native arm64 official CLI, native arm64 host, Cosmopolitan file (x86-64 under emulation)
+        run: |
+          set +e; SO=$(ls so/so-simd.wasm so/*/so-simd.wasm 2>/dev/null | head -1); SC=$(ls so/so-scalar.wasm so/*/so-scalar.wasm 2>/dev/null | head -1); echo "simd=$SO scalar=$SC"
+          "$WT_EXE" compile "$SO" -o simd.cwasm && "$WT_EXE" compile "$SC" -o scalar.cwasm
+          for g in simd scalar; do
+            for r in $(seq 1 ${{ inputs.rounds }}); do
+              W=$( [ $g = simd ] && echo $SO || echo $SC )
+              "$WT_EXE" run --allow-precompiled $g.cwasm 2>&1 | sed "s/^KERNEL /KERNEL native-cli-$g /" | grep KERNEL
+              ./wt-host.exe $g.cwasm 1 2>&1 | grep -E "KERNEL" | sed "s/^KERNEL /KERNEL native-host-$g /"
+              ./wn.exe sig so-$g 2>&1 | grep KERNEL | sed "s/^KERNEL /KERNEL cosmo-emulated-$g /"
+            done
+          done | tee kernels.txt
+          python3 - <<'PY'
+          import re, collections
+          best = collections.defaultdict(lambda: 1e30)
+          for l in open('kernels.txt'):
+              m = re.match(r'KERNEL (\S+) (\S+) (\S+)', l)
+              if m: best[(m.group(1), m.group(2))] = min(best[(m.group(1), m.group(2))], float(m.group(3)))
+          kernels = sorted({k for _, k in best}); cfgs = sorted({c for c, _ in best})
+          print('| kernel | ' + ' | '.join(cfgs) + ' |'); print('|---' * (len(cfgs) + 1) + '|')
+          for k in kernels: print(f'| {k} | ' + ' | '.join(f'{best[(c,k)]:.2f}' if (c, k) in best else '-' for c in cfgs) + ' |')
+          PY
+      - name: Native arm64 Dawn benchmark build exists (cache from dawn-bench)
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: dawn-native-static-win-arm64-106704a9ac3fc21b1580ea85aea302ac17d416f1-v1
+      - name: Result (last)
+        if: always()
+        run: |
+          echo "native Dawn cache: $(ls dist 2>/dev/null | tr '\n' ' ')"; tail -n 30 kernels.txt 2>/dev/null | grep -c KERNEL
