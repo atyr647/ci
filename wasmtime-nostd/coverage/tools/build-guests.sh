@@ -14,7 +14,7 @@ gh release download -R bytecodealliance/wasm-tools -p '*x86_64-linux.tar.gz' -D 
 WTOOLS=$(find dl -name wasm-tools -type f | head -1); $WTOOLS --version | tee -a versions.txt
 gh release download -R WebAssembly/binaryen -p 'binaryen-*-x86_64-linux.tar.gz' -D dl --clobber && (cd dl && for f in binaryen*.tar.gz; do tar xzf $f; done)
 WOPT=$(find dl -name wasm-opt -type f | head -1); $WOPT --version | tee -a versions.txt
-echo "== CLI options mentioning gc / collector / threads / exceptions"; $W compile -W help 2>&1 | grep -i "gc\|collector\|thread\|exception\|component" ; $W compile -O help 2>&1 | grep -i "collector\|gc"
+echo "== CLI options mentioning gc / collector / threads / exceptions"; $W compile -W help 2>&1 | grep -i "gc\|collector\|thread\|exception\|component" ; $W compile -C help 2>&1 | grep -i "collector"
 echo "wasi-sdk 34 clang: $($S/bin/clang --version | head -1)" | tee -a versions.txt
 G=$REPO/wasmtime-nostd/coverage/guest
 
@@ -45,15 +45,16 @@ for t in gc eh mem relaxed yield wasitest so-scalar coro asy-d0 asy-d0-opt asy-d
 compile wasm/wasitest.wasm b-wasitest $BASE
 compile wasm/so-scalar.wasm b-so-scalar $BASE
 # GC collectors and the threads proposal: compiled with the switch that the runtime does or does not have; the host reports what the loader says
-compile wasm/gc.wasm gc-drc $FULL -O collector=drc
-compile wasm/gc.wasm gc-null $FULL -O collector=null
-compile wasm/gc.wasm gc-copying $FULL -O collector=copying
+compile wasm/gc.wasm gc-drc $FULL -C collector=drc
+compile wasm/gc.wasm gc-null $FULL -C collector=null
+compile wasm/gc.wasm gc-copying $FULL -C collector=copying
 THR=$(echo "$FULL" | sed 's/-W threads=n/-W threads=y/')
 compile wasm/atomics.wasm atomics-thr $THR
 compile wasm/shared.wasm shared-thr $THR
 # components (compiled when the full runtime has the component model)
 if [ -n "$COMPONENTS" ]; then
   compile wasm/wasitest.p2.wasm wasitest.p2 $FULL
+  compile wasm/cm.wasm cm $FULL
 fi
 echo "== compile.log"; cat compile.log 2>/dev/null
 ls out | wc -l; du -sh out

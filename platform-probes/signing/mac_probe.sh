@@ -22,6 +22,8 @@ R "run after signing: $(./app.com 2>&1 | tr '\n' ' ')"
 cp -X app.com copy-noxattr.com; R "copy without extended attributes (what a zip/tar/HTTP transfer does): $(codesign --verify --strict -vvv copy-noxattr.com 2>&1 | firstlines 1)"
 zip -q t.zip app.com && mkdir -p unz && unzip -q -o t.zip -d unz; R "after zip+unzip: $(codesign --verify -vvv unz/app.com 2>&1 | firstlines 1)"
 cp ../out/app.com fresh.com; chmod +x fresh.com
+if command -v xprotect >/dev/null; then R "xprotect check on the bare APE: $(xprotect check fresh.com 2>&1 | head -5 | tr '\n' '|' | cut -c1-400)"; else R "xprotect CLI: not present on this macOS"; fi
+R "XProtect version: $(defaults read /Library/Apple/System/Library/CoreServices/XProtect.bundle/Contents/Info CFBundleShortVersionString 2>&1 | head -1)"
 
 echo "##### 2. what runs on arm64 macOS: the shell stub builds the Ape loader with cc and executes it"
 rm -f "${TMPDIR:-$HOME}"/.ape-1.10*; R "fresh file runs: $(./fresh.com 2>&1 | tr '\n' ' ')"

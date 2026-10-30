@@ -101,8 +101,9 @@ int main(int argc, char **argv) {
     snprintf(p, sizeof p, "%s/work/sub/inner.txt", D); f = fopen(p, "w"); if (f) { fputs("x", f); fclose(f); }
     DIR *d = opendir("/sandbox/work"); CHECK("opendir", d != NULL);
     if (d) { struct dirent *e; char names[16][64]; int nn = 0; while ((e = readdir(d)) && nn < 16) snprintf(names[nn++], 64, "%s", e->d_name); closedir(d);
-        /* the host lists ".", ".." and then the entries sorted by name; filter nothing so a missing "." or ".." is visible */
-        for (int i = 0; i < nn; i++) printf("dirent: %s\n", names[i]); CHECK("readdir entry count", nn == 5); }
+        /* the preview 1 host lists ".", ".." first, then the entries sorted by name; the preview 2 interface does not list the dot entries, so only the real ones are printed */
+        int real = 0; for (int i = 0; i < nn; i++) if (strcmp(names[i], ".") && strcmp(names[i], "..")) { printf("dirent: %s\n", names[i]); real++; }
+        CHECK("readdir real entry count", real == 3); }
     CHECK("stat directory", stat("/sandbox/work/sub", &st) == 0 && S_ISDIR(st.st_mode));
     snprintf(p, sizeof p, "%s/work/sub", D);
     CHECK("rmdir non-empty fails ENOTEMPTY", rmdir(p) != 0 && errno == ENOTEMPTY);

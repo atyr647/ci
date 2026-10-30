@@ -25,7 +25,6 @@ extern "C" {
     fn posix_memalign(out: *mut *mut u8, align: usize, size: usize) -> i32;
     fn abort() -> !;
     pub(crate) fn wn_log(msg: *const u8, len: usize);
-    fn wn_idle();
 }
 
 // x28 (arm64): Cosmopolitan's thread pointer; Cranelift code uses it as a general register, so any C library call made on the way out of wasm (libcalls such as memory.grow,
@@ -211,7 +210,7 @@ pub unsafe extern "C" fn wn_load(bytes: *const u8, len: usize) -> i32 {
     match Module::deserialize(&s.engine, core::slice::from_raw_parts(bytes, len)) { Ok(m) => { s.module = Some(m); 0 } Err(e) => fail(e) }
 }
 
-/// Minimal executor: polls to completion; a future that returns Pending (a fiber that suspended) is polled again after a short idle. Counts the Pending polls.
+/// Minimal executor: polls to completion; a future that returns Pending (a fiber that suspended) is polled again at once (pollables that wait for the outside world sleep or poll with a timeout themselves). Counts the Pending polls.
 pub(crate) fn block_on<F: core::future::Future>(f: F, pending: &mut u64) -> F::Output {
     use core::task::{Context, Poll, Waker};
     let mut f = core::pin::pin!(f);
@@ -219,7 +218,7 @@ pub(crate) fn block_on<F: core::future::Future>(f: F, pending: &mut u64) -> F::O
     loop {
         match f.as_mut().poll(&mut cx) {
             Poll::Ready(v) => return v,
-            Poll::Pending => { *pending += 1; if *pending % 64 == 0 { with_host(|| unsafe { wn_idle() }); } }
+            Poll::Pending => { *pending += 1; }
         }
     }
 }

@@ -91,7 +91,7 @@ impl Future for Yield { type Output = (); fn poll(mut self: Pin<&mut Self>, cx: 
 // ---- streams ---------------------------------------------------------------------------------------------------------------------------------------------------
 struct StdIn;
 #[async_trait]
-impl Pollable for StdIn { async fn ready(&mut self) { loop { if hx(|| unsafe { wn_c_poll(0, 0, 0) }) == 1 { return; } Yield(false).await; } } }
+impl Pollable for StdIn { async fn ready(&mut self) { loop { if hx(|| unsafe { wn_c_poll(0, 0, 2) }) == 1 { return; } Yield(false).await; } } }
 impl InputStream for StdIn {
     fn read(&mut self, size: usize) -> StreamResult<Bytes> {
         if hx(|| unsafe { wn_c_poll(0, 0, 0) }) != 1 { return Ok(Bytes::new()); }

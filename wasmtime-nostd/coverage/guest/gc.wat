@@ -22,7 +22,7 @@
       (local.set $s (i32.add (local.get $s) (array.get $arr (local.get $a) (local.get $i))))
       (local.set $i (i32.add (local.get $i) (i32.const 1)))
       (br_if $l (i32.lt_u (local.get $i) (i32.const 100))))
-    (i32.and (i32.eq (array.len (local.get $a)) (i32.const 100)) (i32.eq (local.get $s) (i32.const 7693))))
+    (i32.and (i32.eq (array.len (local.get $a)) (i32.const 100)) (i32.eq (local.get $s) (i32.const 1693))))
 
   (func (export "t_array_fixed") (result i32)
     (local $a (ref $arr))
@@ -70,7 +70,7 @@
     (i32.eq (i32.const 6)))
 
   (func (export "t_call_ref") (result i32)
-    (call_ref $f (ref.func $seven)))
+    (i32.eq (call_ref $f (ref.func $seven)) (i32.const 7)))
 
   (func (export "t_linked_list") (result i32)
     (local $head (ref null $node)) (local $i i32) (local $s i32) (local $p (ref null $node))

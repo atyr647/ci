@@ -7,6 +7,7 @@
  *   --call=name[:arg]            call one export with an i64 argument and time it       --invoke=a,b,c  call exports in order (like the first host)
  *   --async                      async store (fibers): host function env.yield_n(n) suspends n times
 
+ *   --argv0=NAME                 program name the guest sees
  *   --plain-await                env.await_host as an ordinary synchronous host function (baseline for --asyncify)
  *   --asyncify=entry:data:size   drive an asyncify-instrumented module        --collector=drc|null|copying
  *   --component                  the file is a component (needs the component / p2 build) */
@@ -93,6 +94,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--component")) component = 1;
         else if (!strcmp(a, "--selfclient")) selfclient = 1;
         else if (!strcmp(a, "--plain-await")) plain_await_mode = 1;
+        else if (!strncmp(a, "--argv0=", 8)) gargv[0] = (char *)(a + 8);
         else if (!strncmp(a, "--invoke=", 9)) invoke = a + 9;
         else if (!strncmp(a, "--call=", 7) && ncalls < 16) calls[ncalls++] = a + 7;
         else if (!strncmp(a, "--asyncify=", 11)) asyncify = a + 11;
