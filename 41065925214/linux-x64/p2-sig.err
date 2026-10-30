@@ -1,0 +1,10 @@
+[t=0 ms] args
+[t=0 ms] environment
+[t=0 ms] stdio
+stderr line
+[t=0 ms] files
+[t=18 ms] directories
+[t=18 ms] symbolic links and the sandbox
+[t=18 ms] clocks, random, poll
+[t=68 ms] memory
+host : component finished in 83.8 ms, exit code 0, suspensions 23
