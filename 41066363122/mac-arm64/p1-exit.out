@@ -1,0 +1,7 @@
+host : platform=macos arch=aarch64 mode=sig name=wasitest (352768 bytes) features=0xf
+host : engine+load 0.7 ms, instantiate 0.1 ms, linear memory 0 MiB
+== args
+argc=2 argv0=wasitest
+argv[1]=exit7
+exiting with 7
+atexit handler ran

@@ -1,0 +1,10 @@
+host : platform=macos arch=aarch64 mode=sig name=wasibench.p2 (367904 bytes) features=0xf
+host : component loaded in 0.3 ms
+BENCH clock_gettime                  91 ns/op  (200000 ops)
+BENCH getentropy 16B               1083 ns/op  (100000 ops)
+BENCH write 4 KiB                 10751 ns/op  (20000 ops)
+BENCH pread 4 KiB                 48391 ns/op  (20000 ops)
+BENCH fstat                        3401 ns/op  (50000 ops)
+BENCH stat (path)                 12313 ns/op  (20000 ops)
+BENCH open+close                  16253 ns/op  (5000 ops)
+host : component finished in 1809.7 ms, exit code 0, suspensions 0
