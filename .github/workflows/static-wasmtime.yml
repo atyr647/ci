@@ -1,0 +1,108 @@
+name: static-wasmtime
+# Wasmtime compiled from source as a static library (Rust musl target, C parts with the Cosmopolitan compiler, NO Pulley) and linked into the Cosmopolitan executable;
+# the fat file is then run on all five runner kinds. Starting point: wasmtime-bundle.yml (passes on Linux x86-64 only); this adds the ABI translation layer (static-abi.c).
+on:
+  workflow_dispatch:
+  push:
+    branches: [static-wasmtime-all]
+    paths: ['.github/workflows/static-wasmtime.yml', 'ci-wasm-host/static-abi.c', 'ci-wasm-host/static-stubs.c', 'ci-wasm-host/wt-host.c']
+env:
+  WT: v50.0.0
+  COSMOCC: 4.0.2
+jobs:
+  static-link:
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo && cp cosmo/bin/ape-x86_64.elf ~/.ape-1.10 && chmod +x ~/.ape-1.10
+          rustup target add ${{ matrix.arch }}-unknown-linux-musl
+          rustup component add llvm-tools
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux-c-api.tar.xz | tar xJ
+          git clone -q --depth 1 --branch $WT https://github.com/bytecodealliance/wasmtime wt
+      - name: Build libwasmtime.a from source for the musl target (C parts with the Cosmopolitan compiler)
+        working-directory: wt
+        run: |
+          A=${{ matrix.arch }}; T=${A}_unknown_linux_musl
+          mkdir -p $GITHUB_WORKSPACE/wrap
+          for t in ${A}-unknown-cosmo-cc ${A}-linux-cosmo-ar; do printf '#!/bin/sh\nexec sh %s/cosmo/bin/%s "$@"\n' "$GITHUB_WORKSPACE" "$t" > $GITHUB_WORKSPACE/wrap/$t; chmod +x $GITHUB_WORKSPACE/wrap/$t; done
+          export CC_$T=$GITHUB_WORKSPACE/wrap/${A}-unknown-cosmo-cc AR_$T=$GITHUB_WORKSPACE/wrap/${A}-linux-cosmo-ar
+          F=wasi,wat,async,cranelift,component-model,component-model-async,gc,gc-drc,threads,pooling-allocator
+          if [ "$A" = aarch64 ]; then
+            rustup toolchain install nightly --profile minimal --component rust-src
+            RUSTFLAGS="-C target-feature=+reserve-x28 --cfg mio_unsupported_force_poll_poll --cfg mio_unsupported_force_waker_pipe" cargo +nightly rustc -Zbuild-std=std,panic_abort -p wasmtime-c-api --release --target aarch64-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
+          else
+            RUSTFLAGS="--cfg mio_unsupported_force_poll_poll --cfg mio_unsupported_force_waker_pipe" cargo rustc -p wasmtime-c-api --release --target ${A}-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
+          fi
+          find target -name '*.a' -size +5M -exec ls -la {} \;
+      - name: Redirect the libc calls that carry Linux numbers, link into a Cosmopolitan executable, report unresolved symbols
+        run: |
+          A=${{ matrix.arch }}
+          lib=$(find wt/target/${A}-unknown-linux-musl/release -maxdepth 1 -name 'lib*.a' -size +5M | head -1); echo "lib: $lib"
+          OC=$(find ~/.rustup -name llvm-objcopy | head -1); NM=$(find ~/.rustup -name llvm-nm | head -1); echo "objcopy: $OC"
+          echo '--- undefined libc symbols with number-carrying arguments, as the Rust code references them'; "$NM" -u "$lib" 2>/dev/null | grep -E ' (clock_gettime|clock_getres|getrandom|strerror_r|__xpg_strerror_r)$' | sort | uniq -c
+          R=''; for s in clock_gettime clock_getres getrandom strerror_r __xpg_strerror_r; do R="$R --redefine-sym $s=rs_$s"; done
+          "$OC" $R "$lib" patched.a
+          inc=$(dirname "$(find wasmtime-$WT-x86_64-linux-c-api -name wasmtime.h | head -1)")
+          cosmo/bin/${A}-unknown-cosmo-cc -O2 -DWT_STATIC -I$inc ci-wasm-host/wt-host.c ci-wasm-host/static-stubs.c ci-wasm-host/static-abi.c patched.a -o wt-static.$A.com -lm -lpthread -ldl 2>&1 | tee link.log | grep -E "undefined reference|multiple definition|error" | sed -E 's/.*(undefined reference to|multiple definition of)/\1/' | sort | uniq -c | sort -rn | head -60
+          ls -la wt-static.$A.com* 2>&1 | head
+      - name: "Run it (x86_64 only, because this runner is x86-64)"
+        if: matrix.arch == 'x86_64'
+        continue-on-error: true
+        run: |
+          chmod +x ci-wasm-host/run-one.sh
+          ci-wasm-host/run-one.sh "wasmtime LINKED INTO the Cosmopolitan executable" sh ./wt-static.x86_64.com ci-wasm-host/guest.wasm
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'static-${{ matrix.arch }}', path: "link.log\nwt-static.${{ matrix.arch }}.com.dbg" }
+  static-fat:
+    needs: static-link
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+      - uses: actions/download-artifact@v4
+        with: { name: static-x86_64, path: parts }
+      - uses: actions/download-artifact@v4
+        with: { name: static-aarch64, path: parts }
+      - name: One fat file with Wasmtime linked in (x86-64 + arm64)
+        run: |
+          B=$PWD/cosmo/bin
+          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wt-static.com parts/wt-static.x86_64.com.dbg parts/wt-static.aarch64.com.dbg
+          ls -la wt-static.com parts/*
+      - uses: actions/upload-artifact@v4
+        with: { name: wt-static, path: "wt-static.com\nci-wasm-host/guest.wasm" }
+  static-test:
+    needs: static-fat
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: mac-arm64,   os: macos-latest }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env: { RUNNER_LABEL: '${{ matrix.label }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: wt-static, path: s }
+      - name: Wasmtime LINKED INTO the file - no library, no dlopen, no extraction
+        run: |
+          chmod +x ci-wasm-host/run-one.sh
+          cd s
+          if [ "$RUNNER_OS" = Windows ]; then cp wt-static.com wt-static.exe; ../ci-wasm-host/run-one.sh "static wasmtime" ./wt-static.exe ci-wasm-host/guest.wasm
+          else chmod +x wt-static.com; ../ci-wasm-host/run-one.sh "static wasmtime" sh ./wt-static.com ci-wasm-host/guest.wasm; fi
