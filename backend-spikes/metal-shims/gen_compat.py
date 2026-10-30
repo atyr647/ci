@@ -46,7 +46,11 @@ lines += ['/* NOW pretend to be Apple: nothing above (libc++, C library) may see
           '#define __APPLE__ 1', '#define __MACH__ 1', '#ifdef __aarch64__', '#define __arm64__ 1', '#define TARGET_CPU_ARM64 1', '#else', '#define TARGET_CPU_X86_64 1', '#endif',
           '#define TARGET_OS_MAC 1', '#define TARGET_OS_OSX 1', '#define TARGET_OS_IPHONE 0', '#define TARGET_OS_SIMULATOR 0', '#define TARGET_OS_EMBEDDED 0', '#define TARGET_OS_IOS 0', '#define TARGET_OS_WIN32 0', '#define TARGET_OS_UNIX 0',
           '/* Apple\'s own <sys/cdefs.h> (Cosmopolitan\'s was found first and lacks __DARWIN_*, __ASSUME_PTR_ABI_*, __sized_by ...): read it explicitly, redefinitions are only warnings */',
-          '#undef __BEGIN_DECLS', '#undef __END_DECLS', '#undef _CDEFS_H_', '#include "%s/usr/include/sys/cdefs.h"' % sdk]
+          '#undef __BEGIN_DECLS', '#undef __END_DECLS', '#undef _CDEFS_H_', '#include "%s/usr/include/sys/cdefs.h"' % sdk,
+          '/* things Apple\'s clang provides itself or Apple\'s headers expect from it */',
+          '#define __APPLE_CC__ 6000', '#define __APPLE_CPP__ 1',
+          '#ifndef __nullable\n#define __nullable _Nullable\n#endif', '#ifndef __nonnull\n#define __nonnull _Nonnull\n#endif', '#ifndef __null_unspecified\n#define __null_unspecified _Null_unspecified\n#endif', '#ifndef __nullable_result\n#define __nullable_result _Nullable_result\n#endif',
+          '/* a typedef Cosmopolitan has under the same name with another type */', '#define syscall_arg_t apple_syscall_arg_t']
 open(out, 'w').write('\n'.join(lines) + '\n')
 print(f'{len(set(guards))} guards predefined; skipped headers: {" ".join(skipped)}')
 print('kept (Apple definitions used):', ' '.join(kept[:80]))
