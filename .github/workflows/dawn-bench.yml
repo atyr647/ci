@@ -102,7 +102,7 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then
             args+=(--variant "cosmo-moltenvk|WGT_BACKEND=vulkan,DAWN_COSMO_ALLOW_VULKAN=1,VK_ICD_FILENAMES=$MVK_ICD,DYLD_LIBRARY_PATH=$VKLIB|$COSMO")
           fi
-          python3 ci-webgpu-test/bench_ab.py "${args[@]}"
+          PY=$(command -v python3 || command -v python); "$PY" ci-webgpu-test/bench_ab.py "${args[@]}"
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'bench-${{ matrix.label }}', path: 'bench-*.json' }

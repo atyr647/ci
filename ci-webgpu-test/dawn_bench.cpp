@@ -45,7 +45,8 @@ static void host_baselines() {
     }
     {   // memcpy bandwidth
         const size_t sz = 64u << 20; std::vector<char> a(sz, 1), b(sz); double best = 1e30;
-        for (int r = 0; r < 6; r++) { auto t = Clock::now(); memcpy(b.data(), a.data(), sz); double ms = ms_since(t); if (ms < best) best = ms; }
+        volatile char keep = 0;
+        for (int r = 0; r < 6; r++) { a[r] = (char)r; auto t = Clock::now(); memcpy(b.data(), a.data(), sz); keep = keep + b[(size_t)r * 4099]; double ms = ms_since(t); if (ms < best) best = ms; }   // the copy's result is read, so the compiler cannot drop it
         bench("host_memcpy_GBps", sz / (best / 1e3) / 1e9, "GB/s");
     }
     {   // scalar integer loop (FNV-1a over a buffer)
