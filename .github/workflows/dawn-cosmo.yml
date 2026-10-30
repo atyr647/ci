@@ -216,6 +216,7 @@ jobs:
           echo "DYLD_LIBRARY_PATH=$(brew --prefix vulkan-loader)/lib" >> "$GITHUB_ENV"
       - name: Run the ONE file
         continue-on-error: true
+        env: { DAWN_COSMO_ALLOW_VULKAN: '1' }   # macOS only starts Metal unless asked; this step is the MoltenVK comparison
         run: |
           chmod +x ci-webgpu-test/run-one.sh
           if [ "$RUNNER_OS" = Windows ]; then cp wgt-dawn.com wgt-dawn.exe; ci-webgpu-test/run-one.sh "dawn built by cosmocc ($WGT_BACKEND)" ./wgt-dawn.exe

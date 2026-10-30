@@ -371,6 +371,11 @@ if os.environ.get('DAWN_COSMO_METAL') == '1':
 ''' + old
         assert old in s
         s = s.replace(old, new, 1)
+        # macOS uses Metal only (no MoltenVK); the Vulkan backend can still be asked for with DAWN_COSMO_ALLOW_VULKAN=1 (used for comparisons)
+        vk = '            Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n'
+        assert vk in s
+        s = s.replace(vk, '            if (!IsXnu() || getenv("DAWN_COSMO_ALLOW_VULKAN")) {\n                Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n            }\n', 1)
+        s = insert_after_last_include(s, '#include <cosmo.h>')
         fn = 'BackendConnection* InstanceBase::GetBackendConnection(wgpu::BackendType backendType) {\n'
         assert fn in s
         s = s.replace(fn, '// COSMO-PATCH-METAL: defined by the Metal objects (dawn-cosmo/metal/MetalCosmo.mm) in the arm64 half only; null elsewhere\nextern "C" BackendConnection* DawnCosmoMetalConnect(InstanceBase* instance) __attribute__((weak));\n\n' + fn, 1)
