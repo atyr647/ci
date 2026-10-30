@@ -20,7 +20,7 @@ jobs:
           $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128    -DKERNEL=0 bench.c -o ../out/bench-wasm-autovec.wasm
           $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128    -DKERNEL=1 bench.c -o ../out/bench-wasm-simd.wasm
           $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DKERNEL=1 bench.c -o ../out/bench-wasm-vec-lowered.wasm
-          $S/bin/clang --target=wasm32-wasip1-threads -pthread -O2 threads.c -o ../out/threads.wasm -lm
+          $S/bin/clang --target=wasm32-wasip1-threads -pthread -Wl,--import-memory,--export-memory,--max-memory=268435456 -O2 threads.c -o ../out/threads.wasm -lm
           ../cosmo/bin/cosmocc -O3 -DKERNEL=0 bench.c -o ../out/bench-native-scalar.com
           ../cosmo/bin/cosmocc -O3 -DKERNEL=1 bench.c -o ../out/bench-native-simd.com
           ../cosmo/bin/cosmocc -O2 threads.c -o ../out/threads-native.com -lm -lpthread
