@@ -30,8 +30,8 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v2-${{ github.run_id }}
-          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v2-
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3-${{ github.run_id }}
+          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3-
       - name: Fetch Dawn at the pinned commit (unless restored)
         run: |
           if [ ! -d dawn/.git ]; then
@@ -63,7 +63,7 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v2-${{ github.run_id }}
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3-${{ github.run_id }}
       - name: Link the WebGPU test against it (one architecture)
         run: |
           B=$HOME/cosmo/bin; lib=$(find $PWD/build -name libwebgpu_dawn.a | head -1)
@@ -141,10 +141,13 @@ jobs:
           chmod +x ci-webgpu-test/run-one.sh
           if [ "$RUNNER_OS" = Windows ]; then cp wgt-dawn.com wgt-dawn.exe; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" ./wgt-dawn.exe
           else chmod +x wgt-dawn.com; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" sh ./wgt-dawn.com; fi
-      - name: Windows only - syscall trace tail (to see what happens before a crash)
+      - name: Windows only - last Vulkan calls before a crash (DAWN_COSMO_TRACE) and the syscall tail
         if: runner.os == 'Windows'
         continue-on-error: true
         run: |
           cp wgt-dawn.com wgt-dawn.exe
-          ( ./wgt-dawn.exe --strace 2>&1 | cat ) > strace.txt || true
-          wc -l strace.txt; tail -n 90 strace.txt | cut -c1-260
+          echo "=== Vulkan call trace, last 45 lines"
+          ( DAWN_COSMO_TRACE=1 ./wgt-dawn.exe 2>&1 | cat ) > vktrace.txt || true
+          tr '\r' '\n' < vktrace.txt | grep -E "^\[vk\]|stage:|Segmentation|compute N" | tail -45
+          echo "=== lavapipe with its worker threads off (LP_NUM_THREADS=0)"
+          ( LP_NUM_THREADS=0 ./wgt-dawn.exe 2>&1 | cat ) | tr '\r' '\n' | grep -E "stage: map|compute N|RESULT|Segmentation" | head

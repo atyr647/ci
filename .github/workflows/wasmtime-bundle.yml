@@ -88,15 +88,21 @@ jobs:
           mkdir -p $GITHUB_WORKSPACE/wrap
           for t in ${A}-unknown-cosmo-cc ${A}-linux-cosmo-ar; do printf '#!/bin/sh\nexec sh %s/cosmo/bin/%s "$@"\n' "$GITHUB_WORKSPACE" "$t" > $GITHUB_WORKSPACE/wrap/$t; chmod +x $GITHUB_WORKSPACE/wrap/$t; done
           export CC_$T=$GITHUB_WORKSPACE/wrap/${A}-unknown-cosmo-cc AR_$T=$GITHUB_WORKSPACE/wrap/${A}-linux-cosmo-ar
-          cargo rustc -p wasmtime-c-api --release --target ${A}-unknown-linux-musl --no-default-features \
-            --features wasi,wat,async,cranelift,pulley,component-model,component-model-async,gc,gc-drc,threads,pooling-allocator --crate-type staticlib 2>&1 | tail -15
+          F=wasi,wat,async,cranelift,pulley,component-model,component-model-async,gc,gc-drc,threads,pooling-allocator
+          if [ "$A" = aarch64 ]; then
+            # Cosmopolitan keeps its thread pointer in x28 and every libc call reads it. Rust must therefore never use x28: rebuild the standard library with it reserved.
+            rustup toolchain install nightly --profile minimal --component rust-src
+            RUSTFLAGS="-C target-feature=+reserve-x28" cargo +nightly rustc -Zbuild-std=std,panic_abort -p wasmtime-c-api --release --target aarch64-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
+          else
+            cargo rustc -p wasmtime-c-api --release --target ${A}-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
+          fi
           find target -name '*.a' -size +5M -exec ls -la {} \;
       - name: Link it into a Cosmopolitan executable and report every unresolved symbol
         run: |
           A=${{ matrix.arch }}
           lib=$(find wt/target/${A}-unknown-linux-musl/release -maxdepth 1 -name 'lib*.a' -size +5M | head -1); echo "lib: $lib"
           inc=$(dirname "$(find wasmtime-$WT-x86_64-linux-c-api -name wasmtime.h | head -1)")
-          cosmo/bin/${A}-unknown-cosmo-cc -O2 -DWT_STATIC -I$inc ci-wasm-host/wt-host.c "$lib" -o wt-static.$A.com -lm -lpthread -ldl 2>&1 | tee link.log | grep -E "undefined reference|multiple definition|error" | sed -E 's/.*(undefined reference to|multiple definition of)/\1/' | sort | uniq -c | sort -rn | head -60
+          cosmo/bin/${A}-unknown-cosmo-cc -O2 -DWT_STATIC -I$inc ci-wasm-host/wt-host.c ci-wasm-host/static-stubs.c "$lib" -o wt-static.$A.com -lm -lpthread -ldl 2>&1 | tee link.log | grep -E "undefined reference|multiple definition|error" | sed -E 's/.*(undefined reference to|multiple definition of)/\1/' | sort | uniq -c | sort -rn | head -60
           ls -la wt-static.$A.com* 2>&1 | head
       - name: "Run it (x86_64 only, because this runner is x86-64)"
         if: matrix.arch == 'x86_64'
@@ -106,4 +112,4 @@ jobs:
           ci-wasm-host/run-one.sh "wasmtime LINKED INTO the Cosmopolitan executable" sh ./wt-static.x86_64.com ci-wasm-host/guest.wasm
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: 'static-${{ matrix.arch }}', path: "link.log" }
+        with: { name: 'static-${{ matrix.arch }}', path: "link.log\nwt-static.${{ matrix.arch }}.com.dbg" }

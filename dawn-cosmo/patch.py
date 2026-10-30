@@ -60,13 +60,16 @@ def vkfns_h(s):
 struct VkFnImpl<R(VKAPI_PTR*)(Args...)> {
 #if DAWN_NO_SANITIZE_VK_FN'''
     new = '''#ifdef __COSMOPOLITAN__  // %s
-extern "C" bool DawnCosmoIsWindows();  // defined in VulkanFunctions.cpp, which can include cosmo.h without its IsWindows() macro leaking into Dawn's headers
+extern "C" bool DawnCosmoIsWindows();
+extern "C" bool DawnCosmoTrace();                                  // DAWN_COSMO_TRACE=1 prints every Vulkan call (name) to stderr
+extern "C" void DawnCosmoTraceCall(const char* name, void* addr);  // defined in VulkanFunctions.cpp, which can include cosmo.h without its IsWindows() macro leaking into Dawn's headers
 // Windows' Vulkan loader uses the Microsoft x64 calling convention, Linux and macOS use System V; the OS is only known at run time.
 template <typename R, typename... Args>
 struct DualAbiFn {
     using SysV = R (*)(Args...);
     using Ms = R(__attribute__((ms_abi)) *)(Args...);
     void* addr = nullptr;
+    const char* name = "?";   // for DAWN_COSMO_TRACE=1
     DualAbiFn() = default;
     DualAbiFn(std::nullptr_t) {}
     explicit DualAbiFn(void* a) : addr(a) {}
@@ -74,6 +77,9 @@ struct DualAbiFn {
     // what its tail-merging/cross-jumping compares) - measured: Windows then called vulkan-1.dll with System V registers. The two differently-worded asm
     // statements keep the branches distinct; noinline keeps one out-of-line copy per signature.
     __attribute__((noinline)) R operator()(Args... args) const {
+        if (DawnCosmoTrace()) {
+            DawnCosmoTraceCall(name, addr);
+        }
         if (DawnCosmoIsWindows()) {
             __asm__ volatile("# dawn-cosmo: Microsoft x64 call" ::: "memory");
             return reinterpret_cast<Ms>(addr)(args...);
@@ -85,6 +91,12 @@ struct DualAbiFn {
     bool operator!=(std::nullptr_t) const { return addr != nullptr; }
     explicit operator bool() const { return addr != nullptr; }
 };
+#ifdef __COSMOPOLITAN__
+template <typename R, typename... Args>
+DualAbiFn<R, Args...> DawnCosmoNamed(DualAbiFn<R, Args...> f, const char* n) {
+    f.name = n;
+    return f;
+}
 #endif
 
 template <typename R, typename... Args>
@@ -137,7 +149,10 @@ F AsVkFn(void(VKAPI_PTR* addr)()) {''' % MARK
 '''
     assert old2 in s
     s = s.replace(old2, new2, 1)
-    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\nextern "C" bool DawnCosmoIsWindows() { return IsWindows(); }\n#undef IsWindows\n#endif')
+    s = s.replace('name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name));', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name)), "vk" #name);', 1)
+    s = s.replace('name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName))', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName)), "vk" #procName)', 1)
+    s = s.replace('name = AsVkFn<PFN_vk##name>(GetDeviceProcAddr(device, "vk" #name));', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetDeviceProcAddr(device, "vk" #name)), "vk" #name);', 1)
+    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows() { return IsWindows(); }\nextern "C" bool DawnCosmoTrace() { static const bool on = getenv("DAWN_COSMO_TRACE") != nullptr; return on; }\nextern "C" void DawnCosmoTraceCall(const char* name, void* addr) { (void)addr; fprintf(stderr, "[vk] %s\\n", name); fflush(stderr); }\n#undef IsWindows\n#endif')
 edit('src/dawn/native/vulkan/VulkanFunctions.cpp', vkfns_cpp)
 
 # 6. Cosmopolitan's own headers #undef __linux__, so code that tests it directly needs the extra clause
