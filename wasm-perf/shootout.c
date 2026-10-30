@@ -18,6 +18,12 @@
 #ifndef UNROLL
 #define UNROLL 1
 #endif
+/* PRAGMAS=1 adds clang loop pragmas to the scalar kernels (vectorize/interleave hints); other compilers ignore it */
+#if defined(PRAGMAS) && defined(__clang__)
+#define LOOPHINT(x) _Pragma(#x)
+#else
+#define LOOPHINT(x)
+#endif
 typedef float v4f __attribute__((vector_size(16)));
 typedef float vf __attribute__((vector_size(VB)));
 typedef float vfu __attribute__((vector_size(VB), aligned(4), may_alias));
@@ -44,6 +50,7 @@ static void matmul(void) {
             _Pragma("GCC unroll 8") for (int u = 0; u < UNROLL; u++) c[u] += av * *(const vfu *)(MB + k * MN + j + u * LF);
             _Pragma("GCC unroll 8") for (int u = 0; u < UNROLL; u++) *(vfu *)(MC + i * MN + j + u * LF) = c[u]; }
 #else
+        LOOPHINT(clang loop vectorize(enable) interleave_count(4))
         for (int j = 0; j < MN; j++) MC[i * MN + j] += a * MB[k * MN + j];
 #endif
     }
@@ -64,6 +71,7 @@ static void nbody(void) {   /* lanes = different bodies i, so each lane sums ove
 }
 #else
 static void nbody(void) {
+    LOOPHINT(clang loop vectorize(enable) vectorize_width(2))
     for (int i = 0; i < NB; i++) { double ax = 0, ay = 0, az = 0;
         for (int j = 0; j < NB; j++) { double dx = px[j] - px[i], dy = py[j] - py[i], dz = pz[j] - pz[i], d2 = dx * dx + dy * dy + dz * dz + 0.01, inv = 1.0 / sqrt(d2), f = mass[j] * inv * inv * inv; ax += dx * f; ay += dy * f; az += dz * f; }
         vx[i] += ax * 0.01; vy[i] += ay * 0.01; vz[i] += az * 0.01; }

@@ -1,0 +1,88 @@
+name: wasm-scalar
+# What closes the gap between scalar wasm and native: compiler flags (O2/O3, simd128 auto-vectorisation, unrolling, interleave, loop pragmas, fast-math, relaxed FMA), binaryen wasm-opt, explicit SIMD source.
+# Same C source (wasm-perf/shootout.c); wasm run by Wasmtime v50, native built by the runner's gcc and clang.
+on:
+  workflow_dispatch:
+permissions: { contents: write }
+env: { WT: v50.0.0, BINARYEN: version_133 }
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the wasm variants
+        run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          curl -fsSL https://github.com/WebAssembly/binaryen/releases/download/$BINARYEN/binaryen-$BINARYEN-x86_64-linux.tar.gz | tar xz
+          S=$PWD/$(ls -d wasi-sdk-34*); WO=$(ls -d $PWD/binaryen-*/bin/wasm-opt); mkdir out; cd wasm-perf
+          $WO --version; $S/bin/clang --version | head -1
+          B() { n=$1; shift; if $S/bin/clang --target=wasm32-wasip1 -fno-math-errno shootout.c -lm "$@" -o ../out/$n.wasm 2>../out/$n.err; then :; else echo "BUILD FAILED $n: $(head -c 300 ../out/$n.err | tr '\n' ' ')"; fi; }
+          B s-O2-nosimd        -O2 -mno-simd128 -DSIMD=0
+          B s-O3-nosimd        -O3 -mno-simd128 -DSIMD=0
+          B s-O3-autovec       -O3 -msimd128 -DSIMD=0
+          B s-O3-autovec-unroll -O3 -msimd128 -DSIMD=0 -funroll-loops
+          B s-O3-autovec-il4   -O3 -msimd128 -DSIMD=0 -mllvm -force-vector-interleave=4
+          B s-O3-autovec-pragmas -O3 -msimd128 -DSIMD=0 -DPRAGMAS=1 -mllvm -enable-vplan-native-path
+          B s-O3-autovec-relaxed -O3 -msimd128 -mrelaxed-simd -ffp-contract=fast -DSIMD=0
+          B s-O3-autovec-fastmath -O3 -msimd128 -DSIMD=0 -ffast-math
+          B s-O3-autovec-fastmath-relaxed -O3 -msimd128 -mrelaxed-simd -DSIMD=0 -ffast-math
+          B s-O3-bleeding      -O3 -mcpu=bleeding-edge -DSIMD=0
+          B x-O3-simd-u4       -O3 -msimd128 -DSIMD=1 -DUNROLL=4
+          B x-O3-simd-vb32-u2  -O3 -msimd128 -DSIMD=1 -DVB=32 -DUNROLL=2
+          B x-O3-simd-relaxed-u2 -O3 -msimd128 -mrelaxed-simd -ffp-contract=fast -DSIMD=1 -DUNROLL=2
+          cd ../out
+          F="--enable-simd --enable-bulk-memory --enable-sign-ext --enable-nontrapping-float-to-int --enable-mutable-globals --enable-multivalue --enable-reference-types"
+          for opt in O3 O4 Oz; do
+            $WO -$opt $F s-O3-autovec.wasm -o w-autovec-$opt.wasm 2>w.err || echo "wasm-opt $opt autovec failed: $(head -c 200 w.err)"
+            $WO -$opt $F --converge x-O3-simd-u4.wasm -o w-simd-u4-$opt.wasm 2>w.err || echo "wasm-opt $opt simd failed: $(head -c 200 w.err)"
+          done
+          $WO -O3 $F s-O3-nosimd.wasm -o w-nosimd-O3.wasm 2>w.err || echo "wasm-opt nosimd failed"
+          ls | grep -v err | tr '\n' ' '
+      - uses: actions/upload-artifact@v4
+        with: { name: so-wasm, path: "out/*.wasm" }
+  run:
+    needs: build-wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    asset: x86_64-linux.tar.xz,  march: "-march=native" }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux.tar.xz, march: "-mcpu=native" }
+          - { label: mac-arm64,   os: macos-latest,     asset: aarch64-macos.tar.xz, march: "-mcpu=native" }
+    runs-on: ${{ matrix.os }}
+    env: { RESULTS_FILE: results.md }
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: so-wasm, path: so }
+      - name: Setup
+        run: |
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }} | tar xJ; echo "WASMTIME=$PWD/$(ls -d wasmtime-$WT-*/)wasmtime" >> "$GITHUB_ENV"
+          { echo "## ${{ matrix.label }}: wasm-scalar run ${{ github.run_id }}, commit ${{ github.sha }}"; (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true; ls so | tr '\n' ' '; echo; } | tee -a results.md
+      - name: Native references
+        run: |
+          mkdir bin; cd wasm-perf; M="${{ matrix.march }}"; F="-O3 -fno-math-errno shootout.c -lm"
+          cc $F -DSIMD=0 -o ../bin/cc-scalar-O3
+          cc -O2 -fno-math-errno shootout.c -lm -DSIMD=0 -o ../bin/cc-scalar-O2
+          if cc --version | grep -qi clang; then NOVEC="-fno-vectorize -fno-slp-vectorize"; else NOVEC="-fno-tree-vectorize -fno-tree-slp-vectorize"; fi
+          cc $F $NOVEC -DSIMD=0 -o ../bin/cc-novec
+          cc $F $M -DSIMD=0 -o ../bin/cc-hostisa-auto
+          cc $F $M -ffp-contract=off -DSIMD=0 -o ../bin/cc-hostisa-auto-nofma
+          cc $F $M -DSIMD=1 -DVB=32 -DUNROLL=2 -o ../bin/cc-hostisa-explicit-vb32
+          if [ "$(uname -s)" = Linux ] && command -v clang >/dev/null; then clang $F -DSIMD=0 -o ../bin/clang-scalar-O3; clang $F $M -DSIMD=0 -o ../bin/clang-hostisa-auto; clang $F $M -ffp-contract=off -DSIMD=0 -o ../bin/clang-hostisa-auto-nofma; clang $F $M -ffast-math -DSIMD=0 -o ../bin/clang-hostisa-auto-fastmath; fi
+          ls ../bin | tr '\n' ' '
+      - name: Run
+        run: |
+          python3 - <<'PY'
+          import json, os, glob
+          W = os.environ['WASMTIME']; rows = []
+          for f in sorted(glob.glob('bin/*')): rows.append({'name': 'native ' + os.path.basename(f), 'cmd': f})
+          for f in sorted(glob.glob('so/*.wasm')): rows.append({'name': 'wasmtime ' + os.path.basename(f)[:-5], 'cmd': f'{W} run {f}'})
+          json.dump(rows, open('spec.json', 'w'))
+          PY
+          python3 wasm-perf/runner.py spec.json --rounds 3 --ref 'native cc-scalar-O3' --kernels matmul256,nbody1024,transform --title "Scalar gap ${{ matrix.label }} (ref = native cc -O3 scalar source, baseline ISA, auto-vectorised by the compiler)"
+      - name: Publish results to the wasm-perf-results branch
+        if: always()
+        uses: ./.github/actions/publish
+        with: { name: "wasm-scalar-${{ matrix.label }}-${{ github.run_id }}" }
