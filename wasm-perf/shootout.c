@@ -32,7 +32,12 @@ typedef double vd __attribute__((vector_size(VB)));
 #define LD (VB / 8)
 static const char *g_filter;   /* argv[1]: comma-separated kernel names to run (default all) */
 static int want(const char *n) { if (!g_filter) return 1; const char *p = g_filter; size_t l = strlen(n); while (*p) { const char *e = strchr(p, ','); size_t pl = e ? (size_t)(e - p) : strlen(p); if (pl && pl <= l && !strncmp(n, p, pl)) return 1; if (!e) break; p = e + 1; } return 0; }
+#ifdef _WIN32
+#include <windows.h>
+static double now_ms(void) { LARGE_INTEGER f, c; QueryPerformanceFrequency(&f); QueryPerformanceCounter(&c); return (double)c.QuadPart * 1e3 / (double)f.QuadPart; }
+#else
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
+#endif
 static uint64_t sink;
 #define BEST(name, reps, body, sum) do if (want(name)) { double best = 1e30; uint64_t cs = 0; for (int r = 0; r < (reps); r++) { double t0 = now_ms(); body; double t1 = now_ms(); if (t1 - t0 < best) best = t1 - t0; cs = (sum); } \
     printf("KERNEL %s %.3f %llu\n", name, best, (unsigned long long)cs); sink += cs; } while (0)
