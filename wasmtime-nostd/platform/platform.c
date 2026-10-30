@@ -9,6 +9,7 @@
 #include <sys/mman.h>
 #include <stdlib.h>
 #include <unistd.h>
+#include <cosmo.h>
 #include <libc/calls/ucontext.h>
 #include "wasmtime-platform.h"
 
