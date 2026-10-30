@@ -70,7 +70,11 @@ jobs:
         if: matrix.label == 'linux-x64'
         continue-on-error: true
         run: |
-          for v in scalar simd-u2; do node --no-liftoff wasm-perf/node_run.js so/so-$v.wasm nbody1024 2>&1 | tail -4 | cut -c1-300; echo "rc=$? ($v)"; done | tee -a results.md
+          { for v in scalar simd-u2; do node --no-liftoff wasm-perf/node_run.js so/so-$v.wasm nbody1024 2>&1 | tail -4 | cut -c1-300; echo "rc=$? ($v)"; done
+          echo "--- V8 revectoriser probe (c = a*b + c, 1/2/4 adjacent v128 operations per iteration)"; node --version
+          for fl in "--no-liftoff" "--no-liftoff --experimental-wasm-revectorize"; do echo "node $fl"; node $fl wasm-perf/node_revec.js so/revec_test.wasm 2>&1 | head -5; done
+          echo "trace:"; node --no-liftoff --experimental-wasm-revectorize --trace-wasm-revectorize wasm-perf/node_revec.js so/revec_test.wasm 2>&1 | head -6 | cut -c1-200
+          echo "code dump ymm count:"; node --no-liftoff --experimental-wasm-revectorize --print-wasm-code wasm-perf/node_revec.js so/revec_test.wasm 2>&1 | grep -c -i ymm; } | tee -a results.md
       - name: Compile every route and smoke-test it
         run: python3 wasm-perf/aot_matrix.py so aot spec.json 2>&1 | cut -c1-900 | tee -a results.md
         env: { MARCH: "${{ matrix.march }}" }
