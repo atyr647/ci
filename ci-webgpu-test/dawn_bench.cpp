@@ -173,6 +173,11 @@ int main(int argc, char **argv) {
     WGPUBindGroup bg = wgpuDeviceCreateBindGroup(dev, &bgd);
 
     // ---- resource creation
+    if (const char *rep = getenv("BENCH_BUFFER_REPEAT")) {   // profiling aid: only buffer create/release in a loop
+        WGPUBufferDescriptor b0 = WGPU_BUFFER_DESCRIPTOR_INIT; b0.size = 65536; b0.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+        const int n0 = atoi(rep); auto t0 = Clock::now(); for (int i = 0; i < n0; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b0); wgpuBufferRelease(x); }
+        bench("buffer_create_release_us", ms_since(t0) * 1e3 / n0, "us/op"); return 0;
+    }
     {
         const int n = scaled(4000); WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT; b.size = 65536; b.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
         auto t0 = Clock::now(); for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); }
@@ -245,18 +250,21 @@ int main(int argc, char **argv) {
     {
         const unsigned iters = 256;
         std::string wgsl = "@group(0) @binding(0) var<storage, read_write> d : array<f32>;\n@compute @workgroup_size(64) fn main(@builtin(global_invocation_id) g : vec3<u32>) {\n"
-                           "  var a = f32(g.x) * 0.001; var b = 1.0;\n  for (var i = 0u; i < " + std::to_string(iters) + "u; i++) { a = fma(a, 0.99, 0.5); b = fma(b, 0.98, a * 0.25); }\n  d[g.x] = a + b;\n}\n";   // contracting recurrence: stays finite, so the result can be checked on the CPU
+                           "  let idx = g.x + g.y * 4194240u;\n  var a = f32(idx) * 0.001; var b = 1.0;\n  for (var i = 0u; i < " + std::to_string(iters) + "u; i++) { a = fma(a, 0.99, 0.5); b = fma(b, 0.98, a * 0.25); }\n  d[idx] = a + b;\n}\n";   // contracting recurrence: stays finite, so the result can be checked on the CPU
         WGPUShaderModule m = make_module(dev, wgsl); WGPUComputePipeline p = make_pipeline(dev, m);
-        const uint32_t maxGroups = software ? 4096 : 1u << 18;
-        WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT; b.size = (uint64_t)maxGroups * 64 * 4; b.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc; WGPUBuffer out = wgpuDeviceCreateBuffer(dev, &b);
+        const uint32_t maxGroups = software ? 4096 : 1u << 18;   // total workgroups; one dimension of a dispatch is limited to 65535, so large counts go over rows of 65535
+        const uint32_t rowW = 65535, rowsMax = (maxGroups + rowW - 1) / rowW;
+        auto eff = [rowW](uint32_t g) -> uint64_t { return g < rowW ? g : (uint64_t)rowW * ((g + rowW - 1) / rowW); };   // workgroups actually dispatched (whole rows)
+        WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT; b.size = (uint64_t)(maxGroups < rowW ? maxGroups : rowsMax * rowW) * 64 * 4; b.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopySrc; WGPUBuffer out = wgpuDeviceCreateBuffer(dev, &b);
         WGPUBindGroupEntry e0 = WGPU_BIND_GROUP_ENTRY_INIT; e0.binding = 0; e0.buffer = out; e0.size = b.size;
         WGPUBindGroupDescriptor g = WGPU_BIND_GROUP_DESCRIPTOR_INIT; g.layout = wgpuComputePipelineGetBindGroupLayout(p, 0); g.entryCount = 1; g.entries = &e0; WGPUBindGroup bg2 = wgpuDeviceCreateBindGroup(dev, &g);
         float tail[64] = {}; bool tailOk = false;
         auto run = [&](uint32_t groups) -> double {
             WGPUCommandEncoderDescriptor ed = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT; WGPUCommandEncoder e = wgpuDeviceCreateCommandEncoder(dev, &ed);
             WGPUComputePassDescriptor pd = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT; WGPUComputePassEncoder cp = wgpuCommandEncoderBeginComputePass(e, &pd);
-            wgpuComputePassEncoderSetPipeline(cp, p); wgpuComputePassEncoderSetBindGroup(cp, 0, bg2, 0, nullptr); wgpuComputePassEncoderDispatchWorkgroups(cp, groups, 1, 1); wgpuComputePassEncoderEnd(cp);
-            wgpuCommandEncoderCopyBufferToBuffer(e, out, (uint64_t)(groups - 1) * 64 * 4, rb, 0, 256);   // the LAST workgroup, so a run that skipped work cannot pass the check
+            wgpuComputePassEncoderSetPipeline(cp, p); wgpuComputePassEncoderSetBindGroup(cp, 0, bg2, 0, nullptr); wgpuComputePassEncoderDispatchWorkgroups(cp, groups < rowW ? groups : rowW, groups < rowW ? 1 : (groups + rowW - 1) / rowW, 1); wgpuComputePassEncoderEnd(cp);
+            const uint64_t ran = eff(groups);
+            wgpuCommandEncoderCopyBufferToBuffer(e, out, (ran - 1) * 64 * 4, rb, 0, 256);   // the LAST workgroup, so a run that skipped work cannot pass the check
             WGPUCommandBufferDescriptor cbd = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT; WGPUCommandBuffer cb = wgpuCommandEncoderFinish(e, &cbd);
             auto t0 = Clock::now(); wgpuQueueSubmit(q, 1, &cb);
             WGPUBufferMapCallbackInfo mi = WGPU_BUFFER_MAP_CALLBACK_INFO_INIT; mi.mode = WGPUCallbackMode_AllowProcessEvents; mi.callback = on_map;
@@ -271,12 +279,12 @@ int main(int argc, char **argv) {
             // check the last workgroup's results against a CPU reference (same recurrence, float), taken from the final timed run
             const float *res = tail; bool ok = tailOk; double worst = 0;
             if (ok) for (int k = 0; k < 64; k++) {
-                float a = (float)((uint32_t)((groups - 1) * 64 + k)) * 0.001f, bb = 1.0f;
+                float a = (float)((uint32_t)((eff(groups) - 1) * 64 + k)) * 0.001f, bb = 1.0f;
                 for (unsigned i = 0; i < iters; i++) { a = a * 0.99f + 0.5f; bb = bb * 0.98f + a * 0.25f; }
                 double ref = (double)a + bb, err = fabs(res[k] - ref) / fabs(ref); if (!(err <= worst)) worst = err;   // NaN counts as the worst
             }
-            printf("gpu_alu: groups=%u best=%.4f ms, last-workgroup max relative error %.3g\n", groups, best, worst);
-            if (ok && worst < 1e-3) bench("gpu_alu_GFLOPs", (double)groups * 64 * iters * 5 / (best / 1e3) / 1e9, "GFLOP/s");
+            printf("gpu_alu: groups=%u (dispatched %llu) best=%.4f ms, last-workgroup max relative error %.3g\n", groups, (unsigned long long)eff(groups), best, worst);
+            if (ok && worst < 1e-3) bench("gpu_alu_GFLOPs", (double)eff(groups) * 64 * iters * 5 / (best / 1e3) / 1e9, "GFLOP/s");
             else printf("gpu_alu: result does not match the CPU reference, no throughput reported\n");
         }
     }

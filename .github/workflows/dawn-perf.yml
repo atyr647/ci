@@ -5,6 +5,7 @@ on:
   workflow_dispatch:
     inputs:
       cosmo_run: { description: 'run id of a dawn-cosmo run that uploaded the artifact dbg-dawn-bench', required: true }
+      mode: { description: 'tint = shader-module loop, buffer = buffer create/release loop', required: false, default: 'tint' }
 env:
   DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
 jobs:
@@ -45,7 +46,7 @@ jobs:
         run: |
           export WGT_BACKEND=vulkan
           N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
-          export BENCH_TINT_REPEAT=400   # only Tint (WGSL parse/validate/translate) in a loop, so the profile is not dominated by the host baselines and the software GPU
+          if [ "${{ inputs.mode }}" = buffer ]; then export BENCH_BUFFER_REPEAT=1500000; else export BENCH_TINT_REPEAT=400; fi   # only Tint (WGSL parse/validate/translate), or only buffer create/release, in a loop, so the profile is not dominated by the host baselines and the software GPU
           for v in native cosmo native2 cosmo2; do
             case $v in native*) BIN=$N;; *) BIN=$C;; esac
             "$PERF" record -e cpu-clock -F 20000 -o perf.$v.data -- $BIN > run.$v.txt 2>&1 || { echo "perf record failed for $v"; tail -5 run.$v.txt; }
