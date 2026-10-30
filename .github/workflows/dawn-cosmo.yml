@@ -195,5 +195,11 @@ jobs:
           echo "=== Vulkan call trace, last 45 lines"
           ( DAWN_COSMO_TRACE=1 ./wgt-dawn.exe 2>&1 | cat ) > vktrace.txt || true
           tr '\r' '\n' < vktrace.txt | grep -E "^\[vk\]|stage:|Segmentation|compute N" | tail -45
+          echo "=== Cosmopolitan --strace (system calls) last 40 lines"
+          ( ./wgt-dawn.exe --strace 2>&1 | cat ) > strace.txt || true
+          tr '\r' '\n' < strace.txt | tail -40 | cut -c1-200
+          echo "=== Cosmopolitan --ftrace (every function entered) last 120 lines"
+          ( ./wgt-dawn.exe --ftrace 2>&1 | cat ) > ftrace.txt || true
+          tr '\r' '\n' < ftrace.txt | tail -120 | cut -c1-160
           echo "=== lavapipe with its worker threads off (LP_NUM_THREADS=0)"
           ( LP_NUM_THREADS=0 ./wgt-dawn.exe 2>&1 | cat ) | tr '\r' '\n' | grep -E "stage: map|compute N|RESULT|Segmentation" | head
