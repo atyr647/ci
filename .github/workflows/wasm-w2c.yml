@@ -44,12 +44,12 @@ jobs:
         run: |
           python3 wasm-perf/wasm2c-relaxed/gen_test.py rt
           F="--enable-relaxed-simd"
-          ./b-wabt/wat2wasm $F rt/relaxed_ops.wasm 2>/dev/null; ./b-wabt/wat2wasm $F rt/relaxed_ops.wat -o rt/relaxed_ops.wasm
+          ./b-wabt/wat2wasm $F rt/relaxed_ops.wat -o rt/relaxed_ops.wasm
           {
           echo "### relaxed-SIMD coverage ($(wc -l < rt/names.txt) opcodes tested)"
           echo "plain wabt master: $(./b-wabt/wasm2c $F rt/relaxed_ops.wasm -n rt -o rt/plain.c 2>&1 | head -1)"
           ./b-wabt-p/wasm2c $F rt/relaxed_ops.wasm -n rt -o rt/rt.c && echo "patched wasm2c: translated ($(wc -c < rt/rt.c) bytes of C)"
-          R=b-wabt/../wabt-p/wasm2c; for cc in gcc clang; do
+          for cc in gcc clang; do
             command -v $cc >/dev/null || continue
             $cc -O2 -ffp-contract=fast ${{ matrix.march }} -Wno-everything -Irt -Iwabt-p/wasm2c -Iwabt-p/third_party/simde rt/main.c rt/rt.c wabt-p/wasm2c/wasm-rt-impl.c wabt-p/wasm2c/wasm-rt-mem-impl.c -o rt/t-$cc -lm 2>rt/$cc.err || { echo "$cc build FAILED: $(grep -m3 error rt/$cc.err | cut -c1-200)"; continue; }
             ./rt/t-$cc > rt/out-$cc.txt || echo "$cc run failed"
