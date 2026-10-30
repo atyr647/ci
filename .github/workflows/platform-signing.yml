@@ -44,6 +44,7 @@ jobs:
           - { label: linux-x64,   os: ubuntu-latest }
           - { label: linux-arm64, os: ubuntu-24.04-arm }
           - { label: mac-arm64,   os: macos-latest }
+          - { label: mac-x64,     os: macos-15-intel }
     runs-on: ${{ matrix.os }}
     steps:
       - uses: actions/checkout@v4
@@ -54,3 +55,34 @@ jobs:
         with: { name: win-signed, path: winsigned }
       - name: Run every signed variant, check the zip asset, the hash and the signature after the runs
         run: bash platform-probes/signing/unix_run.sh
+  defender:
+    needs: build-sign
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: win-x64,   os: windows-latest }
+          - { label: win-arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: signing-inputs, path: . }
+      - name: Defender with cloud protection and sample submission on, SmartScreen / Smart App Control / WDAC facts
+        continue-on-error: true
+        shell: powershell
+        run: ./platform-probes/signing/win_defender.ps1
+  mac:
+    needs: build-sign
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: signing-inputs, path: . }
+      - name: macOS signing structures, hardened runtime, Gatekeeper, quarantine, notarization tooling
+        continue-on-error: true
+        run: |
+          bash platform-probes/signing/mac_probe.sh 2>&1 | tee mac.log
+          echo "=========== RESULTS ==========="; grep '^RESULT' mac.log
+      - uses: actions/upload-artifact@v4
+        with: { name: mac-log, path: mac.log, retention-days: 3 }

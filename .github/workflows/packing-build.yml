@@ -95,7 +95,6 @@ jobs:
           s = s.replace(k, k + '  target_compile_options(${TARGET} PRIVATE -Os)  # packing experiment\n', 1)
           open(p, 'w').write(s)
           PY
-          cmake build >/dev/null   # re-run the generator with the changed list file
       - name: Build libwebgpu_dawn.a
         run: |
           cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
@@ -113,7 +112,7 @@ jobs:
           LTOF=""; [ "${{ matrix.lto }}" = 1 ] && LTOF="-flto=auto"
           $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 -c pin/alloc-probe/tcache_new.cpp -o out/tcache.o
           $B/x86_64-unknown-cosmo-cc -O2 $INC -c pin/ci-webgpu-test/wgt.c -o out/wgt.o
-          $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 $INC -c pin/ci-webgpu-test/dawn_bench.cpp -o out/bench.o
+          $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 $INC -Ici-webgpu-test -c ci-webgpu-test/dawn_bench.cpp -o out/bench.o
           for v in base variant; do
             L=out/libvariant.a; F=$LTOF; [ $v = base ] && { L=lib-base/libwebgpu_dawn.a; F=""; }
             $B/x86_64-unknown-cosmo-c++ -O2 $F out/wgt.o out/tcache.o $L -Wl,--wrap=pthread_create -o out/wgt-$v.com
