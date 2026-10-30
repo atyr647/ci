@@ -1,5 +1,6 @@
+diff -ru cga/src/isa/aarch64/abi.rs cgb/src/isa/aarch64/abi.rs
 --- a/src/isa/aarch64/abi.rs	2026-10-30 12:55:06.605434297 +0000
-+++ b/src/isa/aarch64/abi.rs	2026-10-30 12:55:06.694133373 +0000
++++ b/src/isa/aarch64/abi.rs	2026-10-30 13:27:46.712357184 +0000
 @@ -1718,8 +1718,10 @@
                  .with(preg(xreg(24)))
                  .with(preg(xreg(25)))
@@ -13,3 +14,188 @@
              PRegSet::empty()
                  .with(preg(vreg(8)))
                  .with(preg(vreg(9)))
+diff -ru cga/src/isa/aarch64/inst/emit.rs cgb/src/isa/aarch64/inst/emit.rs
+--- a/src/isa/aarch64/inst/emit.rs	2026-10-30 12:55:06.605740495 +0000
++++ b/src/isa/aarch64/inst/emit.rs	2026-10-30 13:27:46.714493802 +0000
+@@ -1484,15 +1484,15 @@
+                      again:
+                       ldaxr{,b,h}  x/w27, [x25]
+                       // maybe sign extend
+-                      op          x28, x27, x26 // op is add,sub,and,orr,eor
++                      op          x23, x27, x26 // op is add,sub,and,orr,eor
+                       stlxr{,b,h}  w24, x/w28, [x25]
+                       cbnz        x24, again
+ 
+                    Operand conventions:
+                       IN:  x25 (addr), x26 (2nd arg for op)
+-                      OUT: x27 (old value), x24 (trashed), x28 (trashed)
++                      OUT: x27 (old value), x24 (trashed), x23 (trashed)
+ 
+-                   It is unfortunate that, per the ARM documentation, x28 cannot be used for
++                   It is unfortunate that, per the ARM documentation, x23 cannot be used for
+                    both the store-data and success-flag operands of stlxr.  This causes the
+                    instruction's behaviour to be "CONSTRAINED UNPREDICTABLE", so we use x24
+                    instead for the success-flag.
+@@ -1504,10 +1504,10 @@
+                 let x25 = xreg(25);
+                 let x26 = xreg(26);
+                 let x27 = xreg(27);
+-                let x28 = xreg(28);
++                let x23 = xreg(23);
+                 let x24wr = writable_xreg(24);
+                 let x27wr = writable_xreg(27);
+-                let x28wr = writable_xreg(28);
++                let x23wr = writable_xreg(23);
+                 let again_label = sink.get_label();
+ 
+                 // again:
+@@ -1551,13 +1551,13 @@
+                 match op {
+                     AtomicRMWLoopOp::Xchg => {} // do nothing
+                     AtomicRMWLoopOp::Nand => {
+-                        // and x28, x27, x26
+-                        // mvn x28, x28
++                        // and x23, x27, x26
++                        // mvn x23, x23
+ 
+                         Inst::AluRRR {
+                             alu_op: ALUOp::And,
+                             size,
+-                            rd: x28wr,
++                            rd: x23wr,
+                             rn: x27,
+                             rm: x26,
+                         }
+@@ -1566,9 +1566,9 @@
+                         Inst::AluRRR {
+                             alu_op: ALUOp::OrrNot,
+                             size,
+-                            rd: x28wr,
++                            rd: x23wr,
+                             rn: xzr,
+-                            rm: x28,
++                            rm: x23,
+                         }
+                         .emit(sink, emit_info, state);
+                     }
+@@ -1577,7 +1577,7 @@
+                     | AtomicRMWLoopOp::Smin
+                     | AtomicRMWLoopOp::Smax => {
+                         // cmp x27, x26 {?sxt}
+-                        // csel.op x28, x27, x26
++                        // csel.op x23, x27, x26
+ 
+                         let cond = match op {
+                             AtomicRMWLoopOp::Umin => Cond::Lo,
+@@ -1610,14 +1610,14 @@
+ 
+                         Inst::CSel {
+                             cond,
+-                            rd: x28wr,
++                            rd: x23wr,
+                             rn: x27,
+                             rm: x26,
+                         }
+                         .emit(sink, emit_info, state);
+                     }
+                     _ => {
+-                        // add/sub/and/orr/eor x28, x27, x26
++                        // add/sub/and/orr/eor x23, x27, x26
+                         let alu_op = match op {
+                             AtomicRMWLoopOp::Add => ALUOp::Add,
+                             AtomicRMWLoopOp::Sub => ALUOp::Sub,
+@@ -1635,7 +1635,7 @@
+                         Inst::AluRRR {
+                             alu_op,
+                             size,
+-                            rd: x28wr,
++                            rd: x23wr,
+                             rn: x27,
+                             rm: x26,
+                         }
+@@ -1649,7 +1649,7 @@
+                 if op == AtomicRMWLoopOp::Xchg {
+                     sink.put4(enc_stlxr(ty, x24wr, x26, x25)); // stlxr w24, x26, [x25]
+                 } else {
+-                    sink.put4(enc_stlxr(ty, x24wr, x28, x25)); // stlxr w24, x28, [x25]
++                    sink.put4(enc_stlxr(ty, x24wr, x23, x25)); // stlxr w24, x23, [x25]
+                 }
+ 
+                 // cbnz w24, again
+@@ -1720,14 +1720,14 @@
+                     out:
+ 
+                   Operand conventions:
+-                     IN:  x25 (addr), x26 (expected value), x28 (replacement value)
++                     IN:  x25 (addr), x26 (expected value), x23 (replacement value)
+                      OUT: x27 (old value), x24 (trashed)
+                 */
+                 let x24 = xreg(24);
+                 let x25 = xreg(25);
+                 let x26 = xreg(26);
+                 let x27 = xreg(27);
+-                let x28 = xreg(28);
++                let x23 = xreg(23);
+                 let xzrwr = writable_zero_reg();
+                 let x24wr = writable_xreg(24);
+                 let x27wr = writable_xreg(27);
+@@ -1767,7 +1767,7 @@
+                     sink.add_trap(trap_code);
+                 }
+ 
+-                sink.put4(enc_stlxr(ty, x24wr, x28, x25)); // stlxr w24, x28, [x25]
++                sink.put4(enc_stlxr(ty, x24wr, x23, x25)); // stlxr w24, x23, [x25]
+ 
+                 // cbnz w24, again.
+                 // Note, we're actually testing x24, and relying on the default zero-high-half
+diff -ru cga/src/isa/aarch64/inst/mod.rs cgb/src/isa/aarch64/inst/mod.rs
+--- a/src/isa/aarch64/inst/mod.rs	2026-10-30 12:55:06.606227481 +0000
++++ b/src/isa/aarch64/inst/mod.rs	2026-10-30 13:27:46.715604252 +0000
+@@ -484,7 +484,7 @@
+             collector.reg_fixed_def(oldval, xreg(27));
+             collector.reg_fixed_def(scratch1, xreg(24));
+             if *op != AtomicRMWLoopOp::Xchg {
+-                collector.reg_fixed_def(scratch2, xreg(28));
++                collector.reg_fixed_def(scratch2, xreg(23));
+             }
+         }
+         Inst::AtomicRMW { rs, rt, rn, .. } => {
+@@ -517,7 +517,7 @@
+             collector.reg_fixed_def(rd_hi, xreg(25));
+             collector.reg_fixed_use(rt_lo, xreg(26));
+             collector.reg_fixed_use(rt_hi, xreg(27));
+-            collector.reg_fixed_use(rn, xreg(28));
++            collector.reg_fixed_use(rn, xreg(23));
+         }
+         Inst::AtomicCASLoop {
+             addr,
+@@ -529,7 +529,7 @@
+         } => {
+             collector.reg_fixed_use(addr, xreg(25));
+             collector.reg_fixed_use(expected, xreg(26));
+-            collector.reg_fixed_use(replacement, xreg(28));
++            collector.reg_fixed_use(replacement, xreg(23));
+             collector.reg_fixed_def(oldval, xreg(27));
+             collector.reg_fixed_def(scratch, xreg(24));
+         }
+diff -ru cga/src/isa/aarch64/inst.isle cgb/src/isa/aarch64/inst.isle
+--- a/src/isa/aarch64/inst.isle	2026-10-30 12:55:06.607093306 +0000
++++ b/src/isa/aarch64/inst.isle	2026-10-30 13:27:46.716658876 +0000
+@@ -281,7 +281,7 @@
+        ;; x26   (rd) second operand for `op`
+        ;; x27   (wr) old value
+        ;; x24   (wr) scratch reg; value afterwards has no meaning
+-       ;; x28   (wr) scratch reg; value afterwards has no meaning
++       ;; x23   (wr) scratch reg; value afterwards has no meaning (was x28, which is reserved here)
+        (AtomicRMWLoop
+         (ty Type) ;; I8, I16, I32 or I64
+         (op AtomicRMWLoopOp)
+@@ -298,7 +298,7 @@
+        ;;
+        ;; x25   (rd) address
+        ;; x26   (rd) expected value
+-       ;; x28   (rd) replacement value
++       ;; x23   (rd) replacement value (was x28, which is reserved here)
+        ;; x27   (wr) old value
+        ;; x24   (wr) scratch reg; value afterwards has no meaning
+        (AtomicCASLoop

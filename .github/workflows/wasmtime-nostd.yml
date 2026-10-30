@@ -195,10 +195,12 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: guests, path: guests }
       - name: Fault address and trap classification (out-of-bounds, guard region, end of memory, divide by zero, unreachable, stack overflow)
+        timeout-minutes: 8
         continue-on-error: true
         run: |
           for mode in sig nosig pulley; do echo "=== stress guest traps, mode $mode"; WN_TRACE=1 $RUN $mode stress --invoke=ok,oob,oob2,oob3,ok,div0,ok,unreach,ok,recurse,ok --expect-fault; echo "exit: $?"; done
       - name: Stress - N OS threads x (wasm compute, host calls, memory.grow, deliberate traps), results checked
+        timeout-minutes: 8
         continue-on-error: true
         run: |
           set +e; fail=0
@@ -207,6 +209,7 @@ jobs:
           exit $fail
       - name: x28 baselines with the stock compiler output (arm64 only)
         if: matrix.label == 'linux-arm64' || matrix.label == 'mac-arm64'
+        timeout-minutes: 8
         continue-on-error: true
         run: |
           set +e
@@ -217,6 +220,7 @@ jobs:
             WN_CWASM_DIR=guests/out-stock limited $RUN $mode stress --stress --threads=$2 --seconds=3 --engine=shared 2>&1 | tail -6; echo "exit: ${PIPESTATUS[0]}"
           done; done
       - name: Wasm threads - shared memory, atomics, wait/notify, wasi:thread-spawn
+        timeout-minutes: 8
         continue-on-error: true
         run: |
           set +e
@@ -228,6 +232,7 @@ jobs:
             $RUN $mode par -- 1 trapthread; echo "exit: $?"
           done
       - name: Thread scaling, wasm threads in the static Wasmtime against native pthreads of the same C source
+        timeout-minutes: 8
         continue-on-error: true
         run: |
           set +e

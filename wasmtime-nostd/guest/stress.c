@@ -18,4 +18,6 @@ EXPORT("oob2") int oob2(void) { return ((volatile int *)0xFFFFFFF0u)[20]; }     
 EXPORT("oob3") int oob3(void) { return *(volatile int *)(__builtin_wasm_memory_size(0) * 65536u); }   /* first byte after the current end of the memory */
 EXPORT("div0") int div0(void) { return 100 / zero; }
 EXPORT("unreach") void unreach(void) { __builtin_trap(); }
-EXPORT("recurse") int recurse(int n) { sink = n; return recurse(n + 1) + 1; }               /* never returns: the wasm call stack overflows */
+static int (*volatile self_fp)(int);   /* an indirect call: clang turns a direct "return f(n+1)+1" into a loop (accumulator recursion elimination) */
+__attribute__((noinline)) static int rec_impl(int n) { sink = n; return self_fp(n + 1) + 1; }
+EXPORT("recurse") int recurse(int n) { self_fp = rec_impl; return rec_impl(n); }          /* never returns: the wasm call stack overflows */
