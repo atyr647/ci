@@ -1,0 +1,54 @@
+core gc sig rc=0 SUMMARY tests=11 pass=11 fail=0 
+core gc nosig rc=0 SUMMARY tests=11 pass=11 fail=0 
+core gc pulley rc=0 SUMMARY tests=11 pass=11 fail=0 
+core eh sig rc=0 SUMMARY tests=8 pass=8 fail=0 
+core eh nosig rc=0 SUMMARY tests=8 pass=8 fail=0 
+core eh pulley rc=0 SUMMARY tests=8 pass=8 fail=0 
+core mem sig rc=0 SUMMARY tests=9 pass=9 fail=0 
+core mem nosig rc=0 SUMMARY tests=9 pass=9 fail=0 
+core mem pulley rc=0 SUMMARY tests=9 pass=9 fail=0 
+core relaxed sig rc=0 SUMMARY tests=9 pass=9 fail=0 
+core relaxed nosig rc=0 SUMMARY tests=9 pass=9 fail=0 
+core relaxed pulley rc=0 SUMMARY tests=9 pass=9 fail=0 
+gc-collector drc sig rc=0 SUMMARY tests=11 pass=11 fail=0 
+gc-collector null sig rc=0 SUMMARY tests=11 pass=11 fail=0 
+gc-collector copying sig rc=0 SUMMARY tests=11 pass=11 fail=0 
+gc-stress drc rc=0 CALL s_gcstress(2000000) -> 1999999000000 in 145.132 ms, suspensions 0;CALL s_gcstress_arrays(200000) -> 12800000 in 21.820 ms, suspensions 0; 
+gc-stress copying rc=0 CALL s_gcstress(2000000) -> 1999999000000 in 10.217 ms, suspensions 0;CALL s_gcstress_arrays(200000) -> 12800000 in 9.747 ms, suspensions 0; 
+gc-stress pulley rc=0 CALL s_gcstress(300000) -> 44999850000 in 53.454 ms, suspensions 0;
+threads atomics-thr sig rc=68  load failed: Module was compiled with support for WebAssembly feature `threads` but it is not enabled for the host 
+threads atomics-thr pulley rc=65  cannot read /zip/atomics-thr.pulley.cwasm or atomics-thr.pulley.cwasm 
+threads shared-thr sig rc=68  load failed: Module was compiled with support for WebAssembly feature `threads` but it is not enabled for the host 
+threads shared-thr pulley rc=65  cannot read /zip/shared-thr.pulley.cwasm or shared-thr.pulley.cwasm 
+wasi-p1 sig rc=0 SUMMARY pass=58 fail=0 fails=0
+wasi-p1 nosig rc=0 SUMMARY pass=58 fail=0 fails=0
+wasi-p1 pulley rc=0 SUMMARY pass=58 fail=0 fails=0
+wasi-p1 exit-code propagation rc=7 (expected 7)
+host exit code for a missing file rc=65 (expected 65)
+same, output discarded rc=7 (expected 7)
+wasi-p1 base-runtime rc=0 SUMMARY pass=58 fail=0 identical-to-full-sig=yes
+wasi-p1 call cost sig: clock_gettime 231 ns/op (200000 ops);getentropy 16B 249 ns/op (100000 ops);write 4 KiB 9001 ns/op (20000 ops);pread 4 KiB 6918 ns/op (20000 ops);fstat 10111 ns/op (50000 ops);stat (path) 141766 ns/op (20000 ops);open+close 286562 ns/op (5000 ops);
+wasi-p1 call cost pulley: clock_gettime 542 ns/op (200000 ops);getentropy 16B 454 ns/op (100000 ops);write 4 KiB 8861 ns/op (20000 ops);pread 4 KiB 7644 ns/op (20000 ops);fstat 10954 ns/op (50000 ops);stat (path) 153775 ns/op (20000 ops);open+close 284959 ns/op (5000 ops);
+async sig rc=0 SUMMARY tests=5 pass=5 fail=0 
+async nosig rc=0 SUMMARY tests=5 pass=5 fail=0 
+async pulley rc=0 SUMMARY tests=5 pass=5 fail=0 
+async-timing sig CALL s_async_loop(100000) -> 100000 in 24.259 ms, suspensions 100000;CALL s_sync_loop(100000) -> 100000 in 5.907 ms, suspensions 0;
+async-timing pulley CALL s_async_loop(100000) -> 100000 in 37.278 ms, suspensions 100000;CALL s_sync_loop(100000) -> 100000 in 20.300 ms, suspensions 0;
+asyncify depth=0 sig | plain: CALL run(0) -> 400000000 in 3.704 ms, suspensions 0 | instrumented, no unwinding: CALL run(0) -> 400000000 in 3.695 ms, suspensions 0 | unwinding: ASYNCIFY run -> 400000000, unwinds 20000 in 59.214 ms
+asyncify depth=0 pulley | plain: CALL run(0) -> 400000000 in 7.074 ms, suspensions 0 | instrumented, no unwinding: CALL run(0) -> 400000000 in 8.062 ms, suspensions 0 | unwinding: ASYNCIFY run -> 400000000, unwinds 20000 in 103.319 ms
+asyncify depth=50 sig | plain: CALL run(0) -> 401000000 in 3.714 ms, suspensions 0 | instrumented, no unwinding: CALL run(0) -> 401000000 in 3.827 ms, suspensions 0 | unwinding: ASYNCIFY run -> 401000000, unwinds 20000 in 58.473 ms
+asyncify depth=50 pulley | plain: CALL run(0) -> 401000000 in 7.422 ms, suspensions 0 | instrumented, no unwinding: CALL run(0) -> 401000000 in 10.704 ms, suspensions 0 | unwinding: ASYNCIFY run -> 401000000, unwinds 20000 in 108.362 ms
+coroutines sig rc=0 SUMMARY tests=2 pass=2 fail=0
+coroutines nosig rc=0 SUMMARY tests=2 pass=2 fail=0
+coroutines pulley rc=0 SUMMARY tests=2 pass=2 fail=0
+coroutine-timing sig CALL s_coro(3000000) -> 13499998500000 in 16.446 ms, suspensions 0;CALL s_plain(3000000) -> 13499998500000 in 7.759 ms, suspensions 0;
+coroutine-timing pulley CALL s_coro(3000000) -> 13499998500000 in 496.756 ms, suspensions 0;CALL s_plain(3000000) -> 13499998500000 in 156.432 ms, suspensions 0;
+component canonical-ABI selftest sig rc=65 
+wasi-p2 sig rc=1 SUMMARY pass=52 fail=1 fails=1 | [t=0 ms] args [t=4 ms] environment [t=5 ms] stdio stderr line [t=7 ms] files [t=101 ms] directories [t=2275 ms] symbolic links and the sandbox [t=2280 ms] clocks, random, poll [t=2334 ms] memory host : component finished in 2363.4 ms, exit code 1, suspensions 23 
+wasi-p2 nosig rc=1 SUMMARY pass=52 fail=1 fails=1 | [t=0 ms] args [t=4 ms] environment [t=5 ms] stdio stderr line [t=7 ms] files [t=110 ms] directories [t=2295 ms] symbolic links and the sandbox [t=2301 ms] clocks, random, poll [t=2355 ms] memory host : component finished in 2384.5 ms, exit code 1, suspensions 23 
+wasi-p2 pulley rc=1 SUMMARY pass=52 fail=1 fails=1 | [t=0 ms] args [t=3 ms] environment [t=3 ms] stdio stderr line [t=4 ms] files [t=392 ms] directories [t=2588 ms] symbolic links and the sandbox [t=2593 ms] clocks, random, poll [t=2646 ms] memory host : component finished in 2675.3 ms, exit code 1, suspensions 23 
+wasi-p2 sockets sig rc=70  fails=0 | run failed: error while executing at wasm backtrace:     0:  0x70e22 - <unknown>!<wasm function 45>     1:   0xb2dc - socktest.p2.wasm!ip_name_lookup_resolve_addresses     2:   0x90e4 - socktest.p2.wasm!getaddrinfo     3:   0x30b4 - socktest.p2.wasm!__original_main     4:   0x2e64 - socktest.p2.wasm
+wasi-p2 sockets pulley rc=70  fails=0 | run failed: error while executing at wasm backtrace:     0:  0x70e22 - <unknown>!<wasm function 45>     1:   0xb2dc - socktest.p2.wasm!ip_name_lookup_resolve_addresses     2:   0x90e4 - socktest.p2.wasm!getaddrinfo     3:   0x30b4 - socktest.p2.wasm!__original_main     4:   0x2e64 - socktest.p2.wasm
+wasi-p2 call cost sig: clock_gettime 245 ns/op (200000 ops);getentropy 16B 880 ns/op (100000 ops);write 4 KiB 12155 ns/op (20000 ops);pread 4 KiB 81960 ns/op (20000 ops);fstat 29107 ns/op (50000 ops);stat (path) 328093 ns/op (20000 ops);open+close 322557 ns/op (5000 ops);
+speed table in results/win-arm64/ab.out
+done
