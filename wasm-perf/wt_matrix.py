@@ -31,6 +31,10 @@ if x64:
     add('SSE4.2 only + no bmi/lzcnt/popcnt', off('has_avx', 'has_avx2', 'has_fma', 'has_bmi1', 'has_bmi2', 'has_lzcnt', 'has_popcnt'))
     add('no SSE4.1/4.2 and no AVX (SSSE3 only)', off('has_avx', 'has_avx2', 'has_fma', 'has_sse41', 'has_sse42'))
 for o in ('0', '1', '2', 's'): add(f'opt-level={o}', f'-O opt-level={o}')
+for key in ('enable_heap_access_spectre_mitigation', 'enable_table_access_spectre_mitigation', 'enable_jump_table_spectre_mitigation', 'enable_alias_analysis', 'unwind_info', 'enable_probestack'):
+    sp2 = spelling(key)
+    if sp2 and key != 'enable_probestack' and key != 'unwind_info': add(f'{key}=false', f'-C {sp2}=false')
+    if sp2 and key == 'unwind_info': add('unwind_info=false (no exception/backtrace data)', f'-C {sp2}=false')
 add('regalloc single-pass', '-O regalloc-algorithm=single-pass')
 add('explicit bounds checks (signals-based-traps=n)', '-O signals-based-traps=n')
 add('dynamic memory (reservation 0, guard 0)', '-O memory-reservation=0 -O memory-guard-size=0')

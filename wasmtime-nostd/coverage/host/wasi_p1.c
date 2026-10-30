@@ -392,3 +392,88 @@ int wasi_p1_register(void) {
     D("sock_accept", "iii>i", p_sock_accept); D("sock_recv", "iiiiii>i", p_sock_recv); D("sock_send", "iiiii>i", p_sock_send); D("sock_shutdown", "ii>i", p_sock_shutdown);
     return rc;
 }
+
+/* ======================================================================================================================================================
+ * Support for the preview 2 host (written in Rust, embedding/src/p2.rs): the same sandbox (pre-opened roots, lexical + real-path check) and the same C library
+ * calls, behind plain-typed functions. Every function returns a value >= 0 or minus a WASI preview 1 errno.
+ * ====================================================================================================================================================== */
+#define NEG() (-werr(errno))
+int wn_fs_count(void) { return nroots; }
+const char *wn_fs_guest_name(int i) { for (int k = 0, n = 0; k < nfds; k++) if (fds[k].kind == K_DIR && fds[k].gname && !*fds[k].rel) { if (n++ == i) return fds[k].gname; } return NULL; }
+int wn_fs_root_of(int i) { for (int k = 0, n = 0; k < nfds; k++) if (fds[k].kind == K_DIR && fds[k].gname && !*fds[k].rel) { if (n++ == i) return fds[k].root; } return -1; }
+/* resolves `path` relative to directory (root, base_rel); result in out_rel */
+int wn_fs_resolve(int root, const char *base_rel, const char *path, int follow, char *out_rel, size_t cap) {
+    if (root < 0 || root >= nroots) return -W_BADF;
+    int e = norm_path(base_rel, path, strlen(path), out_rel, cap); if (e) return -e;
+    e = symlink_check(root, out_rel, follow); return e ? -e : 0;
+}
+static int stat_out(const struct stat *st, uint64_t out[8]) {
+    out[0] = wtype(st->st_mode); out[1] = (uint64_t)st->st_nlink; out[2] = (uint64_t)st->st_size;
+    out[3] = (uint64_t)st->st_atim.tv_sec * 1000000000ull + (uint64_t)st->st_atim.tv_nsec; out[4] = (uint64_t)st->st_mtim.tv_sec * 1000000000ull + (uint64_t)st->st_mtim.tv_nsec;
+    out[5] = (uint64_t)st->st_ctim.tv_sec * 1000000000ull + (uint64_t)st->st_ctim.tv_nsec; out[6] = (uint64_t)st->st_ino; out[7] = (uint64_t)st->st_dev; return 0;
+}
+int wn_fs_stat(int root, const char *rel, int follow, uint64_t out[8]) { char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); struct stat st; if ((follow ? stat(hp, &st) : lstat(hp, &st))) return NEG(); return stat_out(&st, out); }
+int wn_fs_fstat(int hfd, uint64_t out[8]) { struct stat st; if (fstat(hfd, &st)) return NEG(); return stat_out(&st, out); }
+int wn_fs_open(int root, const char *rel, int rd, int wr, int creat, int excl, int trunc, int append) {
+    char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); int fl = wr ? (rd ? O_RDWR : O_WRONLY) : O_RDONLY;
+    if (creat) fl |= O_CREAT; if (excl) fl |= O_EXCL; if (trunc) fl |= O_TRUNC; if (append) fl |= O_APPEND;
+    int h = open(hp, fl, 0666); return h < 0 ? NEG() : h;
+}
+int wn_fs_dup(int hfd) { int h = dup(hfd); return h < 0 ? NEG() : h; }
+int wn_fs_close(int hfd) { return close(hfd) ? NEG() : 0; }
+int64_t wn_fs_pread(int hfd, uint8_t *p, size_t n, uint64_t off) { ssize_t g = pread(hfd, p, n, (off_t)off); return g < 0 ? NEG() : g; }
+int64_t wn_fs_pwrite(int hfd, const uint8_t *p, size_t n, uint64_t off) { ssize_t g = pwrite(hfd, p, n, (off_t)off); return g < 0 ? NEG() : g; }
+int64_t wn_c_write(int hfd, const uint8_t *p, size_t n) { if (hfd == 1) fflush(stdout); else if (hfd == 2) fflush(stderr); ssize_t g = write(hfd, p, n); return g < 0 ? NEG() : g; }
+int64_t wn_c_read(int hfd, uint8_t *p, size_t n) { ssize_t g = read(hfd, p, n); return g < 0 ? NEG() : g; }
+/* 1 ready, 0 not ready within timeout_ms, < 0 error; descriptors the OS cannot poll (regular files) are always ready */
+int wn_c_poll(int hfd, int for_write, int timeout_ms) {
+    struct stat st; if (fstat(hfd, &st) == 0 && S_ISREG(st.st_mode)) return 1;
+    struct pollfd p = { hfd, (short)(for_write ? POLLOUT : POLLIN), 0 }; int r = poll(&p, 1, timeout_ms); if (r < 0) return 1; return r > 0;
+}
+int wn_fs_mkdir(int root, const char *rel) { char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); if (!*rel) return -W_EXIST; return mkdir(hp, 0777) ? NEG() : 0; }
+int wn_fs_rmdir(int root, const char *rel) { char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); if (!*rel) return -W_BUSY; return rmdir(hp) ? NEG() : 0; }
+int wn_fs_unlink(int root, const char *rel) { char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); struct stat st; if (lstat(hp, &st) == 0 && S_ISDIR(st.st_mode)) return -W_ISDIR; return unlink(hp) ? NEG() : 0; }
+int wn_fs_rename(int r1, const char *rel1, int r2, const char *rel2) { char a[PATH_MAX], b[PATH_MAX]; host_path(r1, rel1, a, sizeof a); host_path(r2, rel2, b, sizeof b); if (!*rel1 || !*rel2) return -W_BUSY; return rename(a, b) ? NEG() : 0; }
+int wn_fs_link(int r1, const char *rel1, int r2, const char *rel2) { char a[PATH_MAX], b[PATH_MAX]; host_path(r1, rel1, a, sizeof a); host_path(r2, rel2, b, sizeof b); return link(a, b) ? NEG() : 0; }
+int wn_fs_symlink(const char *target, int root, const char *rel) { char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); return symlink(target, hp) ? NEG() : 0; }
+int wn_fs_readlink(int root, const char *rel, char *buf, size_t cap) { char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); ssize_t n = readlink(hp, buf, cap); return n < 0 ? NEG() : (int)n; }
+int wn_fs_ftruncate(int hfd, uint64_t size) { return ftruncate(hfd, (off_t)size) ? NEG() : 0; }
+int wn_fs_fsync(int hfd, int data_only) { return (data_only ? fdatasync(hfd) : fsync(hfd)) ? NEG() : 0; }
+/* modes: 0 leave, 1 now, 2 set to ns */
+int wn_fs_utimens(int root, const char *rel, int follow, int am, uint64_t ans, int mm, uint64_t mns) {
+    char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); struct timespec ts[2];
+    ts[0].tv_sec = (time_t)(ans / 1000000000ull); ts[0].tv_nsec = am == 0 ? UTIME_OMIT : am == 1 ? UTIME_NOW : (long)(ans % 1000000000ull);
+    ts[1].tv_sec = (time_t)(mns / 1000000000ull); ts[1].tv_nsec = mm == 0 ? UTIME_OMIT : mm == 1 ? UTIME_NOW : (long)(mns % 1000000000ull);
+    return utimensat(AT_FDCWD, hp, ts, follow ? 0 : AT_SYMLINK_NOFOLLOW) ? NEG() : 0;
+}
+int wn_fs_futimens(int hfd, int am, uint64_t ans, int mm, uint64_t mns) {
+    struct timespec ts[2];
+    ts[0].tv_sec = (time_t)(ans / 1000000000ull); ts[0].tv_nsec = am == 0 ? UTIME_OMIT : am == 1 ? UTIME_NOW : (long)(ans % 1000000000ull);
+    ts[1].tv_sec = (time_t)(mns / 1000000000ull); ts[1].tv_nsec = mm == 0 ? UTIME_OMIT : mm == 1 ? UTIME_NOW : (long)(mns % 1000000000ull);
+    return futimens(hfd, ts) ? NEG() : 0;
+}
+/* directory listing in one buffer: for each entry u8 type, u32 name length, name bytes; "." and ".." are not included (the guest library adds nothing; wasi:filesystem says they are omitted). Free with wn_free. */
+int wn_fs_readdir(int root, const char *rel, uint8_t **out, size_t *len) {
+    char hp[PATH_MAX]; host_path(root, rel, hp, sizeof hp); DIR *d = opendir(hp); if (!d) return NEG();
+    size_t cap = 4096, n = 0; uint8_t *b = malloc(cap); struct dirent *e;
+    DirEnt *ents = NULL; size_t ne = 0, ce = 0;
+    while ((e = readdir(d))) {
+        if (!strcmp(e->d_name, ".") || !strcmp(e->d_name, "..")) continue;
+        char ep[PATH_MAX]; snprintf(ep, sizeof ep, "%s/%s", hp, e->d_name); struct stat st; uint8_t ty = 0; if (lstat(ep, &st) == 0) ty = wtype(st.st_mode);
+        if (ne == ce) { ce = ce ? ce * 2 : 16; ents = realloc(ents, ce * sizeof *ents); }
+        ents[ne].name = strdup(e->d_name); ents[ne].type = ty; ents[ne].ino = 0; ne++;
+    }
+    closedir(d); qsort(ents, ne, sizeof *ents, cmp_ent);
+    for (size_t i = 0; i < ne; i++) {
+        uint32_t nl = (uint32_t)strlen(ents[i].name);
+        if (n + 5 + nl > cap) { while (n + 5 + nl > cap) cap *= 2; b = realloc(b, cap); }
+        b[n] = ents[i].type; memcpy(b + n + 1, &nl, 4); memcpy(b + n + 5, ents[i].name, nl); n += 5 + nl; free(ents[i].name);
+    }
+    free(ents); *out = b; *len = n; return 0;
+}
+void wn_free(void *p) { free(p); }
+uint64_t wn_c_clock_ns(int id) { return now_ns(id == 0 ? CLOCK_REALTIME : CLOCK_MONOTONIC); }
+uint64_t wn_c_clock_res_ns(int id) { struct timespec t; if (clock_getres(id == 0 ? CLOCK_REALTIME : CLOCK_MONOTONIC, &t)) return 1000; return (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec; }
+void wn_c_sleep_ns(uint64_t ns) { struct timespec t = { (time_t)(ns / 1000000000ull), (long)(ns % 1000000000ull) }; nanosleep(&t, NULL); }
+int wn_c_random(uint8_t *p, size_t n) { size_t done = 0; while (done < n) { size_t k = n - done > 256 ? 256 : n - done; ssize_t g = getrandom(p + done, k, 0); if (g <= 0) return -W_IO; done += (size_t)g; } return 0; }
+void wn_out(const uint8_t *msg, size_t len) { fwrite(msg, 1, len, stdout); fflush(stdout); }

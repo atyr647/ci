@@ -43,7 +43,6 @@ int32_t wn_cm_load(const uint8_t *bytes, size_t len);
 int32_t wn_cm_selftest(void);
 int32_t wn_p2_run(int argc, char **argv, int *exit_code);
 void wn_p2_add_env(const char *k, const char *v);
-int32_t wn_p2_add_preopen(const char *guest, const char *host);
 #endif
 
 void wn_log(const uint8_t *msg, size_t len) { fwrite(msg, 1, len, stderr); fflush(stderr); }
@@ -198,7 +197,7 @@ int main(int argc, char **argv) {
     for (int i = 0; i < ndirs; i++) {
         char spec[600]; snprintf(spec, sizeof spec, "%s", dirs[i]); char *sep = strstr(spec, "::"); const char *guest = spec, *host = spec;
         if (sep) { *sep = 0; host = sep + 2; }
-        if (wn_p2_add_preopen(guest, host)) { fprintf(stderr, "cannot pre-open %s\n", dirs[i]); return 71; }
+        if (wasi_add_preopen(guest, host)) { fprintf(stderr, "cannot pre-open %s\n", dirs[i]); return 71; }
     }
     for (int i = 0; i < nenvs; i++) { char kv[300]; snprintf(kv, sizeof kv, "%s", envs[i]); char *e = strchr(kv, '='); if (e) { *e = 0; wn_p2_add_env(kv, e + 1); } }
     if (wn_cm_load(bytes, len)) { fprintf(stderr, "component load failed: %s\n", wn_last_error()); return 68; }
