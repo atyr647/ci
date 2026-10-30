@@ -1,0 +1,108 @@
+name: wasmtime-nostd
+# Wasmtime v50 RUNTIME ONLY, built as a no_std static library with an embedder-supplied platform layer (C, compiled by Cosmopolitan), linked into ONE fat Cosmopolitan executable,
+# running ahead-of-time compiled .cwasm files (made by the official Wasmtime CLI) on Linux, macOS and Windows, x86-64 and arm64. No Rust std, no per-OS Wasmtime library.
+on:
+  workflow_dispatch:
+env: { WT: v50.0.0, COSMOCC: 4.0.2 }
+jobs:
+  rust:
+    strategy:
+      fail-fast: false
+      matrix:
+        arch: [x86_64, aarch64]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/cache@v4
+        with: { path: "~/.cargo/registry\n~/.cargo/git\nwasmtime-nostd/embedding/target", key: "wn-cargo-${{ matrix.arch }}-v1-${{ hashFiles('wasmtime-nostd/embedding/Cargo.toml') }}" }
+      - name: Rust nightly with rust-src
+        run: |
+          rustup toolchain install nightly --profile minimal -c rust-src
+          rustc +nightly --version
+      - name: Build the runtime as a static library for ${{ matrix.arch }}-unknown-linux-gnu (core and alloc rebuilt from source)
+        working-directory: wasmtime-nostd/embedding
+        run: |
+          flags="-Cpanic=abort"
+          [ "${{ matrix.arch }}" = aarch64 ] && flags="$flags -Ctarget-feature=+reserve-x28"   # Cosmopolitan keeps its thread pointer in x28
+          [ "${{ matrix.arch }}" = x86_64 ] && flags="$flags -Cno-redzone=yes"
+          RUSTFLAGS="$flags" cargo +nightly build --release --target ${{ matrix.arch }}-unknown-linux-gnu -Zbuild-std=core,alloc,compiler_builtins 2>&1 | tail -40
+          ls -la target/${{ matrix.arch }}-unknown-linux-gnu/release/*.a
+      - uses: actions/upload-artifact@v4
+        with: { name: 'lib-${{ matrix.arch }}', path: 'wasmtime-nostd/embedding/target/${{ matrix.arch }}-unknown-linux-gnu/release/libwn_embedding.a' }
+  guests:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: wasm guests (wasi-sdk clang) and precompiled .cwasm (official Wasmtime CLI)
+        run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          S=$(ls -d $PWD/wasi-sdk-34*); mkdir -p wasm out
+          $S/bin/clang --target=wasm32-wasip1 -O2 ci-wasm-host/guest.c -o wasm/wire.wasm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DSIMD=0 wasm-perf/shootout.c -o wasm/so-scalar.wasm -lm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 -DSIMD=1 wasm-perf/shootout.c -o wasm/so-simd.wasm -lm
+          curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux.tar.xz && mkdir wt && tar xJf wt.tar.xz -C wt
+          W=$(find wt -name wasmtime -type f | head -1); $W --version
+          for g in wire so-scalar so-simd; do
+            for a in x86_64 aarch64; do
+              $W compile --target $a-unknown-linux-gnu -O signals-based-traps=y wasm/$g.wasm -o out/$g.sig.$a.cwasm
+              $W compile --target $a-unknown-linux-gnu -O signals-based-traps=n wasm/$g.wasm -o out/$g.nosig.$a.cwasm
+            done
+            $W compile --target pulley64 wasm/$g.wasm -o out/$g.pulley.cwasm || echo "pulley compile failed for $g"
+          done
+          ls -la out wasm
+      - uses: actions/upload-artifact@v4
+        with: { name: guests, path: "out\nwasm" }
+  link:
+    needs: [rust, guests]
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: lib-x86_64, path: lib/x86_64 }
+      - uses: actions/download-artifact@v4
+        with: { name: lib-aarch64, path: lib/aarch64 }
+      - uses: actions/download-artifact@v4
+        with: { name: guests, path: guests }
+      - name: Link both architectures with Cosmopolitan, make ONE file, embed the .cwasm files
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+          B=$PWD/cosmo/bin; cd wasmtime-nostd; mkdir -p ../parts
+          for A in x86_64 aarch64; do
+            $B/$A-unknown-cosmo-cc -O2 -Iplatform -c platform/platform.c -o ../parts/platform.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -c host/host.c -o ../parts/host.$A.o
+            $B/$A-unknown-cosmo-cc -O2 ../parts/host.$A.o ../parts/platform.$A.o ../lib/$A/libwn_embedding.a -Wl,--gc-sections -lm -o ../parts/wn.$A.com 2>&1 | tail -30
+          done
+          cd ..; ls -la parts lib/*
+          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wn.com parts/wn.x86_64.com.dbg parts/wn.aarch64.com.dbg
+          ls -la wn.com
+          cp wn.com wn-bare.com
+          (cd guests/out && zip -q ../../wn.com *.cwasm)
+          ls -la wn.com wn-bare.com; echo "libs: $(ls -la lib/x86_64/libwn_embedding.a lib/aarch64/libwn_embedding.a | awk '{print $5}' | tr '\n' ' ')"
+      - uses: actions/upload-artifact@v4
+        with: { name: wn, path: "wn.com\nwn-bare.com" }
+  test:
+    needs: link
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    asset: x86_64-linux.tar.xz }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux.tar.xz }
+          - { label: mac-arm64,   os: macos-latest,     asset: aarch64-macos.tar.xz }
+          - { label: win-x64,     os: windows-latest,   asset: x86_64-windows.zip }
+          - { label: win-arm64,   os: windows-11-arm,   asset: '' }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: wn, path: . }
+      - name: Run
+        run: |
+          chmod +x wn.com; if [ "$RUNNER_OS" = Windows ]; then cp wn.com wn.exe; RUN=./wn.exe; else RUN="sh ./wn.com"; fi
+          echo "RUN=$RUN" >> "$GITHUB_ENV"
+          for mode in sig nosig pulley; do echo "=== wire guest, mode $mode"; $RUN $mode wire; echo "exit: $?"; done
+      - name: Kernels (mode sig / nosig / pulley)
+        continue-on-error: true
+        run: |
+          for g in so-scalar so-simd; do for mode in sig nosig pulley; do echo "=== $g $mode"; timeout 600 $RUN $mode $g; echo "exit: $?"; done; done
