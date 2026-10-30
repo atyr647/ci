@@ -310,3 +310,13 @@ endif()
 '''
     edit2('src/dawn/native/CMakeLists.txt', 'COSMO-PATCH-D3D12', native_cmake)
     shutil.copyfile(os.path.join(root, 'src/dawn/common/WindowsUtils.cpp'), os.path.join(root, 'src/dawn/native/WindowsUtilsCosmo.cpp'))   # built as a Windows-flavoured unit
+
+    # step-by-step trace of adapter discovery (DAWN_COSMO_TRACE=1), to see where a silent failure happens
+    def backend_d3d_trace(s):
+        s = s.replace('namespace dawn::native::d3d {\n', '#define DAWN_COSMO_T(...) do { if (getenv("DAWN_COSMO_TRACE")) { fprintf(stderr, "[d3d] " __VA_ARGS__); fprintf(stderr, "\\n"); fflush(stderr); } } while (0)\n\nnamespace dawn::native::d3d {\n', 1)
+        s = s.replace('    if (options->forceFallbackAdapter) {\n        return {};\n    }\n', '    DAWN_COSMO_T("DiscoverPhysicalDevices begin, forceFallback=%d", int(options->forceFallbackAdapter));\n    if (options->forceFallbackAdapter) {\n        return {};\n    }\n', 1)
+        s = s.replace('    HRESULT hr = GetFactory()->QueryInterface(IID_PPV_ARGS(&factory6));\n', '    DAWN_COSMO_T("factory %p, asking for IDXGIFactory6", (void*)GetFactory());\n    HRESULT hr = GetFactory()->QueryInterface(IID_PPV_ARGS(&factory6));\n    DAWN_COSMO_T("IDXGIFactory6 hr=0x%08x", unsigned(hr));\n', 1)
+        s = s.replace('        if (enumAdapters(adapterIndex, dxgiAdapter) == DXGI_ERROR_NOT_FOUND) {\n', '        DAWN_COSMO_T("enumerating adapter %u", adapterIndex);\n        HRESULT enumHr = enumAdapters(adapterIndex, dxgiAdapter);\n        DAWN_COSMO_T("enumerate -> hr=0x%08x adapter=%p", unsigned(enumHr), (void*)dxgiAdapter.Get());\n        if (enumHr == DXGI_ERROR_NOT_FOUND) {\n', 1)
+        s = s.replace('        Ref<PhysicalDeviceBase> physicalDevice;\n        if (GetInstance()->ConsumedErrorAndWarnOnce(\n                GetOrCreatePhysicalDeviceFromIDXGIAdapter(', '        DAWN_COSMO_T("creating the physical device");\n        Ref<PhysicalDeviceBase> physicalDevice;\n        if (GetInstance()->ConsumedErrorAndWarnOnce(\n                GetOrCreatePhysicalDeviceFromIDXGIAdapter(', 1)
+        return s
+    edit2('src/dawn/native/d3d/BackendD3D.cpp', 'DAWN_COSMO_T', backend_d3d_trace)
