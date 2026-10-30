@@ -1,0 +1,8 @@
+WAT-PARSE-FAIL cm: error: the `core` keyword is required in this reference: `(func ...)` should be written `(core func ...)` (or set WAST_STRICT_COMPONENT_INDICES=0 to accept the legacy syntax)      --> /home/runner/work/ci/ci/wasmtime-nostd/coverage/guest/cm.wat:86:116       |    86 |   (func (export "upper") (param "s" string) (result string) (canon lift (core func $upper) (memory $mem) (realloc (func $realloc))))       |                                                                                                                    ^ 
+COMPILE-FAIL atomics-thr pulley: Error: the wasm_threads feature is not supported on this compiler configuration 
+COMPILE-FAIL shared-thr pulley: Error: the wasm_threads feature is not supported on this compiler configuration 
+COMPILE-FAIL cm sig x86_64: Error: failed to read from `wasm/cm.wasm` 
+COMPILE-FAIL cm nosig x86_64: Error: failed to read from `wasm/cm.wasm` 
+COMPILE-FAIL cm sig aarch64: Error: failed to read from `wasm/cm.wasm` 
+COMPILE-FAIL cm nosig aarch64: Error: failed to read from `wasm/cm.wasm` 
+COMPILE-FAIL cm pulley: Error: failed to read from `wasm/cm.wasm` 

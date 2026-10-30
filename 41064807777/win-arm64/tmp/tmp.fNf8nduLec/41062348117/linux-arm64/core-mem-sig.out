@@ -1,0 +1,14 @@
+host : platform=linux arch=aarch64 mode=sig name=mem (264968 bytes) features=0xf
+host : engine+load 0.2 ms, instantiate 0.1 ms, linear memory 0 MiB
+PASS t_mem64_load_store
+PASS t_mem64_size_grow
+PASS t_mem64_fill_copy
+PASS x_mem64_high_address (trapped as required: error while executing at wasm backtrace:
+    0:    0x168 - <unknown>!<)
+PASS x_mem64_oob_last_page (trapped as required: error while executing at wasm backtrace:
+    0:    0x178 - <unknown>!<)
+PASS t_multi_two_memories
+PASS t_multi_copy_between
+PASS t_multi_grow_independent
+PASS t_multi_mixed_64_and_32
+SUMMARY tests=9 pass=9 fail=0

@@ -1,0 +1,5 @@
+host : platform=windows arch=x86_64 mode=pulley name=coro (141112 bytes) features=0xf
+host : engine+load 12.7 ms, instantiate 4.0 ms, linear memory 0 MiB
+PASS t_generator
+PASS t_scheduler
+SUMMARY tests=2 pass=2 fail=0

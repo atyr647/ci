@@ -1,0 +1,27 @@
+[0a0c:0001][2026-10-26T15:38:52] Creating new ExperimentationService
+[0a0c:0001][2026-10-26T15:38:53] Telemetry property VS.ABExp.Flights : lazytoolboxinit;fwlargebuffer;refactoring;spmoretempsbtn1;asloff;keybindgoldbarext;asynccsproj;vsfricheditor;completionapi;4f604693:30775293;vswparallelinstallexpcf:31580306
+[0a0c:0004][2026-10-26T15:38:56] Telemetry property VS.ABExp.Flights : lazytoolboxinit;fwlargebuffer;refactoring;spmoretempsbtn1;asloff;keybindgoldbarext;asynccsproj;vsfricheditor;completionapi;4f604693:30775293;vswparallelinstallexptf:31580304
+[0a0c:000b][2026-10-26T15:38:57] Telemetry property VS.SetupEngine.ActivityId : 7d1c62a0-1145-4048-a82d-dc6db76fe54a
+[0a0c:000b][2026-10-26T15:38:57] Telemetry property VS.SetupEngine.IsChildProcess : False
+[0a0c:000b][2026-10-26T15:38:57] Telemetry property VS.SetupEngine.IsUpdateCheckOnly : True
+[0a0c:000b][2026-10-26T15:38:57] BEGIN: Update Check
+[0a0c:000b][2026-10-26T15:38:57] Getting singleton lock. Mutex name: Local\VsUpdateChecker
+[0a0c:000b][2026-10-26T15:38:57] Getting singleton lock succeed.
+[0a0c:000b][2026-10-26T15:38:57] BEGIN: Check for updates
+[0a0c:000b][2026-10-26T15:38:58] Telemetry property VS.SetupEngine.ChannelUpdateDisabled : False
+[0a0c:000b][2026-10-26T15:38:59] Authentication Environment variable setting value: null
+[0a0c:000b][2026-10-26T15:38:59] Authenticate: True
+[0a0c:0010][2026-10-26T15:38:59] Download requested: https://download.visualstudio.microsoft.com/download/pr/9a3f23c2-cc94-49a0-88c0-f9f19f2ac9df/9169ccb033af2767e14d8733568de2216dbfe7f7965bd1682229ac1fe300fea5/VisualStudio.18.Release.chman
+[0a0c:0011][2026-10-26T15:38:59] Attempting download 'https://download.visualstudio.microsoft.com/download/pr/9a3f23c2-cc94-49a0-88c0-f9f19f2ac9df/9169ccb033af2767e14d8733568de2216dbfe7f7965bd1682229ac1fe300fea5/VisualStudio.18.Release.chman' using engine 'WebClient'
+[0a0c:0011][2026-10-26T15:38:59] Download of 'https://download.visualstudio.microsoft.com/download/pr/9a3f23c2-cc94-49a0-88c0-f9f19f2ac9df/9169ccb033af2767e14d8733568de2216dbfe7f7965bd1682229ac1fe300fea5/VisualStudio.18.Release.chman' succeeded using engine 'WebClient'
+[0a0c:0011][2026-10-26T15:38:59] Channel 'https://aka.ms/vs/18/stable/channel' was not modified. IfModifiedSince: 10/25/2026 7:02:01 AM +00:00, LastModifiedDate: 10/25/2026 7:02:01 AM +00:00
+[0a0c:0011][2026-10-26T15:38:59] Channel manifest for https://aka.ms/vs/18/stable/channel is already up to date.
+[0a0c:0011][2026-10-26T15:39:00] No update found for instance: ade97a43. Resetting properties.
+[0a0c:0011][2026-10-26T15:39:00] No restart manager available. Assuming no reboot required for instance state.
+[0a0c:0011][2026-10-26T15:39:00] END: Check for updates
+[0a0c:0011][2026-10-26T15:39:00] Update check only operation exits with code: 0
+[0a0c:0011][2026-10-26T15:39:00] END: Update Check
+[0a0c:0011][2026-10-26T15:39:00] Releasing singleton lock.
+[0a0c:0011][2026-10-26T15:39:00] Releasing singleton lock succeed.
+[0a0c:0011][2026-10-26T15:39:00] Releasing singleton lock.
+[0a0c:0011][2026-10-26T15:39:00] Singleton lock does not exist. Releasing singleton lock skipped.

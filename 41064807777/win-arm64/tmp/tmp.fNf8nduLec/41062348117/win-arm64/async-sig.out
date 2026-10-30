@@ -1,0 +1,11 @@
+host : platform=windows arch=x86_64 mode=sig name=yield (14992 bytes) features=0xf
+host : engine+load 10.7 ms, instantiate 2.5 ms, linear memory 0 MiB
+PASS t_one_suspension
+PASS t_many_in_loop
+PASS t_suspend_deep_stack
+PASS x_trap_after_suspension (trapped as required: error while executing at wasm backtrace:
+    0:    0x135 - <unknown>!<)
+PASS x_stack_overflow_on_fiber (trapped as required: error while executing at wasm backtrace:
+    0: <unknown>!inf
+    1:  )
+SUMMARY tests=5 pass=5 fail=0

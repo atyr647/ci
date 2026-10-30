@@ -1,0 +1,76 @@
+host : platform=windows arch=x86_64 mode=pulley name=wasitest.p2 (322912 bytes) features=0xf
+host : component loaded in 0.6 ms
+== args
+argc=3 argv0=wasitest.p2
+argv[1]=alpha
+argv[2]=two words
+== environment
+ok   getenv WN_TEST_VAR
+ok   getenv missing
+== stdio
+stdout line
+stdin line: [hello stdin]
+ok   stdin read
+== files
+ok   mkdir
+ok   mkdir again fails EEXIST
+ok   create a.txt
+ok   fclose
+ok   read back
+ok   stat size/type
+ok   open rdwr
+ok   lseek end
+ok   lseek set+tell
+ok   read 4
+ok   pread
+ok   pwrite
+ok   ftruncate
+ok   fstat after truncate
+ok   fsync
+ok   open append
+ok   append write
+ok   content after edits
+ok   O_EXCL on existing fails EEXIST
+ok   open missing fails ENOENT
+ok   rename
+ok   old name gone
+ok   link
+ok   link count
+ok   unlink one name
+ok   utimensat
+ok   mtime/atime read back
+ok   write 3 MiB
+ok   read 3 MiB back, same hash
+big.bin fnv=7539e87a0dbf5db9
+== directories
+ok   mkdir sub
+ok   opendir
+dirent: b.txt
+dirent: big.bin
+dirent: sub
+ok   readdir real entry count
+ok   stat directory
+ok   rmdir non-empty fails ENOTEMPTY
+ok   unlink inner
+ok   rmdir empty
+ok   unlink a directory fails
+== symbolic links and the sandbox
+symlink: created
+ok   readlink
+ok   read through symlink
+ok   symlink pointing out of the sandbox is not followed
+ok   dot-dot out of the preopen is refused
+ok   absolute path outside the preopens is refused
+ok   relative dot-dot inside is fine
+== clocks, random, poll
+ok   nanosleep 20 ms
+ok   realtime clock is after 2024
+ok   clock_getres
+ok   poll as a 30 ms timer
+ok   getentropy
+ok   random not all zero and two draws differ
+== memory
+ok   malloc 48 MiB
+touched pages checksum=1566720
+SUMMARY pass=53 fail=0
+atexit handler ran

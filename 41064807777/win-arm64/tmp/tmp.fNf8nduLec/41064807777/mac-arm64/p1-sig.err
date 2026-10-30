@@ -1,0 +1,10 @@
+[t=0 ms] args
+[t=0 ms] environment
+[t=0 ms] stdio
+stderr line
+[t=0 ms] files
+[t=54 ms] directories
+[t=54 ms] symbolic links and the sandbox
+[t=54 ms] clocks, random, poll
+[t=246 ms] sockets (preview 1)
+[t=247 ms] memory

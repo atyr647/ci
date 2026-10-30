@@ -1,0 +1,9 @@
+host : platform=windows arch=x86_64 mode=pulley name=wasibench (143160 bytes) features=0xf
+host : engine+load 13.3 ms, instantiate 3.9 ms, linear memory 0 MiB
+BENCH clock_gettime                 560 ns/op  (200000 ops)
+BENCH getentropy 16B                441 ns/op  (100000 ops)
+BENCH write 4 KiB                 12739 ns/op  (20000 ops)
+BENCH pread 4 KiB                  7147 ns/op  (20000 ops)
+BENCH fstat                       10374 ns/op  (50000 ops)
+BENCH stat (path)                174238 ns/op  (20000 ops)
+BENCH open+close                 292035 ns/op  (5000 ops)

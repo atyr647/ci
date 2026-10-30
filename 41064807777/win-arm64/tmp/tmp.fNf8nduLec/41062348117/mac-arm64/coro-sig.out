@@ -1,0 +1,5 @@
+host : platform=macos arch=aarch64 mode=sig name=coro (272272 bytes) features=0xf
+host : engine+load 0.4 ms, instantiate 0.1 ms, linear memory 0 MiB
+PASS t_generator
+PASS t_scheduler
+SUMMARY tests=2 pass=2 fail=0

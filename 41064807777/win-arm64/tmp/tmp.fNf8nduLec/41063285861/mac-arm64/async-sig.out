@@ -1,0 +1,11 @@
+host : platform=macos arch=aarch64 mode=sig name=yield (199312 bytes) features=0xf
+host : engine+load 0.3 ms, instantiate 0.0 ms, linear memory 0 MiB
+PASS t_one_suspension
+PASS t_many_in_loop
+PASS t_suspend_deep_stack
+PASS x_trap_after_suspension (trapped as required: error while executing at wasm backtrace:
+    0:    0x135 - <unknown>!<)
+PASS x_stack_overflow_on_fiber (trapped as required: error while executing at wasm backtrace:
+    0: <unknown>!inf
+    1:  )
+SUMMARY tests=5 pass=5 fail=0

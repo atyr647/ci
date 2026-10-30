@@ -1,0 +1,9 @@
+host : platform=macos arch=aarch64 mode=pulley name=wasibench (143160 bytes) features=0xf
+host : engine+load 0.2 ms, instantiate 0.1 ms, linear memory 0 MiB
+BENCH clock_gettime                 370 ns/op  (200000 ops)
+BENCH getentropy 16B                944 ns/op  (100000 ops)
+BENCH write 4 KiB                  7781 ns/op  (20000 ops)
+BENCH pread 4 KiB                   954 ns/op  (20000 ops)
+BENCH fstat                         843 ns/op  (50000 ops)
+BENCH stat (path)                  6325 ns/op  (20000 ops)
+BENCH open+close                  14836 ns/op  (5000 ops)
