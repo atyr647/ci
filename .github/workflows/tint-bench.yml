@@ -3,6 +3,9 @@ name: tint-bench
 # Question (decisions/tint-in-wasm.md): what does running Tint inside the sandbox cost in time, and is the output identical?
 on:
   workflow_dispatch:
+  push:
+    branches: [static-wasmtime-all]
+    paths: ['.github/workflows/tint-bench.yml']
 env:
   DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
   WT: v50.0.0
