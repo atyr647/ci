@@ -1,0 +1,58 @@
+name: linux-multiarch
+# One Linux file for x86-64 AND arm64: the unmodified Cosmopolitan fat file as an architecture-independent .deb (Architecture: all), and how the different ways of launching it behave
+# (shell, direct exec from a program, a desktop launcher through GLib, systemd). Built ONCE on x86-64; the same bytes are installed and run on x86-64 and arm64.
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: The game file and an Architecture-all .deb
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cosmo/bin/cosmocc -O2 platform-probes/app.c -o game.com && echo "hello from the zip" > asset.txt && zip -q game.com asset.txt
+          P=pkg; mkdir -p $P/DEBIAN $P/opt/probe $P/usr/bin $P/usr/share/applications $P/usr/share/icons/hicolor/64x64/apps
+          cp game.com $P/opt/probe/game.com; chmod 755 $P/opt/probe/game.com
+          printf '#!/bin/sh\nexec sh /opt/probe/game.com "$@"\n' > $P/usr/bin/probe-game; chmod 755 $P/usr/bin/probe-game
+          printf '[Desktop Entry]\nType=Application\nName=Probe Game\nExec=/opt/probe/game.com\nIcon=probe\nCategories=Game;\nTerminal=true\n' > $P/usr/share/applications/probe.desktop
+          python3 - $P/usr/share/icons/hicolor/64x64/apps/probe.png <<'PY'
+          import sys, zlib, struct
+          w = h = 64; raw = b''.join(b'\x00' + b'\x30\x70\xd0' * w for _ in range(h))
+          def ch(t, d): c = struct.pack('>I', len(d)) + t + d; return c + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+          open(sys.argv[1], 'wb').write(b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw)) + ch(b'IEND', b''))
+          PY
+          printf 'Package: probe-game\nVersion: 1.0\nArchitecture: all\nMaintainer: nobody <nobody@example.invalid>\nDescription: one file for x86-64 and arm64\n' > $P/DEBIAN/control
+          dpkg-deb --build --root-owner-group $P probe-game_1.0_all.deb && dpkg -I probe-game_1.0_all.deb | head -8; sha256sum probe-game_1.0_all.deb game.com; ls -la game.com probe-game_1.0_all.deb
+      - uses: actions/upload-artifact@v4
+        with: { name: pkg, path: "probe-game_1.0_all.deb\ngame.com" }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: pkg, path: . }
+      - name: Install the same .deb, launch it every way
+        run: |
+          set +e; echo "machine: $(uname -m); dpkg arch: $(dpkg --print-architecture)"; sha256sum probe-game_1.0_all.deb
+          sudo dpkg -i probe-game_1.0_all.deb 2>&1 | tail -3; echo "installed: $(dpkg -s probe-game | grep -E '^(Status|Architecture)' | tr '\n' ' ')"
+          echo "=== launcher script /usr/bin/probe-game"; probe-game; echo "exit $?"
+          echo "=== bash, the file as the command"; /opt/probe/game.com; echo "exit $?"
+          echo "=== execve from a program (Python subprocess: no shell fallback)"; python3 -c "import subprocess; print(subprocess.run(['/opt/probe/game.com']).returncode)" 2>&1 | tail -2
+          echo "=== GLib/GIO desktop launch of the .desktop file (Exec= the file itself)"; which gio gtk-launch 2>/dev/null | head -2
+          cp /usr/share/applications/probe.desktop /tmp/probe.desktop; chmod +x /tmp/probe.desktop; (gio launch /tmp/probe.desktop 2>&1 | head -4; echo "gio exit ${PIPESTATUS[0]}")
+          echo "=== systemd-run (execve by systemd)"; sudo systemd-run --wait --collect --pipe /opt/probe/game.com 2>&1 | tail -4
+          echo "=== after assimilation (file rewritten as a native ELF for this machine)"; cp /opt/probe/game.com /tmp/assim.com; sh /tmp/assim.com --assimilate; file /tmp/assim.com | cut -c1-100
+          python3 -c "import subprocess; print('execve', subprocess.run(['/tmp/assim.com']).returncode)" 2>&1 | tail -2
+          sudo systemd-run --wait --collect --pipe /tmp/assim.com 2>&1 | tail -3
+          echo "=== uninstall"; sudo dpkg -r probe-game 2>&1 | tail -1; ls /opt/probe 2>&1 | head -1
+      - name: Result (last)
+        if: always()
+        run: echo done
