@@ -1,0 +1,14 @@
+// Force-included in the Windows-flavoured Dawn translation units: see Win32Shim.cpp.
+#pragma once
+#define CompareObjectHandles dawn_w32_CompareObjectHandles
+#define CreateEventA dawn_w32_CreateEventA
+#define GetSystemTime dawn_w32_GetSystemTime
+#define GetSystemTimeAsFileTime dawn_w32_GetSystemTimeAsFileTime
+#define MultiByteToWideChar dawn_w32_MultiByteToWideChar
+#define QueryPerformanceFrequency dawn_w32_QueryPerformanceFrequency
+#define RegCloseKey dawn_w32_RegCloseKey
+#define RegOpenKeyExW dawn_w32_RegOpenKeyExW
+#define RegQueryValueExA dawn_w32_RegQueryValueExA
+#define ResetEvent dawn_w32_ResetEvent
+#define VerSetConditionMask dawn_w32_VerSetConditionMask
+#define VerifyVersionInfoW dawn_w32_VerifyVersionInfoW

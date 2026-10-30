@@ -1,0 +1,166 @@
+// Copyright 2023 The Dawn & Tint Authors
+//
+// Redistribution and use in source and binary forms, with or without
+// modification, are permitted provided that the following conditions are met:
+//
+// 1. Redistributions of source code must retain the above copyright notice, this
+//    list of conditions and the following disclaimer.
+//
+// 2. Redistributions in binary form must reproduce the above copyright notice,
+//    this list of conditions and the following disclaimer in the documentation
+//    and/or other materials provided with the distribution.
+//
+// 3. Neither the name of the copyright holder nor the names of its
+//    contributors may be used to endorse or promote products derived from
+//    this software without specific prior written permission.
+//
+// THIS SOFTWARE IS PROVIDED BY THE COPYRIGHT HOLDERS AND CONTRIBUTORS "AS IS"
+// AND ANY EXPRESS OR IMPLIED WARRANTIES, INCLUDING, BUT NOT LIMITED TO, THE
+// IMPLIED WARRANTIES OF MERCHANTABILITY AND FITNESS FOR A PARTICULAR PURPOSE ARE
+// DISCLAIMED. IN NO EVENT SHALL THE COPYRIGHT HOLDER OR CONTRIBUTORS BE LIABLE
+// FOR ANY DIRECT, INDIRECT, INCIDENTAL, SPECIAL, EXEMPLARY, OR CONSEQUENTIAL
+// DAMAGES (INCLUDING, BUT NOT LIMITED TO, PROCUREMENT OF SUBSTITUTE GOODS OR
+// SERVICES; LOSS OF USE, DATA, OR PROFITS; OR BUSINESS INTERRUPTION) HOWEVER
+// CAUSED AND ON ANY THEORY OF LIABILITY, WHETHER IN CONTRACT, STRICT LIABILITY,
+// OR TORT (INCLUDING NEGLIGENCE OR OTHERWISE) ARISING IN ANY WAY OUT OF THE USE
+// OF THIS SOFTWARE, EVEN IF ADVISED OF THE POSSIBILITY OF SUCH DAMAGE.
+
+#include "src/dawn/native/SystemEvent.h"
+
+#include <limits>
+
+#include "src/dawn/common/SystemHandle.h"
+#include "src/utils/assert.h"
+
+#include <sys/poll.h>
+#include <unistd.h>
+
+extern "C" {
+bool DawnCosmoIsWindows();  // VulkanFunctions.cpp
+// Cosmopolitan's own Windows API bindings (System V calling convention on every host; they only work when running on Windows)
+int64_t CreateEventA(const void* securityAttributes, int manualReset, int initialState, const char* name);
+int SetEvent(int64_t hEvent);
+}
+
+#include <tuple>
+#include <utility>
+#include <vector>
+
+#include "src/dawn/native/EventManager.h"
+
+namespace dawn::native {
+
+// [COSMO-PATCH] Derived from Dawn: Windows event objects or POSIX pipes, chosen when the program runs (one binary for every OS).
+
+// SystemEventReceiver
+
+SystemEventReceiver::SystemEventReceiver(SystemHandle primitive)
+    : mPrimitive(std::move(primitive)) {}
+
+// static
+SystemEventReceiver SystemEventReceiver::CreateAlreadySignaled() {
+    SystemEventPipeSender sender;
+    SystemEventReceiver receiver;
+    std::tie(sender, receiver) = CreateSystemEventPipe();
+    std::move(sender).Signal();
+    return receiver;
+}
+
+const SystemHandle& SystemEventReceiver::GetPrimitive() const {
+    return mPrimitive;
+}
+
+// SystemEventPipeSender
+
+SystemEventPipeSender::~SystemEventPipeSender() {
+    // Make sure it's been Signaled (or is empty) before being dropped.
+    // Dropping this would "leak" the receiver (it'll never get signalled).
+    DAWN_ASSERT(!mPrimitive.IsValid());
+}
+
+bool SystemEventPipeSender::IsValid() const {
+    return mPrimitive.IsValid();
+}
+
+void SystemEventPipeSender::Signal() && {
+    DAWN_ASSERT(mPrimitive.IsValid());
+    if (DawnCosmoIsWindows()) {
+        bool success = SetEvent(mPrimitive.GetRawCosmo()) != 0;
+        DAWN_CHECK(success);
+    } else {
+        // Send one byte to signal the receiver
+        char zero[1] = {0};
+        ssize_t status = write(mPrimitive.Get(), zero, 1);
+        DAWN_CHECK(status >= 0);
+    }
+
+    mPrimitive.Close();
+}
+
+std::pair<SystemEventPipeSender, SystemEventReceiver> CreateSystemEventPipe() {
+    if (DawnCosmoIsWindows()) {
+        SystemHandle event = SystemHandle::AcquireRawCosmo(
+            CreateEventA(nullptr, /*bManualReset=*/1, /*bInitialState=*/0, nullptr));
+        DAWN_CHECK(event.IsValid());
+
+        SystemHandle eventDup = event.Duplicate();
+
+        SystemEventReceiver receiver;
+        receiver.mPrimitive = std::move(event);
+
+        SystemEventPipeSender sender;
+        sender.mPrimitive = std::move(eventDup);
+
+        return std::make_pair(std::move(sender), std::move(receiver));
+    }
+    int pipeFds[2];
+    int status = pipe(pipeFds);
+    DAWN_CHECK(status >= 0);
+
+    SystemEventReceiver receiver;
+    receiver.mPrimitive = SystemHandle::Acquire(pipeFds[0]);
+
+    SystemEventPipeSender sender;
+    sender.mPrimitive = SystemHandle::Acquire(pipeFds[1]);
+
+    return std::make_pair(std::move(sender), std::move(receiver));
+}
+
+// SystemEvent
+
+// static
+bool SystemEvent::IsSignaled() const {
+    return mSignaled.load(std::memory_order_acquire);
+}
+
+void SystemEvent::Signal() {
+    if (!mSignaled.exchange(true, std::memory_order_acq_rel)) {
+        mPipe.Use([](auto pipe) {
+            // Check if there is a pipe and the sender is valid.
+            // This function may race with GetOrCreateSystemEventReceiver such that the pipe is
+            // already signaled and the sender is invalid.
+            if (*pipe && pipe->value().first.IsValid()) {
+                std::move(pipe->value().first).Signal();
+            }
+        });
+    }
+}
+
+const SystemEventReceiver& SystemEvent::GetOrCreateSystemEventReceiver() {
+    return mPipe.Use([this](auto pipe) {
+        if (!*pipe) {
+            // Check whether the event was marked as completed. This may have happened if
+            // this function races with another thread performing Signal. If we won
+            // the race, then the pipe we just created will get signaled inside Signal.
+            // If we lost the race, then it will not be signaled and we must do it now.
+            if (IsSignaled()) {
+                *pipe = {SystemEventPipeSender{}, SystemEventReceiver::CreateAlreadySignaled()};
+            } else {
+                *pipe = CreateSystemEventPipe();
+            }
+        }
+        return std::cref(pipe->value().second);
+    });
+}
+
+}  // namespace dawn::native

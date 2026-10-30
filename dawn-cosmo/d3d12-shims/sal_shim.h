@@ -3,6 +3,9 @@
 #ifndef _Always_
 #define _Always_(...)
 #endif
+#ifndef _Analysis_assume_
+#define _Analysis_assume_(...)
+#endif
 #ifndef _COM_Outptr_
 #define _COM_Outptr_
 #endif

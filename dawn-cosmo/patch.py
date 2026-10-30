@@ -212,3 +212,90 @@ if 'COSMO-PATCH-PORTABILITY' not in s:
     assert b in s
     s = s.replace(b, '    createInfo.flags = enumeratePortability ? 0x00000001 : 0;  // VK_INSTANCE_CREATE_ENUMERATE_PORTABILITY_BIT_KHR\n    createInfo.pApplicationInfo = &appInfo;', 1)
     open(p, 'w').write(s); print('patched: portability enumeration')
+
+# ----------------------------------------------------------------------------------------------------------------------------------------------------------------
+# 11. Platform flavours. One Cosmopolitan binary contains translation units that pretend to be Windows (the D3D12 backend, DAWN_COSMO_AS_WINDOWS) and ones that pretend
+#     to be Apple (the Metal backend, DAWN_COSMO_AS_APPLE) next to the POSIX/Linux-flavoured rest. Dawn's platform detection honours both macros.
+def platform_flavours(s):
+    s = s.replace('#if defined(_WIN32) || defined(_WIN64)\n', '#if defined(_WIN32) || defined(_WIN64) || defined(DAWN_COSMO_AS_WINDOWS)  // COSMO-PATCH-FLAVOURS\n', 1)
+    s = s.replace('#elif defined(__linux__) || defined(__COSMOPOLITAN__)  // COSMO-PATCH\n', '#elif (defined(__linux__) || defined(__COSMOPOLITAN__)) && !defined(DAWN_COSMO_AS_APPLE)  // COSMO-PATCH\n', 1)
+    return s
+p = os.path.join(root, 'src/utils/platform.h')
+s = open(p).read()
+if 'COSMO-PATCH-FLAVOURS' not in s:
+    t = platform_flavours(s); assert t != s and 'COSMO-PATCH-FLAVOURS' in t; open(p, 'w').write(t); print('patched: platform flavours')
+
+# 12. The D3D12 backend inside the Cosmopolitan binary (only when DAWN_COSMO_D3D12=1: Windows runs x86-64 code only, so the aarch64 build does not need it).
+#     The pieces of Dawn that the Windows-flavoured units share with the rest (SystemHandle, SystemEvent, WaitAnySystemEvent, DynamicLib) must have ONE layout and
+#     ONE implementation that chooses Windows or POSIX behaviour when the program runs.
+if os.environ.get('DAWN_COSMO_D3D12') == '1':
+    import shutil
+    files = os.path.join(os.path.dirname(os.path.abspath(__file__)), 'files')
+    def edit2(rel, mark, fn):
+        p = os.path.join(root, rel); s = open(p).read()
+        if mark in s: print('already patched:', rel, mark); return
+        t = fn(s); assert t != s, 'no change for ' + rel
+        open(p, 'w').write(t); print('patched:', rel, mark)
+
+    # whole-file replacements (derived from Dawn's, licence kept)
+    for rel, name in (('src/dawn/common/SystemHandle.cpp', 'SystemHandle.cpp'), ('src/dawn/native/SystemEvent.cpp', 'SystemEvent.cpp'), ('src/dawn/native/WaitAnySystemEvent.cpp', 'WaitAnySystemEvent.cpp')):
+        shutil.copyfile(os.path.join(files, name), os.path.join(root, rel)); print('replaced:', rel)
+
+    def syshandle_h(s):
+        s = s.replace('class SystemHandle : public NonCopyable {', 'class alignas(8) SystemHandle : public NonCopyable {  // COSMO-PATCH-D3D12: 8 bytes in both platform flavours', 1)
+        s = s.replace('    void Close();\n', '''    void Close();
+
+    // COSMO-PATCH-D3D12: the Windows-flavoured and the POSIX-flavoured translation units of one binary share this class. Its constructor from the other
+    // spelling of a handle (a Windows HANDLE is a void*, a POSIX fd an int), and the full 64-bit value, are implemented once, in SystemHandle.cpp.
+#if !DAWN_PLATFORM_IS(WINDOWS)
+    explicit SystemHandle(void* windowsHandle);
+#endif
+    int64_t GetRawCosmo() const;
+    static SystemHandle AcquireRawCosmo(int64_t raw);
+''', 1)
+        s = s.replace('    Handle mHandle;\n};', '''    Handle mHandle;
+#if !DAWN_PLATFORM_IS(WINDOWS)
+    int mHandleHigh = 0;  // COSMO-PATCH-D3D12: upper half of the 64-bit value a Windows HANDLE occupies
+#endif
+};''', 1)
+        return s
+    edit2('src/dawn/common/SystemHandle.h', 'COSMO-PATCH-D3D12', syshandle_h)
+
+    def dynlib_h(s):
+        old = '''#if DAWN_PLATFORM_IS(WINDOWS) && !DAWN_PLATFORM_IS(WINUWP)
+    bool OpenSystemLibrary(std::wstring_view filename, std::string* error = nullptr);
+#endif'''
+        new = '''#if DAWN_PLATFORM_IS(WINDOWS) && !DAWN_PLATFORM_IS(WINUWP)
+    // COSMO-PATCH-D3D12: inline, because only the Windows-flavoured units (16-bit wchar_t) ever call it; system library names are ASCII. Open() is the one
+    // implementation (cosmo_dlopen, which loads DLLs when the program runs on Windows).
+    bool OpenSystemLibrary(std::wstring_view filename, std::string* error = nullptr) {
+        std::string narrow;
+        for (auto c : filename) {
+            narrow.push_back(static_cast<char>(c));
+        }
+        return Open(narrow, error);
+    }
+#endif'''
+        assert old in s
+        return s.replace(old, new, 1)
+    edit2('src/dawn/common/DynamicLib.h', 'COSMO-PATCH-D3D12', dynlib_h)
+
+    def instance_cpp(s):
+        s = s.replace('#if defined(DAWN_ENABLE_BACKEND_D3D11) || defined(DAWN_ENABLE_BACKEND_D3D12)\n#include "dawn/native/D3DBackend.h"\n#include "src/dawn/native/d3d/BackendD3D.h"\n#include "src/dawn/native/d3d/D3DError.h"\n#endif  // defined(DAWN_ENABLE_BACKEND_D3D11) || defined(DAWN_ENABLE_BACKEND_D3D12)\n',
+                      '// COSMO-PATCH-D3D12: the D3D headers need the Windows-flavoured parse; this file only needs the Connect() declaration below\n', 1)
+        s = s.replace('            Register(d3d12::Connect(this), wgpu::BackendType::D3D12);\n', '            if (DawnCosmoIsWindows()) {\n                Register(d3d12::Connect(this), wgpu::BackendType::D3D12);\n            }\n', 1)
+        s = s.replace('namespace dawn::native {\n', 'extern "C" bool DawnCosmoIsWindows();  // COSMO-PATCH-D3D12 (defined in vulkan/VulkanFunctions.cpp)\n\nnamespace dawn::native {\n', 1)
+        return s
+    edit2('src/dawn/native/Instance.cpp', 'COSMO-PATCH-D3D12', instance_cpp)
+
+    # the Windows-flavoured translation units and the shim that backs them
+    def native_cmake(s):
+        return s + '''
+# COSMO-PATCH-D3D12: the D3D and D3D12 sources are compiled as if for Windows (Wine headers, see dawn-cosmo/d3d12.md); everything else stays POSIX-flavoured.
+if (DAWN_COSMO_D3D12 AND DAWN_ENABLE_D3D12)
+    file(GLOB _cosmo_win_srcs RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "d3d/*.cpp" "d3d12/*.cpp")
+    set_source_files_properties(${_cosmo_win_srcs} PROPERTIES COMPILE_OPTIONS "${DAWN_COSMO_D3D12_FLAGS}")
+    target_sources(dawn_native_objects PRIVATE "${DAWN_COSMO_FILES_DIR}/Win32Shim.cpp")
+endif()
+'''
+    edit2('src/dawn/native/CMakeLists.txt', 'COSMO-PATCH-D3D12', native_cmake)

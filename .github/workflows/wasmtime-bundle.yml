@@ -114,3 +114,48 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'static-${{ matrix.arch }}', path: "link.log\nwt-static.${{ matrix.arch }}.com.dbg" }
+  static-fat:
+    needs: static-link
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+      - uses: actions/download-artifact@v4
+        with: { name: static-x86_64, path: parts }
+      - uses: actions/download-artifact@v4
+        with: { name: static-aarch64, path: parts }
+      - name: One fat file with Wasmtime linked in (x86-64 + arm64)
+        run: |
+          B=$PWD/cosmo/bin
+          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wt-static.com parts/wt-static.x86_64.com.dbg parts/wt-static.aarch64.com.dbg
+          ls -la wt-static.com parts/*
+      - uses: actions/upload-artifact@v4
+        with: { name: wt-static, path: "wt-static.com\nci-wasm-host/guest.wasm" }
+  static-test:
+    needs: static-fat
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: mac-arm64,   os: macos-latest }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env: { RUNNER_LABEL: '${{ matrix.label }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: wt-static, path: s }
+      - name: Wasmtime LINKED INTO the file - no library, no dlopen, no extraction
+        continue-on-error: true
+        run: |
+          chmod +x ci-wasm-host/run-one.sh
+          cd s
+          if [ "$RUNNER_OS" = Windows ]; then cp wt-static.com wt-static.exe; ../ci-wasm-host/run-one.sh "static wasmtime" ./wt-static.exe ci-wasm-host/guest.wasm
+          else chmod +x wt-static.com; ../ci-wasm-host/run-one.sh "static wasmtime" sh ./wt-static.com ci-wasm-host/guest.wasm; fi

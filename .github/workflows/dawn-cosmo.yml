@@ -6,6 +6,7 @@ on:
 env:
   DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
   COSMOCC: 4.0.2
+  DXH_SHA: faf928dc6feb8b86e9e3d6a39fc5171de7d8ac36   # microsoft/DirectX-Headers (Agility SDK level names that Dawn's D3D12 code uses)
 jobs:
   build:
     strategy:
@@ -24,6 +25,14 @@ jobs:
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
           mkdir -p $HOME/cosmo && unzip -q cosmocc.zip -d $HOME/cosmo
           cp $HOME/cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+      - name: Inputs for the in-file D3D12 backend (Wine's Windows headers, newer DirectX-Headers, generated shims) - x86_64 only, Windows runs x86-64 code
+        if: matrix.arch == 'x86_64'
+        run: |
+          sh backend-spikes/setup-wine-headers.sh $PWD/wine
+          mkdir dxh && git -C dxh init -q && git -C dxh fetch -q --depth 1 https://github.com/microsoft/DirectX-Headers $DXH_SHA && git -C dxh checkout -q FETCH_HEAD
+          W=$PWD/wine/x/usr/include/wine/wine
+          python3 backend-spikes/make_sal_shim.py dawn-cosmo/d3d12-shims/sal_shim.h dxh/include/directx/*.h dawn-cosmo/d3d12-shims/dxcapi.h
+          python3 backend-spikes/make_uuid_decls.py dawn-cosmo/d3d12-shims/uuid_decls.h $W/windows dxh/include/directx dawn-cosmo/d3d12-shims
       - name: Restore the Dawn checkout and build directory from the last run
         uses: actions/cache/restore@v4
         with:
@@ -39,17 +48,30 @@ jobs:
             git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
           fi
       - name: "Patch Dawn (from clean sources - a restored checkout may carry an older, different patch)"
+        env:
+          DAWN_COSMO_D3D12: ${{ matrix.arch == 'x86_64' && '1' || '0' }}
         run: |
           git -C dawn checkout -q -- . 
           python3 dawn-cosmo/patch.py dawn
       - name: Configure
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
+          d3d=""
+          if [ "$COSMO_ARCH" = x86_64 ]; then
+            DXH=$PWD/dxh/include; SH=$PWD/dawn-cosmo/d3d12-shims; FILES=$PWD/dawn-cosmo/files; WINE=$PWD/wine/x/usr/include/wine/wine
+            FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;SHELL:-include $SH/pre.h;SHELL:-include $FILES/win32_rename.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
+            d3d="-DDAWN_ENABLE_D3D12=ON -DDAWN_COSMO_D3D12=ON -DDAWN_COSMO_FILES_DIR=$FILES"
+          fi
           cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release \
             -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF \
             -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF \
             -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
-            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DDAWN_BUILD_PROTOBUF=OFF $emu 2>&1 | tee configure.log | tail -30
+            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DDAWN_BUILD_PROTOBUF=OFF $emu $d3d ${FLAGS:+"-DDAWN_COSMO_D3D12_FLAGS=$FLAGS"} 2>&1 | tee configure.log | tail -30
+          if [ "$COSMO_ARCH" = x86_64 ]; then
+            # the newer DirectX-Headers and the DXC header without its WinAdapter replace the ones Dawn fetched (they come first on the include path)
+            cp -r dxh/include/directx/. dawn/third_party/directx-headers/src/include/directx/
+            cp dawn-cosmo/d3d12-shims/dxcapi.h dawn/third_party/directx-shader-compiler/src/include/dxc/dxcapi.h
+          fi
       - name: Build libwebgpu_dawn.a (keep going to collect every error)
         run: |
           cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
