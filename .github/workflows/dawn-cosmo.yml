@@ -174,9 +174,9 @@ jobs:
             $B/$A-unknown-cosmo-c++ -O2 gpu_probe.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/gpu-probe.$A.com
             $B/$A-unknown-cosmo-c++ -O2 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.$A.o
             $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/dawn-bench.$A.com
-            # the same benchmark with the shortened default-mutex path (alloc-probe/mutex_fast.c), to measure what it buys
-            $B/$A-unknown-cosmo-cc -O2 -c alloc-probe/mutex_fast.c -o mutex_fast.$A.o
-            $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra mutex_fast.$A.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -o parts/dawn-bench-mf.$A.com
+            # the same benchmark with the futex-only default mutex + condition variable (alloc-probe/fast_sync.c), to measure what it buys
+            $B/$A-unknown-cosmo-cc -O2 -c alloc-probe/fast_sync.c -o fast_sync.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra fast_sync.$A.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -Wl,--wrap=pthread_mutex_trylock -Wl,--wrap=pthread_cond_wait -Wl,--wrap=pthread_cond_timedwait -o parts/dawn-bench-mf.$A.com
           done
           ls -la parts
       - name: One fat file
