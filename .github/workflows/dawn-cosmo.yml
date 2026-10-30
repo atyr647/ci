@@ -38,8 +38,10 @@ jobs:
             mkdir -p dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
             git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
           fi
-      - name: Patch Dawn
-        run: python3 dawn-cosmo/patch.py dawn
+      - name: Patch Dawn (from clean sources: the restored checkout may carry an older, different patch)
+        run: |
+          git -C dawn checkout -q -- . 
+          python3 dawn-cosmo/patch.py dawn
       - name: Configure
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
