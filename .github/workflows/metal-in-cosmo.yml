@@ -1,0 +1,59 @@
+name: metal-in-cosmo
+# Spike: compile Dawn's Metal backend with the Cosmopolitan toolchain's clang (Objective-C++, ARC, blocks) against the Apple SDK - how many files get through, what breaks.
+on:
+  workflow_dispatch:
+env:
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+  COSMOCC: 4.0.2
+jobs:
+  spike:
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          brew install ninja >/dev/null 2>&1 || true
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cosmo/bin/cosmocc --version 2>&1 | head -3 || true
+          xcrun --show-sdk-path
+      - uses: actions/cache/restore@v4
+        with:
+          path: |
+            dawn
+            build
+          key: dawn-mac-native-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
+          restore-keys: dawn-mac-native-${{ env.DAWN_SHA }}-v1-
+      - name: Fetch Dawn
+        run: |
+          if [ ! -d dawn/.git ]; then mkdir -p dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git && git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD; fi
+      - name: Configure and build Dawn natively with Metal (gives the generated headers and the exact compile flags)
+        run: |
+          cmake -S dawn -B build -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_EXPORT_COMPILE_COMMANDS=ON -DDAWN_FETCH_DEPENDENCIES=ON \
+            -DDAWN_ENABLE_METAL=ON -DDAWN_ENABLE_VULKAN=OFF -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_NULL=OFF -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF \
+            -DDAWN_USE_GLFW=OFF -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
+            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DDAWN_SUPPORTS_CXX_MODULES=OFF 2>&1 | tail -5
+          cmake --build build --target webgpu_dawn 2>&1 | tail -3
+      - uses: actions/cache/save@v4
+        if: always()
+        with:
+          path: |
+            dawn
+            build
+          key: dawn-mac-native-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
+      - name: Teach Dawn's platform detection to honour DAWN_COSMO_AS_APPLE (Metal translation units are compiled as Apple, the rest of the cosmo build as Linux)
+        run: |
+          python3 - <<'PY'
+          import re
+          p='dawn/src/utils/platform.h'; s=open(p).read()
+          if 'DAWN_COSMO_AS_APPLE' not in s:
+              s=s.replace('#elif defined(__linux__)\n','#elif (defined(__linux__) || defined(__COSMOPOLITAN__)) && !defined(DAWN_COSMO_AS_APPLE)\n',1); open(p,'w').write(s)
+          PY
+          grep -n "DAWN_COSMO_AS_APPLE" dawn/src/utils/platform.h
+      - name: The spike
+        run: |
+          python3 backend-spikes/metal_spike.py build "$PWD/cosmo/bin/cosmocc" "$(xcrun --show-sdk-path)" 2>&1 | tee spike.log | tail -80
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: spike-log, path: spike.log }
