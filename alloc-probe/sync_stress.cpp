@@ -72,11 +72,11 @@ int main() {
     printf("TIME contended 8 threads x 200000: %.1f ms\n", duration<double, std::milli>(steady_clock::now() - t0).count());
   }
   {   // bounded queue, 2 producers 2 consumers, notify_one and notify_all
-    std::mutex m; std::condition_variable notEmpty, notFull; std::deque<int> q; const size_t cap = 16; const int per = 50000; long sum = 0; std::atomic<int> done{0};
+    std::mutex m; std::condition_variable notEmpty, notFull; std::deque<int> q; const size_t cap = 16; const int per = 50000; long long sum = 0; std::atomic<int> done{0};
     auto prod = [&] { for (int i = 1; i <= per; i++) { std::unique_lock<std::mutex> l(m); notFull.wait(l, [&] { return q.size() < cap; }); q.push_back(i); notEmpty.notify_one(); } done++; };
     auto cons = [&] { for (;;) { std::unique_lock<std::mutex> l(m); notEmpty.wait(l, [&] { return !q.empty() || done == 2; }); if (q.empty()) return; sum += q.front(); q.pop_front(); notFull.notify_all(); } };
     std::thread p1(prod), p2(prod), c1(cons), c2(cons); p1.join(); p2.join(); { std::lock_guard<std::mutex> l(m); notEmpty.notify_all(); } c1.join(); c2.join();
-    CHECK(sum == 2L * per * (per + 1) / 2, "producer/consumer sum");
+    CHECK(sum == 2LL * per * (per + 1) / 2, "producer/consumer sum");   // long long: `long` is 32 bits on Windows and 2.5e9 does not fit
   }
   {   // timed wait: times out, and wakes early when notified
     std::mutex m; std::condition_variable cv; bool flag = false; std::unique_lock<std::mutex> l(m);
