@@ -42,23 +42,32 @@ for v in server local; do R "[$v] $(codesign -dvvv $v/launcher 2>&1 | grep -E 'C
 R "[server] size unsigned $(stat -f %z unsigned/launcher) signed-by-server $(stat -f %z server/launcher) signed-by-codesign $(stat -f %z local/launcher)"
 R "[server] the game file inside the bundle is byte-identical to the unsigned one: $(cmp -s unsigned/App.app/Contents/Resources/game.com server/App.app/Contents/Resources/game.com && echo yes || echo NO)"
 echo "##### keeping the BARE file (no .app around the game): (A) a loader put where the stub looks for it, no compiler; (B) a one-time runner app that opens the file as a document"
-R "[A] the stub looks for: $(grep -a -o -m1 'ape-1.10' ../art/dist-game/game.com 2>/dev/null | head -1) (in PATH or \${TMPDIR:-\$HOME}/.ape-1.10)"
+# the stub (first lines of the file): ape in PATH, else ${TMPDIR:-${HOME:-.}}/.ape-1.10 if executable, else (arm64) it needs cc to build one
 for v in server local; do
   H=$PWD/home-$v; rm -rf $H; mkdir -p $H; cp $v/App.app/Contents/MacOS/ape-loader $H/.ape-1.10; chmod +x $H/.ape-1.10
   cp unsigned/App.app/Contents/Resources/game.com $H/bare.com; chmod +x $H/bare.com
   R "[A-$v] loader signature: $(codesign -dvvv $H/.ape-1.10 2>&1 | grep -E 'Signature=|not signed' | head -1)"
-  out=$(env -i HOME=$H TMPDIR=$H/tmp PATH=/nonexistent /bin/sh -c "mkdir -p $H/tmp; cd $H; /bin/sh ./bare.com" 2>&1 | tr '\n' ' ' | cut -c1-200); R "[A-$v] bare file, loader in place, no compiler in PATH: exit ${PIPESTATUS[0]} :: $out"
+  env -i HOME=$H PATH=/nonexistent /bin/sh -c "cd $H; /bin/sh ./bare.com" > $H/out1.txt 2>&1; rc=$?
+  R "[A-$v] bare file, loader in place, PATH has no compiler (and no other tool): exit $rc :: $(tr '\n' ' ' < $H/out1.txt | cut -c1-160)"
+  before=$(shasum -a 256 $H/.ape-1.10 | cut -c1-16)
   xattr -w com.apple.quarantine "$(q)" $H/bare.com
-  out=$(env -i HOME=$H TMPDIR=$H/tmp PATH=/nonexistent /bin/sh -c "cd $H; /bin/sh ./bare.com" 2>&1 | tr '\n' ' ' | cut -c1-200); R "[A-$v] same, bare file quarantined: exit ${PIPESTATUS[0]} :: $out"
+  env -i HOME=$H PATH=/nonexistent /bin/sh -c "cd $H; /bin/sh ./bare.com" > $H/out2.txt 2>&1; rc=$?
+  R "[A-$v] same, bare file quarantined: exit $rc :: $(tr '\n' ' ' < $H/out2.txt | cut -c1-160); loader unchanged: $([ $before = $(shasum -a 256 $H/.ape-1.10 | cut -c1-16) ] && echo yes || echo NO)"
+  # started like a user would from Terminal: the file itself as the command
+  env -i HOME=$H PATH=/nonexistent /bin/zsh -c "cd $H; ./bare.com" > $H/out3.txt 2>&1; rc=$?
+  R "[A-$v] zsh, ./bare.com (what typing the name in Terminal does): exit $rc :: $(tr '\n' ' ' < $H/out3.txt | cut -c1-160)"
 done
 if [ -d runner/Runner.app ]; then
   chmod -R u+rwX runner; chmod +x runner/Runner.app/Contents/MacOS/*
   codesign --force --deep -s - runner/Runner.app 2>&1 | head -1
-  cp unsigned/App.app/Contents/Resources/game.com game.cosmo; chmod +x game.cosmo; xattr -w com.apple.quarantine "$(q)" game.cosmo
-  R "[B] document attribute: $(xattr -l game.cosmo | head -1 | cut -c1-60)"
+  R "[B] runner signature: $(codesign -dvvv runner/Runner.app 2>&1 | grep -E 'Signature=|Format' | tr '\n' '|') verify: $(codesign --verify --deep --strict runner/Runner.app 2>&1 | head -1)"
+  cp unsigned/App.app/Contents/Resources/game.com game.cosmo; chmod +x game.cosmo
   rm -f /tmp/runner-proof.txt
-  R "[B] open -W -a Runner.app game.cosmo (quarantined document, ad-hoc runner), 40 s limit: exit $(to 40 open -W -a runner/Runner.app game.cosmo >/dev/null 2>&1; echo $?)"
-  R "[B] what the runner recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
+  R "[B0] runner binary started directly with the file as argument (no Launch Services, no quarantine), 30 s limit: exit $(to 30 runner/Runner.app/Contents/MacOS/runner game.cosmo >runner-direct.txt 2>&1; echo $?) :: $(head -c 200 runner-direct.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
+  rm -f /tmp/runner-proof.txt
+  R "[B1] open -W -a Runner.app game.cosmo (document NOT quarantined), 40 s limit: exit $(to 40 open -W -a runner/Runner.app game.cosmo >open1.txt 2>&1; echo $?) :: $(head -c 200 open1.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
+  xattr -w com.apple.quarantine "$(q)" game.cosmo; rm -f /tmp/runner-proof.txt
+  R "[B2] same, document QUARANTINED (a browser download), runner ad-hoc signed and not quarantined: exit $(to 40 open -W -a runner/Runner.app game.cosmo >open2.txt 2>&1; echo $?) :: $(head -c 200 open2.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
   cp -R runner/Runner.app runner/RunnerQ.app; xattr -rw com.apple.quarantine "$(q)" runner/RunnerQ.app; rm -f /tmp/runner-proof.txt
-  R "[B] same with the RUNNER quarantined (what a browser-downloaded runner would be), 25 s limit: exit $(to 25 open -W -a runner/RunnerQ.app game.cosmo >/dev/null 2>&1; echo $?) recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-120)"
+  R "[B3] same with the RUNNER quarantined too (a browser-downloaded runner), 25 s limit: exit $(to 25 open -W -a runner/RunnerQ.app game.cosmo >open3.txt 2>&1; echo $?) :: $(head -c 200 open3.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
 fi
