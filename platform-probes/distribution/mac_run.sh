@@ -63,11 +63,11 @@ if [ -d runner/Runner.app ]; then
   R "[B] runner signature: $(codesign -dvvv runner/Runner.app 2>&1 | grep -E 'Signature=|Format' | tr '\n' '|') verify: $(codesign --verify --deep --strict runner/Runner.app 2>&1 | head -1)"
   cp unsigned/App.app/Contents/Resources/game.com game.cosmo; chmod +x game.cosmo
   rm -f /tmp/runner-proof.txt
-  R "[B0] runner binary started directly with the file as argument (no Launch Services, no quarantine), 30 s limit: exit $(to 30 runner/Runner.app/Contents/MacOS/runner game.cosmo >runner-direct.txt 2>&1; echo $?) :: $(head -c 200 runner-direct.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
+  R "[B0] runner binary started directly with the file as argument (no Launch Services, no quarantine), 30 s limit: exit $(to 30 $PWD/runner/Runner.app/Contents/MacOS/runner $PWD/game.cosmo >runner-direct.txt 2>&1; echo $?) :: $(head -c 200 runner-direct.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
   rm -f /tmp/runner-proof.txt
-  R "[B1] open -W -a Runner.app game.cosmo (document NOT quarantined), 40 s limit: exit $(to 40 open -W -a runner/Runner.app game.cosmo >open1.txt 2>&1; echo $?) :: $(head -c 200 open1.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
+  R "[B1] open -W -a Runner.app game.cosmo (document NOT quarantined), 40 s limit: exit $(to 40 open -W -a $PWD/runner/Runner.app $PWD/game.cosmo >open1.txt 2>&1; echo $?) :: $(head -c 200 open1.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
   xattr -w com.apple.quarantine "$(q)" game.cosmo; rm -f /tmp/runner-proof.txt
-  R "[B2] same, document QUARANTINED (a browser download), runner ad-hoc signed and not quarantined: exit $(to 40 open -W -a runner/Runner.app game.cosmo >open2.txt 2>&1; echo $?) :: $(head -c 200 open2.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
+  R "[B2] same, document QUARANTINED (a browser download), runner ad-hoc signed and not quarantined: exit $(to 40 open -W -a $PWD/runner/Runner.app $PWD/game.cosmo >open2.txt 2>&1; echo $?) :: $(head -c 200 open2.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
   cp -R runner/Runner.app runner/RunnerQ.app; xattr -rw com.apple.quarantine "$(q)" runner/RunnerQ.app; rm -f /tmp/runner-proof.txt
-  R "[B3] same with the RUNNER quarantined too (a browser-downloaded runner), 25 s limit: exit $(to 25 open -W -a runner/RunnerQ.app game.cosmo >open3.txt 2>&1; echo $?) :: $(head -c 200 open3.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
+  R "[B3] same with the RUNNER quarantined too (a browser-downloaded runner), 25 s limit: exit $(to 25 open -W -a $PWD/runner/RunnerQ.app $PWD/game.cosmo >open3.txt 2>&1; echo $?) :: $(head -c 200 open3.txt | tr '\n' ' ') recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-160)"
 fi
