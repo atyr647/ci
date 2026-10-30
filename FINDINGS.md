@@ -146,3 +146,29 @@ Reading: with explicit SIMD128, wasm is within about 1.0x (x86-64 transform) to 
 - `gpu-probe --bench` runs the same compute kernel on every adapter Dawn reports and times it, to verify which adapter Dawn picks on a machine with integrated + discrete GPUs. CI runners have no such machine, so the policy is only checked against software adapters (`--selftest`); the real answer has to come from running it on a hybrid laptop.
 - File sizes: fat file with Dawn (Vulkan + D3D12) about 44 MB.
 - Open (Windows): Vulkan through lavapipe still segfaults on Windows right after "map readback" (compute and submit finish). No crash report appears. Not yet explained.
+
+## Session of 2026-10-30 (part 2): executable memory, signing, wasm speed vs native, static Wasmtime on every OS (measured in CI)
+Decision recorded: **Windows uses D3D12 only** (the Vulkan backend is no longer started there; the Windows-Vulkan crash after "map readback" was left unexplained on purpose).
+
+**Executable memory from a Cosmopolitan program** (`platform-probes` / `jit_probe.c`): Windows x64 - map RW then RX, direct RWX and MAP_JIT-flag all work. macOS 26 arm64 - RW, write, `mprotect(RX)` works (result 42); direct RWX is refused (EACCES); `MAP_JIT` also works. So code published at run time (a JIT, or a loader for ahead-of-time code) works without Apple's special flag in an unsigned, non-hardened process.
+
+**Distribution trust, what CI can measure:**
+- Windows Defender (on-demand scan, signatures of the day; real-time protection is off on the runner): control file (the standard antivirus test string) detected as `Virus:DOS/EICAR_Test_File`; the Cosmopolitan hello-world and the executable-memory probe: no threats. Cloud/reputation checks and SmartScreen are NOT testable in CI.
+- Windows Authenticode: `Set-AuthenticodeSignature` -> "%1 is not a valid Win32 application"; `signtool` -> 0x800700C1 (bad exe format). The APE file, which runs fine, cannot be signed with Microsoft's tools as built.
+- macOS: `spctl --assess` rejects the file ("no usable signature") with and without the quarantine attribute; a shell can still run the quarantined copy (a GUI double-click prompt cannot be tested in CI). An ad-hoc `codesign -s -` signature is accepted and the file still runs.
+- Sizes: the fat Dawn executable (x86-64 + arm64, Vulkan + D3D12) is 47.9 MB; gzip -9 18.8 MB; xz -6 13.1 MB. hello-world is 0.41 MB.
+
+**Stack switching (wasm continuations) in Wasmtime**: compiled only for `all(feature = "stack-switching", unix, target_arch = "x86_64")` (crates/wasmtime/src/runtime/vm/stack_switching/stack.rs on main, read 2026-10-30). The separate async-fiber layer (host-side suspend/resume) has Unix and Windows implementations. So a cross-OS/cross-arch file cannot rely on wasm stack switching; stackless coroutines (C++20 coroutines compiled by clang to plain wasm, or a stackless lowering) are the portable route.
+
+**Wasm vs native speed** (workflow `wasm-shootout`, same C source, GCC/clang native vs wasm by wasi-sdk clang run by Wasmtime v50 Cranelift; best of 3 interleaved rounds; speed relative to native scalar at baseline ISA):
+| kernel | x64 EPYC wasm SIMD128 | arm64 wasm SIMD128 |
+|---|---|---|
+| matmul 256 | 0.65 | 0.80 |
+| n-body (double) | 0.51 | 0.74 |
+| bytecode interpreter | 0.40-0.67 | 0.59 |
+| triad / hash | 1.0 | 1.0 |
+| sort | 1.16 | 1.08 |
+| vertex transform | 1.14 | 0.75 |
+Native with the whole host ISA (AVX2 on x64) is 2.0x (matmul) and 2.2x (n-body) faster than baseline native, i.e. 3.2x / 4.3x faster than wasm SIMD128; on arm64 NEON is already 128-bit so there is no such gap. Scalar wasm that the compiler could not vectorise is 5-6x slower than auto-vectorised native on matmul (same as native built with vectorisation off). Relaxed-SIMD FMA changed little (5-10% on arm64). All checksums identical.
+
+**Wasmtime v50 runtime-only, no_std, STATIC inside the one Cosmopolitan file - works on all five targets** (workflow `wasmtime-nostd`, final run 41034378094, write-up `wasmtime-nostd/NOTES.md`): Rust `no_std` crate around `wasmtime =50.0.0` (`runtime`, `pulley`, `custom-virtual-memory`, `custom-native-signals`), a 70-line C platform layer built by cosmocc (mmap/mprotect/TLS/sigaction), precompiled `.cwasm` from the official CLI (`--target x86_64-/aarch64-unknown-linux-gnu`). One `.cwasm` per architecture runs on every OS. Fat file with both architectures: 1.93 MB (2.42 MB with 15 modules embedded) versus several MB per bundled official library. Speed equals the official runtime (0.98-1.06x, interleaved). Traps (out-of-bounds, divide by zero, unreachable) are caught and the instance keeps working. Costs and limits: no Cranelift (modules must be precompiled, runtime and compiler must be the same Wasmtime version/config); explicit-bounds-check mode (no signal handlers) is 0.53-0.75x on dense array loops, ~1.0x on branchy integer code; Pulley interpreter 9-165x slower (fallback only); **one wasm thread per process** until the per-thread lookup stops using x28 (Cranelift allocates x28, Cosmopolitan's thread pointer on arm64; fixed for one thread by saving/restoring x28 around wasm entry, host callbacks and the signal handler); on Windows Cosmopolitan reports the instruction address in `si_addr` so Wasmtime is told "address unknown".
