@@ -23,6 +23,7 @@ for t in gc eh mem relaxed atomics shared yield cm; do e=$($WTOOLS parse $G/$t.w
 # ---- C / C++ guests ----
 $S/bin/clang --target=wasm32-wasip1 -O2 $G/wasitest.c -o wasm/wasitest.wasm 2>&1 | tail -20
 $S/bin/clang --target=wasm32-wasip2 -O2 $G/wasitest.c -o wasm/wasitest.p2.wasm 2>&1 | tail -20
+$S/bin/clang --target=wasm32-wasip2 -O2 $G/socktest.c -o wasm/socktest.p2.wasm 2>&1 | tail -20
 $S/bin/clang --target=wasm32-wasip1 -O2 $G/wasibench.c -o wasm/wasibench.wasm 2>&1 | tail -20
 $S/bin/clang --target=wasm32-wasip2 -O2 $G/wasibench.c -o wasm/wasibench.p2.wasm 2>&1 | tail -20
 $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DSIMD=0 $REPO/wasm-perf/shootout.c -o wasm/so-scalar.wasm -lm 2>&1 | tail -5
@@ -58,6 +59,7 @@ if [ -n "$COMPONENTS" ]; then
   compile wasm/wasitest.p2.wasm wasitest.p2 $FULL
   compile wasm/wasibench.p2.wasm wasibench.p2 $FULL
   compile wasm/cm.wasm cm $FULL
+  compile wasm/socktest.p2.wasm socktest.p2 $FULL
 fi
 echo "== compile.log"; cat compile.log 2>/dev/null
 ls out | wc -l; du -sh out

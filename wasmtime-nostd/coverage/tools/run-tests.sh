@@ -88,6 +88,11 @@ if [ -n "$COMPONENTS" ]; then
     grep -v '^host : \(platform\|engine\|component\)' $R/p2-$mode.out > $R/p2-$mode.cmp
     note "wasi-p2 $mode rc=$rc $(sumline $R/p2-$mode.out) fails=$(grep -c '^FAIL' $R/p2-$mode.out) | $(head -c 300 $R/p2-$mode.err | tr '\n' ' ')"
   done
+  for mode in sig pulley; do
+    "${RUNF[@]}" $mode socktest.p2 --component > $R/sock-p2-$mode.out 2> $R/sock-p2-$mode.err; rc=$?
+    note "wasi-p2 sockets $mode rc=$rc $(sumline $R/sock-p2-$mode.out) fails=$(grep -c '^FAIL' $R/sock-p2-$mode.out) | $(head -c 300 $R/sock-p2-$mode.err | tr '\n' ' ')"
+    grep -v '^host :' $R/sock-p2-$mode.out > $R/sock-p2-$mode.cmp
+  done
   rm -rf sbx; mkdir sbx
   "${RUNF[@]}" sig wasibench.p2 --component --dir=/sandbox::sbx > $R/bench-p2-sig.out 2>&1; rm -rf sbx
   note "wasi-p2 call cost sig: $(grep -h '^BENCH' $R/bench-p2-sig.out | sed 's/BENCH //; s/  */ /g' | tr '\n' ';')"

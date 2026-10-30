@@ -24,6 +24,7 @@
 #include <sys/time.h>
 #include <netinet/in.h>
 #include <arpa/inet.h>
+#include <cosmo.h>
 #include "wasi_p1.h"
 
 #ifndef PATH_MAX
@@ -477,3 +478,62 @@ uint64_t wn_c_clock_res_ns(int id) { struct timespec t; if (clock_getres(id == 0
 void wn_c_sleep_ns(uint64_t ns) { struct timespec t = { (time_t)(ns / 1000000000ull), (long)(ns % 1000000000ull) }; nanosleep(&t, NULL); }
 int wn_c_random(uint8_t *p, size_t n) { size_t done = 0; while (done < n) { size_t k = n - done > 256 ? 256 : n - done; ssize_t g = getrandom(p + done, k, 0); if (g <= 0) return -W_IO; done += (size_t)g; } return 0; }
 void wn_out(const uint8_t *msg, size_t len) { fwrite(msg, 1, len, stdout); fflush(stdout); }
+
+/* ======================================================================================================================================================
+ * TCP sockets and name lookup for the preview 2 host (wasi:sockets). Families: 0 = IPv4, 1 = IPv6. Socket addresses travel as 32 bytes:
+ * [0] family, [2..3] port (u16), [4..7] flow info (u32), [8..11] scope id (u32), [12..27] address (16 bytes; IPv4 uses the first 4).
+ * ====================================================================================================================================================== */
+#include <netdb.h>
+#include <netinet/tcp.h>
+static int sa_from(const uint8_t *a, struct sockaddr_storage *ss, socklen_t *len) {
+    memset(ss, 0, sizeof *ss); uint16_t port; memcpy(&port, a + 2, 2);
+    if (a[0] == 0) { struct sockaddr_in *s = (struct sockaddr_in *)ss; s->sin_family = AF_INET; s->sin_port = htons(port); memcpy(&s->sin_addr, a + 12, 4); *len = sizeof *s; }
+    else { struct sockaddr_in6 *s = (struct sockaddr_in6 *)ss; s->sin6_family = AF_INET6; s->sin6_port = htons(port); memcpy(&s->sin6_addr, a + 12, 16); memcpy(&s->sin6_flowinfo, a + 4, 4); memcpy(&s->sin6_scope_id, a + 8, 4); *len = sizeof *s; }
+    return 0;
+}
+static void sa_to(const struct sockaddr_storage *ss, uint8_t *a) {
+    memset(a, 0, 32);
+    if (ss->ss_family == AF_INET) { const struct sockaddr_in *s = (const struct sockaddr_in *)ss; a[0] = 0; uint16_t p = ntohs(s->sin_port); memcpy(a + 2, &p, 2); memcpy(a + 12, &s->sin_addr, 4); }
+    else { const struct sockaddr_in6 *s = (const struct sockaddr_in6 *)ss; a[0] = 1; uint16_t p = ntohs(s->sin6_port); memcpy(a + 2, &p, 2); memcpy(a + 4, &s->sin6_flowinfo, 4); memcpy(a + 8, &s->sin6_scope_id, 4); memcpy(a + 12, &s->sin6_addr, 16); }
+}
+int wn_sock_create(int family) { int s = socket(family ? AF_INET6 : AF_INET, SOCK_STREAM, 0); if (s < 0) return NEG(); int fl = fcntl(s, F_GETFL); if (fl >= 0) fcntl(s, F_SETFL, fl | O_NONBLOCK); if (family) { int on = 1; setsockopt(s, IPPROTO_IPV6, IPV6_V6ONLY, (void *)&on, sizeof on); } return s; }
+int wn_sock_bind(int fd, const uint8_t *a) {
+    struct sockaddr_storage ss; socklen_t l; sa_from(a, &ss, &l);
+    int one = 1; if (!IsWindows()) setsockopt(fd, SOL_SOCKET, SO_REUSEADDR, (void *)&one, sizeof one);   /* like the usual host implementations on Unix; Windows SO_REUSEADDR means something else */
+    return bind(fd, (struct sockaddr *)&ss, l) ? NEG() : 0;
+}
+/* 0 connected at once, 1 in progress, < 0 error */
+int wn_sock_connect(int fd, const uint8_t *a) { struct sockaddr_storage ss; socklen_t l; sa_from(a, &ss, &l); if (connect(fd, (struct sockaddr *)&ss, l) == 0) return 0; if (errno == EINPROGRESS || errno == EWOULDBLOCK || errno == EAGAIN || errno == EALREADY) return 1; return NEG(); }
+/* 0 finished ok, 1 not finished, < 0 error */
+int wn_sock_finish_connect(int fd) {
+    struct pollfd p = { fd, POLLOUT, 0 }; int r = poll(&p, 1, 0); if (r < 0) return NEG(); if (r == 0) return 1;
+    int err = 0; socklen_t l = sizeof err; if (getsockopt(fd, SOL_SOCKET, SO_ERROR, (void *)&err, &l)) return NEG(); if (err) { errno = err; return NEG(); }
+    if (p.revents & (POLLERR | POLLHUP) && !(p.revents & POLLOUT)) return -W_CONNREFUSED;
+    return 0;
+}
+int wn_sock_listen(int fd, int backlog) { return listen(fd, backlog) ? NEG() : 0; }
+/* new fd (non-blocking) or < 0 */
+int wn_sock_accept(int fd, uint8_t *peer32) { struct sockaddr_storage ss; socklen_t l = sizeof ss; int c = accept(fd, (struct sockaddr *)&ss, &l); if (c < 0) return NEG(); int fl = fcntl(c, F_GETFL); if (fl >= 0) fcntl(c, F_SETFL, fl | O_NONBLOCK); sa_to(&ss, peer32); return c; }
+int wn_sock_name(int fd, int peer, uint8_t *out32) { struct sockaddr_storage ss; socklen_t l = sizeof ss; if ((peer ? getpeername(fd, (struct sockaddr *)&ss, &l) : getsockname(fd, (struct sockaddr *)&ss, &l))) return NEG(); sa_to(&ss, out32); return 0; }
+int wn_sock_shutdown(int fd, int how) { return shutdown(fd, how == 0 ? SHUT_RD : how == 1 ? SHUT_WR : SHUT_RDWR) ? NEG() : 0; }
+int64_t wn_sock_recv(int fd, uint8_t *p, size_t n) { ssize_t g = recv(fd, p, n, 0); return g < 0 ? NEG() : g; }
+int64_t wn_sock_send(int fd, const uint8_t *p, size_t n) { ssize_t g = send(fd, p, n, 0); return g < 0 ? NEG() : g; }
+/* which: 1 keep-alive enabled, 2 receive buffer, 3 send buffer, 4 hop limit (unicast), 5 listen-backlog is not an option. set: 1 write `*v` */
+int wn_sock_opt(int fd, int which, int set, uint64_t *v) {
+    int level = SOL_SOCKET, opt = 0;
+    switch (which) { case 1: opt = SO_KEEPALIVE; break; case 2: opt = SO_RCVBUF; break; case 3: opt = SO_SNDBUF; break; case 4: level = IPPROTO_IP; opt = IP_TTL; break; default: return -W_NOTSUP; }
+    int x = (int)*v; socklen_t l = sizeof x;
+    if (set) return setsockopt(fd, level, opt, (void *)&x, sizeof x) ? NEG() : 0;
+    if (getsockopt(fd, level, opt, (void *)&x, &l)) return NEG(); *v = (uint64_t)(uint32_t)x; return 0;
+}
+/* name lookup: returns the number of addresses (>= 0) written to `out` as 17-byte records (family, 16 address bytes), at most `max`; < 0 is minus a resolver code: 1 not found, 2 temporary, 3 permanent */
+int wn_resolve(const char *name, uint8_t *out, int max) {
+    struct addrinfo hints, *res = NULL; memset(&hints, 0, sizeof hints); hints.ai_family = AF_UNSPEC; hints.ai_socktype = SOCK_STREAM;
+    int r = getaddrinfo(name, NULL, &hints, &res); if (r) return (r == EAI_AGAIN) ? -2 : (r == EAI_FAIL) ? -3 : -1;
+    int n = 0;
+    for (struct addrinfo *a = res; a && n < max; a = a->ai_next) {
+        if (a->ai_family == AF_INET) { struct sockaddr_in *s = (struct sockaddr_in *)a->ai_addr; out[n * 17] = 0; memset(out + n * 17 + 1, 0, 16); memcpy(out + n * 17 + 1, &s->sin_addr, 4); n++; }
+        else if (a->ai_family == AF_INET6) { struct sockaddr_in6 *s = (struct sockaddr_in6 *)a->ai_addr; out[n * 17] = 1; memcpy(out + n * 17 + 1, &s->sin6_addr, 16); n++; }
+    }
+    freeaddrinfo(res); return n;
+}

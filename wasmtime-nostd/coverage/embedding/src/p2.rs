@@ -449,6 +449,7 @@ pub unsafe extern "C" fn wn_p2_run(argc: i32, argv: *const *const c_char, exit_c
     let mut linker: Linker<P2> = Linker::new(&s.engine);
     if let Err(e) = add_to_linker_async(&mut linker) { return fail(e); }
     if let Err(e) = add_all(&mut linker) { return fail(e); }
+    if let Err(e) = add_sockets(&mut linker) { return fail(e); }
     if let Err(e) = linker.define_unknown_imports_as_traps(comp) { return fail(e); }
     let args: Vec<String> = (0..argc as usize).map(|i| CStr::from_ptr(*argv.add(i)).to_string_lossy().into_owned()).collect();
     #[allow(static_mut_refs)]
@@ -460,4 +461,257 @@ pub unsafe extern "C" fn wn_p2_run(argc: i32, argv: *const *const c_char, exit_c
     x28_set(mine);
     s.pending_polls += polls;
     match r { Ok(c) => { *exit_code = c; 0 } Err(e) => fail(e) }
+}
+
+// ============================================================================================================================================================
+// wasi:sockets - TCP and name lookup (UDP is not provided: its imports trap when called)
+// ============================================================================================================================================================
+use alloc::sync::Arc;
+use core::sync::atomic::{AtomicU8, Ordering};
+extern "C" {
+    fn wn_sock_create(family: i32) -> i32;
+    fn wn_sock_bind(fd: i32, a: *const u8) -> i32;
+    fn wn_sock_connect(fd: i32, a: *const u8) -> i32;
+    fn wn_sock_finish_connect(fd: i32) -> i32;
+    fn wn_sock_listen(fd: i32, backlog: i32) -> i32;
+    fn wn_sock_accept(fd: i32, peer32: *mut u8) -> i32;
+    fn wn_sock_name(fd: i32, peer: i32, out32: *mut u8) -> i32;
+    fn wn_sock_shutdown(fd: i32, how: i32) -> i32;
+    fn wn_sock_recv(fd: i32, p: *mut u8, n: usize) -> i64;
+    fn wn_sock_send(fd: i32, p: *const u8, n: usize) -> i64;
+    fn wn_sock_opt(fd: i32, which: i32, set: i32, v: *mut u64) -> i32;
+    fn wn_resolve(name: *const c_char, out: *mut u8, max: i32) -> i32;
+}
+const S_UNBOUND: u8 = 0; const S_BINDING: u8 = 1; const S_BOUND: u8 = 2; const S_CONNECTING: u8 = 3; const S_CONNECTED: u8 = 4; const S_LISTENSTART: u8 = 5; const S_LISTENING: u8 = 6;
+struct SockFd(i32);
+impl Drop for SockFd { fn drop(&mut self) { let fd = self.0; hx(|| unsafe { wn_fs_close(fd); }); } }
+struct Tcp { fd: Arc<SockFd>, family: i32, state: Arc<AtomicU8> }
+struct Network;
+struct Resolve { addrs: Vec<[u8; 17]>, pos: usize }
+struct AlwaysReady;
+#[async_trait]
+impl Pollable for AlwaysReady { async fn ready(&mut self) {} }
+struct SockPoll { fd: Arc<SockFd>, state: Arc<AtomicU8> }
+#[async_trait]
+impl Pollable for SockPoll {
+    async fn ready(&mut self) {
+        loop {
+            let ok = match self.state.load(Ordering::Relaxed) {
+                S_LISTENING => hx(|| unsafe { wn_c_poll(self.fd.0, 0, 2) }) == 1,
+                S_CONNECTING => hx(|| unsafe { wn_c_poll(self.fd.0, 1, 2) }) == 1,
+                _ => true,
+            };
+            if ok { return; }
+            Yield(false).await;
+        }
+    }
+}
+struct SockIn { fd: Arc<SockFd> }
+#[async_trait]
+impl Pollable for SockIn { async fn ready(&mut self) { loop { if hx(|| unsafe { wn_c_poll(self.fd.0, 0, 2) }) == 1 { return; } Yield(false).await; } } }
+impl InputStream for SockIn {
+    fn read(&mut self, size: usize) -> StreamResult<Bytes> {
+        let mut buf = vec![0u8; size.clamp(1, 1 << 16)];
+        let n = hx(|| unsafe { wn_sock_recv(self.fd.0, buf.as_mut_ptr(), buf.len()) });
+        if n == 0 { Err(StreamError::Closed) } else if n == -6 { Ok(Bytes::new()) } else if n < 0 { Err(StreamError::LastOperationFailed(wasmtime::format_err!("recv failed ({n})"))) } else { buf.truncate(n as usize); Ok(Bytes::from(buf)) }
+    }
+}
+struct SockOut { fd: Arc<SockFd>, pending: Vec<u8> }
+impl SockOut {
+    fn try_flush(&mut self) -> StreamResult<()> {
+        while !self.pending.is_empty() {
+            let n = hx(|| unsafe { wn_sock_send(self.fd.0, self.pending.as_ptr(), self.pending.len()) });
+            if n == -6 { return Ok(()); }
+            if n < 0 { return Err(StreamError::LastOperationFailed(wasmtime::format_err!("send failed ({n})"))); }
+            self.pending.drain(..n as usize);
+        }
+        Ok(())
+    }
+}
+impl Drop for SockOut { fn drop(&mut self) { let mut tries = 0; while !self.pending.is_empty() && tries < 500 { if self.try_flush().is_err() { break; } if !self.pending.is_empty() { hx(|| unsafe { wn_c_poll(self.fd.0, 1, 10); }); tries += 1; } } } }
+#[async_trait]
+impl Pollable for SockOut { async fn ready(&mut self) { loop { let _ = self.try_flush(); if self.pending.len() < 65536 { return; } hx(|| unsafe { wn_c_poll(self.fd.0, 1, 2); }); Yield(false).await; } } }
+impl OutputStream for SockOut {
+    fn write(&mut self, bytes: Bytes) -> StreamResult<()> { self.pending.extend_from_slice(&bytes); self.try_flush() }
+    fn flush(&mut self) -> StreamResult<()> { self.try_flush() }
+    fn check_write(&mut self) -> StreamResult<usize> { self.try_flush()?; Ok(65536usize.saturating_sub(self.pending.len())) }
+}
+
+fn sock_ec(neg: i32) -> &'static str {
+    match -neg {
+        2 | 63 => "access-denied", 3 => "address-in-use", 4 => "address-not-bindable", 5 | 58 | 66 | 52 => "not-supported", 6 => "would-block", 7 | 26 => "concurrency-conflict", 13 => "connection-aborted", 14 => "connection-refused",
+        15 | 64 => "connection-reset", 23 | 40 => "remote-unreachable", 28 => "invalid-argument", 30 | 53 => "invalid-state", 33 | 41 => "new-socket-limit", 48 | 42 => "out-of-memory", 73 => "timeout", 35 => "datagram-too-large",
+        _ => "unknown",
+    }
+}
+fn sock_err(neg: i32) -> Val { err_named(sock_ec(neg)) }
+fn sock_addr_from_val(v: &Val) -> Option<[u8; 32]> {
+    let mut a = [0u8; 32];
+    let (name, payload) = match v { Val::Variant(n, Some(p)) => (n.as_str(), &**p), _ => return None };
+    let fields = match payload { Val::Record(f) => f, _ => return None };
+    let get = |k: &str| fields.iter().find(|(n, _)| n == k).map(|(_, v)| v);
+    let port = match get("port")? { Val::U16(x) => *x, _ => return None }; a[2..4].copy_from_slice(&port.to_ne_bytes());
+    match name {
+        "ipv4" => { a[0] = 0; if let Val::Tuple(t) = get("address")? { for (i, x) in t.iter().enumerate().take(4) { if let Val::U8(b) = x { a[12 + i] = *b; } } } }
+        "ipv6" => {
+            a[0] = 1; if let Val::U32(f) = get("flow-info")? { a[4..8].copy_from_slice(&f.to_ne_bytes()); } if let Val::U32(sc) = get("scope-id")? { a[8..12].copy_from_slice(&sc.to_ne_bytes()); }
+            if let Val::Tuple(t) = get("address")? { for (i, x) in t.iter().enumerate().take(8) { if let Val::U16(w) = x { a[12 + 2 * i..14 + 2 * i].copy_from_slice(&w.to_be_bytes()); } } }
+        }
+        _ => return None,
+    }
+    Some(a)
+}
+fn sock_addr_to_val(a: &[u8; 32]) -> Val {
+    let port = u16::from_ne_bytes([a[2], a[3]]);
+    if a[0] == 0 {
+        Val::Variant("ipv4".to_string(), Some(Box::new(Val::Record(vec![("port".to_string(), Val::U16(port)), ("address".to_string(), Val::Tuple((0..4).map(|i| Val::U8(a[12 + i])).collect()))]))))
+    } else {
+        Val::Variant("ipv6".to_string(), Some(Box::new(Val::Record(vec![("port".to_string(), Val::U16(port)), ("flow-info".to_string(), Val::U32(u32::from_ne_bytes([a[4], a[5], a[6], a[7]]))),
+            ("address".to_string(), Val::Tuple((0..8).map(|i| Val::U16(u16::from_be_bytes([a[12 + 2 * i], a[13 + 2 * i]]))).collect())), ("scope-id".to_string(), Val::U32(u32::from_ne_bytes([a[8], a[9], a[10], a[11]])))]))))
+    }
+}
+fn ip_val(rec: &[u8; 17]) -> Val {
+    if rec[0] == 0 { Val::Variant("ipv4".to_string(), Some(Box::new(Val::Tuple((0..4).map(|i| Val::U8(rec[1 + i])).collect())))) }
+    else { Val::Variant("ipv6".to_string(), Some(Box::new(Val::Tuple((0..8).map(|i| Val::U16(u16::from_be_bytes([rec[1 + 2 * i], rec[2 + 2 * i]]))).collect())))) }
+}
+/// (fd, family, state) of a tcp-socket argument
+fn tcp_info(cx: &mut Cx<'_>, v: &Val) -> Result<(Arc<SockFd>, i32, Arc<AtomicU8>)> {
+    let r = get_res::<Tcp>(cx, v)?; let t = cx.data_mut().table.get(&r)?; Ok((t.fd.clone(), t.family, t.state.clone()))
+}
+fn stream_pair(cx: &mut Cx<'_>, fd: &Arc<SockFd>) -> Result<(Val, Val)> {
+    let i = push_res::<DynInputStream>(cx, Box::new(SockIn { fd: fd.clone() }))?;
+    let o = push_res::<DynOutputStream>(cx, Box::new(SockOut { fd: fd.clone(), pending: Vec::new() }))?;
+    Ok((i, o))
+}
+
+hf!(net_instance, |cx, p, r| { r[0] = push_res::<Network>(&mut cx, Network)?; Ok(()) });
+hf!(net_error_code, |cx, p, r| { r[0] = Val::Option(None); Ok(()) });
+hf!(tcp_create, |cx, p, r| {
+    let family = match &p[0] { Val::Enum(n) if n == "ipv6" => 1, _ => 0 };
+    let fd = hx(|| unsafe { wn_sock_create(family) });
+    if fd < 0 { r[0] = sock_err(fd); return Ok(()); }
+    let t = Tcp { fd: Arc::new(SockFd(fd)), family, state: Arc::new(AtomicU8::new(S_UNBOUND)) };
+    r[0] = ok_some(push_res::<Tcp>(&mut cx, t)?); Ok(())
+});
+hf!(tcp_start_bind, |cx, p, r| {
+    let (fd, fam, st) = tcp_info(&mut cx, &p[0])?;
+    let a = match sock_addr_from_val(&p[2]) { Some(a) => a, None => { r[0] = err_named("invalid-argument"); return Ok(()); } };
+    if st.load(Ordering::Relaxed) != S_UNBOUND { r[0] = err_named("invalid-state"); return Ok(()); }
+    if a[0] as i32 != fam { r[0] = err_named("invalid-argument"); return Ok(()); }
+    let e = hx(|| unsafe { wn_sock_bind(fd.0, a.as_ptr()) });
+    if e < 0 { r[0] = sock_err(e); } else { st.store(S_BINDING, Ordering::Relaxed); r[0] = ok_none(); } Ok(())
+});
+hf!(tcp_finish_bind, |cx, p, r| { let (_, _, st) = tcp_info(&mut cx, &p[0])?; if st.load(Ordering::Relaxed) == S_BINDING { st.store(S_BOUND, Ordering::Relaxed); r[0] = ok_none(); } else { r[0] = err_named("not-in-progress"); } Ok(()) });
+hf!(tcp_start_connect, |cx, p, r| {
+    let (fd, fam, st) = tcp_info(&mut cx, &p[0])?;
+    let a = match sock_addr_from_val(&p[2]) { Some(a) => a, None => { r[0] = err_named("invalid-argument"); return Ok(()); } };
+    let s0 = st.load(Ordering::Relaxed);
+    if s0 != S_UNBOUND && s0 != S_BOUND { r[0] = err_named("invalid-state"); return Ok(()); }
+    if a[0] as i32 != fam { r[0] = err_named("invalid-argument"); return Ok(()); }
+    let e = hx(|| unsafe { wn_sock_connect(fd.0, a.as_ptr()) });
+    if e < 0 { r[0] = sock_err(e); } else { st.store(S_CONNECTING, Ordering::Relaxed); r[0] = ok_none(); } Ok(())
+});
+hf!(tcp_finish_connect, |cx, p, r| {
+    let (fd, _, st) = tcp_info(&mut cx, &p[0])?;
+    if st.load(Ordering::Relaxed) != S_CONNECTING { r[0] = err_named("not-in-progress"); return Ok(()); }
+    let e = hx(|| unsafe { wn_sock_finish_connect(fd.0) });
+    if e == 1 { r[0] = err_named("would-block"); } else if e < 0 { st.store(S_UNBOUND, Ordering::Relaxed); r[0] = sock_err(e); }
+    else { st.store(S_CONNECTED, Ordering::Relaxed); let (i, o) = stream_pair(&mut cx, &fd)?; r[0] = ok_some(Val::Tuple(vec![i, o])); }
+    Ok(())
+});
+hf!(tcp_start_listen, |cx, p, r| {
+    let (fd, _, st) = tcp_info(&mut cx, &p[0])?; let s0 = st.load(Ordering::Relaxed);
+    if s0 != S_UNBOUND && s0 != S_BOUND { r[0] = err_named("invalid-state"); return Ok(()); }
+    let e = hx(|| unsafe { wn_sock_listen(fd.0, 128) });
+    if e < 0 { r[0] = sock_err(e); } else { st.store(S_LISTENSTART, Ordering::Relaxed); r[0] = ok_none(); } Ok(())
+});
+hf!(tcp_finish_listen, |cx, p, r| { let (_, _, st) = tcp_info(&mut cx, &p[0])?; if st.load(Ordering::Relaxed) == S_LISTENSTART { st.store(S_LISTENING, Ordering::Relaxed); r[0] = ok_none(); } else { r[0] = err_named("not-in-progress"); } Ok(()) });
+hf!(tcp_accept, |cx, p, r| {
+    let (fd, _, st) = tcp_info(&mut cx, &p[0])?;
+    if st.load(Ordering::Relaxed) != S_LISTENING { r[0] = err_named("invalid-state"); return Ok(()); }
+    let mut peer = [0u8; 32]; let c = hx(|| unsafe { wn_sock_accept(fd.0, peer.as_mut_ptr()) });
+    if c < 0 { r[0] = sock_err(c); return Ok(()); }
+    let nfd = Arc::new(SockFd(c)); let t = Tcp { fd: nfd.clone(), family: peer[0] as i32, state: Arc::new(AtomicU8::new(S_CONNECTED)) };
+    let sock = push_res::<Tcp>(&mut cx, t)?; let (i, o) = stream_pair(&mut cx, &nfd)?;
+    r[0] = ok_some(Val::Tuple(vec![sock, i, o])); Ok(())
+});
+hf!(tcp_local_address, |cx, p, r| {
+    let (fd, _, st) = tcp_info(&mut cx, &p[0])?; if st.load(Ordering::Relaxed) == S_UNBOUND { r[0] = err_named("invalid-state"); return Ok(()); }
+    let mut a = [0u8; 32]; let e = hx(|| unsafe { wn_sock_name(fd.0, 0, a.as_mut_ptr()) }); r[0] = if e < 0 { sock_err(e) } else { ok_some(sock_addr_to_val(&a)) }; Ok(())
+});
+hf!(tcp_remote_address, |cx, p, r| {
+    let (fd, _, st) = tcp_info(&mut cx, &p[0])?; if st.load(Ordering::Relaxed) != S_CONNECTED { r[0] = err_named("invalid-state"); return Ok(()); }
+    let mut a = [0u8; 32]; let e = hx(|| unsafe { wn_sock_name(fd.0, 1, a.as_mut_ptr()) }); r[0] = if e < 0 { sock_err(e) } else { ok_some(sock_addr_to_val(&a)) }; Ok(())
+});
+hf!(tcp_is_listening, |cx, p, r| { let (_, _, st) = tcp_info(&mut cx, &p[0])?; r[0] = Val::Bool(st.load(Ordering::Relaxed) == S_LISTENING); Ok(()) });
+hf!(tcp_family, |cx, p, r| { let (_, f, _) = tcp_info(&mut cx, &p[0])?; r[0] = Val::Enum(if f == 1 { "ipv6" } else { "ipv4" }.to_string()); Ok(()) });
+hf!(tcp_ok_none, |cx, p, r| { r[0] = ok_none(); Ok(()) });
+hf!(tcp_unsupported, |cx, p, r| { r[0] = err_named("not-supported"); Ok(()) });
+fn opt_get(cx: &mut Cx<'_>, p: &[Val], which: i32, wrap: fn(u64) -> Val) -> Result<Val> {
+    let (fd, _, _) = tcp_info(cx, &p[0])?; let mut v = 0u64; let e = hx(|| unsafe { wn_sock_opt(fd.0, which, 0, &mut v) });
+    Ok(if e < 0 { sock_err(e) } else { ok_some(wrap(v)) })
+}
+fn opt_set(cx: &mut Cx<'_>, p: &[Val], which: i32) -> Result<Val> {
+    let (fd, _, _) = tcp_info(cx, &p[0])?; let mut v = match &p[1] { Val::Bool(b) => *b as u64, other => u64_of(other) }; let e = hx(|| unsafe { wn_sock_opt(fd.0, which, 1, &mut v) });
+    Ok(if e < 0 { sock_err(e) } else { ok_none() })
+}
+hf!(tcp_keepalive_get, |cx, p, r| { r[0] = opt_get(&mut cx, p, 1, |v| Val::Bool(v != 0))?; Ok(()) });
+hf!(tcp_keepalive_set, |cx, p, r| { r[0] = opt_set(&mut cx, p, 1)?; Ok(()) });
+hf!(tcp_hop_get, |cx, p, r| { r[0] = opt_get(&mut cx, p, 4, |v| Val::U8(v as u8))?; Ok(()) });
+hf!(tcp_hop_set, |cx, p, r| { r[0] = opt_set(&mut cx, p, 4)?; Ok(()) });
+hf!(tcp_rcvbuf_get, |cx, p, r| { r[0] = opt_get(&mut cx, p, 2, Val::U64)?; Ok(()) });
+hf!(tcp_rcvbuf_set, |cx, p, r| { r[0] = opt_set(&mut cx, p, 2)?; Ok(()) });
+hf!(tcp_sndbuf_get, |cx, p, r| { r[0] = opt_get(&mut cx, p, 3, Val::U64)?; Ok(()) });
+hf!(tcp_sndbuf_set, |cx, p, r| { r[0] = opt_set(&mut cx, p, 3)?; Ok(()) });
+hf!(tcp_subscribe, |cx, p, r| {
+    let (fd, _, st) = tcp_info(&mut cx, &p[0])?; let res = cx.data_mut().table.push(SockPoll { fd, state: st })?; let pr = subscribe(&mut cx.data_mut().table, res)?; r[0] = Val::Resource(pr.try_into_resource_any(&mut cx)?); Ok(())
+});
+hf!(tcp_shutdown, |cx, p, r| {
+    let (fd, _, st) = tcp_info(&mut cx, &p[0])?; if st.load(Ordering::Relaxed) != S_CONNECTED { r[0] = err_named("invalid-state"); return Ok(()); }
+    let how = match &p[1] { Val::Enum(n) if n == "receive" => 0, Val::Enum(n) if n == "send" => 1, _ => 2 };
+    let e = hx(|| unsafe { wn_sock_shutdown(fd.0, how) }); r[0] = if e < 0 { sock_err(e) } else { ok_none() }; Ok(())
+});
+hf!(dns_resolve, |cx, p, r| {
+    let name = cs(str_of(&p[1])?); let mut buf = vec![0u8; 17 * 16];
+    let n = hx(|| unsafe { wn_resolve(name.as_ptr() as *const c_char, buf.as_mut_ptr(), 16) });
+    if n < 0 { r[0] = err_named(match n { -2 => "temporary-resolver-failure", -3 => "permanent-resolver-failure", _ => "name-unresolvable" }); return Ok(()); }
+    let addrs: Vec<[u8; 17]> = (0..n as usize).map(|i| { let mut a = [0u8; 17]; a.copy_from_slice(&buf[i * 17..i * 17 + 17]); a }).collect();
+    r[0] = ok_some(push_res::<Resolve>(&mut cx, Resolve { addrs, pos: 0 })?); Ok(())
+});
+hf!(dns_next, |cx, p, r| {
+    let res = get_res::<Resolve>(&mut cx, &p[0])?; let rs = cx.data_mut().table.get_mut(&res)?;
+    r[0] = if rs.pos < rs.addrs.len() { let a = rs.addrs[rs.pos]; rs.pos += 1; ok_some(Val::Option(Some(Box::new(ip_val(&a))))) } else { ok_some(Val::Option(None)) }; Ok(())
+});
+hf!(dns_subscribe, |cx, p, r| { let res = cx.data_mut().table.push(AlwaysReady)?; let pr = subscribe(&mut cx.data_mut().table, res)?; r[0] = Val::Resource(pr.try_into_resource_any(&mut cx)?); Ok(()) });
+
+fn add_sockets(l: &mut Linker<P2>) -> Result<()> {
+    let v = "0.2.12";
+    let n = |s: &str| format!("{s}@{v}");
+    { let mut i = l.instance(&n("wasi:sockets/network"))?; i.resource("network", ResourceType::host::<Network>(), |mut cx, rep| { let _ = cx.data_mut().table.delete(Resource::<Network>::new_own(rep)); Ok(()) })?; i.func_new("network-error-code", net_error_code)?; }
+    { let mut i = l.instance(&n("wasi:sockets/instance-network"))?; i.func_new("instance-network", net_instance)?; }
+    { let mut i = l.instance(&n("wasi:sockets/tcp-create-socket"))?; i.func_new("create-tcp-socket", tcp_create)?; }
+    {
+        let mut i = l.instance(&n("wasi:sockets/tcp"))?;
+        i.resource("tcp-socket", ResourceType::host::<Tcp>(), |mut cx, rep| { let _ = cx.data_mut().table.delete(Resource::<Tcp>::new_own(rep)); Ok(()) })?;
+        i.func_new("[method]tcp-socket.start-bind", tcp_start_bind)?; i.func_new("[method]tcp-socket.finish-bind", tcp_finish_bind)?;
+        i.func_new("[method]tcp-socket.start-connect", tcp_start_connect)?; i.func_new("[method]tcp-socket.finish-connect", tcp_finish_connect)?;
+        i.func_new("[method]tcp-socket.start-listen", tcp_start_listen)?; i.func_new("[method]tcp-socket.finish-listen", tcp_finish_listen)?; i.func_new("[method]tcp-socket.accept", tcp_accept)?;
+        i.func_new("[method]tcp-socket.local-address", tcp_local_address)?; i.func_new("[method]tcp-socket.remote-address", tcp_remote_address)?;
+        i.func_new("[method]tcp-socket.is-listening", tcp_is_listening)?; i.func_new("[method]tcp-socket.address-family", tcp_family)?;
+        i.func_new("[method]tcp-socket.set-listen-backlog-size", tcp_ok_none)?;
+        i.func_new("[method]tcp-socket.keep-alive-enabled", tcp_keepalive_get)?; i.func_new("[method]tcp-socket.set-keep-alive-enabled", tcp_keepalive_set)?;
+        i.func_new("[method]tcp-socket.keep-alive-idle-time", tcp_unsupported)?; i.func_new("[method]tcp-socket.set-keep-alive-idle-time", tcp_unsupported)?;
+        i.func_new("[method]tcp-socket.keep-alive-interval", tcp_unsupported)?; i.func_new("[method]tcp-socket.set-keep-alive-interval", tcp_unsupported)?;
+        i.func_new("[method]tcp-socket.keep-alive-count", tcp_unsupported)?; i.func_new("[method]tcp-socket.set-keep-alive-count", tcp_unsupported)?;
+        i.func_new("[method]tcp-socket.hop-limit", tcp_hop_get)?; i.func_new("[method]tcp-socket.set-hop-limit", tcp_hop_set)?;
+        i.func_new("[method]tcp-socket.receive-buffer-size", tcp_rcvbuf_get)?; i.func_new("[method]tcp-socket.set-receive-buffer-size", tcp_rcvbuf_set)?;
+        i.func_new("[method]tcp-socket.send-buffer-size", tcp_sndbuf_get)?; i.func_new("[method]tcp-socket.set-send-buffer-size", tcp_sndbuf_set)?;
+        i.func_new("[method]tcp-socket.subscribe", tcp_subscribe)?; i.func_new("[method]tcp-socket.shutdown", tcp_shutdown)?;
+    }
+    {
+        let mut i = l.instance(&n("wasi:sockets/ip-name-lookup"))?;
+        i.resource("resolve-address-stream", ResourceType::host::<Resolve>(), |mut cx, rep| { let _ = cx.data_mut().table.delete(Resource::<Resolve>::new_own(rep)); Ok(()) })?;
+        i.func_new("resolve-addresses", dns_resolve)?; i.func_new("[method]resolve-address-stream.resolve-next-address", dns_next)?; i.func_new("[method]resolve-address-stream.subscribe", dns_subscribe)?;
+    }
+    Ok(())
 }

@@ -167,7 +167,7 @@ jobs:
       - name: Do all five targets print the same thing?
         run: |
           cd results; ls
-          for f in p1-sig p1-nosig p1-pulley p1-base p2-sig p2-nosig p2-pulley; do
+          for f in p1-sig p1-nosig p1-pulley p1-base p2-sig p2-nosig p2-pulley sock-p2-sig sock-p2-pulley; do
             ref=results-linux-x64/$f.cmp; [ -f $ref ] || continue
             for d in results-*; do
               [ -f $d/$f.cmp ] || { echo "$f: $d has no output"; continue; }
