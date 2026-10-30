@@ -78,7 +78,8 @@ try {
   Copy-Item signed\app-st.exe scan\wdac-signed.exe -ErrorAction SilentlyContinue; if (-not (Test-Path scan\wdac-signed.exe)) { Copy-Item signed\app-ossl.exe scan\wdac-signed.exe }
   Copy-Item out\app.com scan\wdac-unsigned.exe; Copy-Item signed\app-ossl.exe scan\wdac-signed-ossl.exe
   $x = 'work-wdac.xml'; Copy-Item $base $x
-  $drv = Get-SystemDriver -ScanPath (Resolve-Path scan\wdac-signed-ossl.exe).Path -UserPEs
+  New-Item -ItemType Directory -Force scan-wdac | Out-Null; Copy-Item signed\app-ossl.exe scan-wdac\only-signed.exe
+  $drv = Get-SystemDriver -ScanPath (Resolve-Path scan-wdac).Path -UserPEs
   Note "RESULT [WDAC] Get-SystemDriver on the signed file: $(@($drv).Count) item(s); SignatureStatus=$(($drv | ForEach-Object { $_.SignatureStatus }) -join ',')"
   $rules = New-CIPolicyRule -DriverFiles $drv -Level Publisher -Fallback Hash
   Note "RESULT [WDAC] rules generated: $(@($rules).Count) ($(($rules | ForEach-Object { $_.GetType().Name }) -join ','))"
