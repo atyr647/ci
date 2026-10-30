@@ -102,7 +102,10 @@ jobs:
           if [ "$RUNNER_OS" = macOS ]; then
             args+=(--variant "cosmo-moltenvk|WGT_BACKEND=vulkan,DAWN_COSMO_ALLOW_VULKAN=1,VK_ICD_FILENAMES=$MVK_ICD,DYLD_LIBRARY_PATH=$VKLIB|$COSMO")
           fi
-          PY=$(command -v python3 || command -v python); "$PY" ci-webgpu-test/bench_ab.py "${args[@]}"
+          PY=$(command -v python3 || command -v python); echo "python: $PY"; "$PY" ci-webgpu-test/bench_ab.py "${args[@]}" 2>&1 | tee bench-out.txt; exit ${PIPESTATUS[0]}
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'bench-${{ matrix.label }}', path: 'bench-*.json' }
+      - name: Result (printed last, so a short log tail shows it)
+        if: always()
+        run: tail -n 60 bench-out.txt 2>/dev/null || echo "no bench output was produced (an earlier step failed)"
