@@ -25,7 +25,7 @@ jobs:
           flags="-Cpanic=abort"
           [ "${{ matrix.arch }}" = aarch64 ] && flags="$flags -Ctarget-feature=+reserve-x28"   # Cosmopolitan keeps its thread pointer in x28
           [ "${{ matrix.arch }}" = x86_64 ] && flags="$flags -Cno-redzone=yes"
-          RUSTFLAGS="$flags" cargo +nightly build --release --target ${{ matrix.arch }}-unknown-linux-gnu -Zbuild-std=core,alloc > build.log 2>&1 || { echo '=== FIRST ERRORS'; grep -n -m3 -A14 '^error' build.log; echo '=== LAST LINES'; tail -8 build.log; exit 1; }
+          RUSTFLAGS="$flags" cargo +nightly build --release --target ${{ matrix.arch }}-unknown-linux-gnu -Zbuild-std=core,alloc > build.log 2>&1 || { echo '=== FIRST ERRORS'; grep -n -m3 -A14 '^error' build.log; echo '=== head of log'; head -100 build.log | cut -c1-200; echo '=== who needs bitflags'; cargo +nightly tree --target ${{ matrix.arch }}-unknown-linux-gnu -i bitflags -e features 2>&1 | head -40; echo '=== LAST LINES'; tail -8 build.log; exit 1; }
           tail -3 build.log
           ls -la target/${{ matrix.arch }}-unknown-linux-gnu/release/*.a
       - uses: actions/upload-artifact@v4
