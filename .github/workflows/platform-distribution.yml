@@ -32,6 +32,10 @@ jobs:
           cp pkg/launcher pkg/App.app/Contents/MacOS/launcher
           clang -O2 -w -o pkg/App.app/Contents/MacOS/ape-loader in/ape-m1.c -Wl,-no_adhoc_codesign 2>&1 | tail -3
           cp in/game.com pkg/App.app/Contents/Resources/game.com; cp $D/Info.plist pkg/App.app/Contents/Info.plist
+          # a one-time runner that opens the bare file as a document
+          mkdir -p pkg/runner/Runner.app/Contents/MacOS; clang -O2 -fobjc-arc -framework Cocoa -Wl,-no_adhoc_codesign -o pkg/runner/Runner.app/Contents/MacOS/runner $D/runner.m 2>&1 | tail -3
+          cp pkg/App.app/Contents/MacOS/ape-loader pkg/runner/Runner.app/Contents/MacOS/ape-loader; cp $D/RunnerInfo.plist pkg/runner/Runner.app/Contents/Info.plist
+          chmod +x pkg/runner/Runner.app/Contents/MacOS/*; codesign --remove-signature pkg/runner/Runner.app/Contents/MacOS/runner 2>/dev/null
           chmod +x pkg/launcher pkg/App.app/Contents/MacOS/* pkg/App.app/Contents/Resources/game.com
           for f in pkg/launcher pkg/App.app/Contents/MacOS/*; do codesign --remove-signature "$f" 2>/dev/null; echo "$f: $(codesign -dvvv "$f" 2>&1 | grep -E 'not signed|Signature' | head -1)"; done
           file pkg/launcher | head -2
@@ -66,7 +70,7 @@ jobs:
         with: { pattern: dist-*, path: art }
       - name: Run
         run: |
-          mkdir -p w/unsigned w/server; tar -C w/unsigned -xf art/dist-unsigned/unsigned.tar; tar -C w/server -xf art/dist-server/server.tar
+          mkdir -p w/unsigned w/server; tar -C w/unsigned -xf art/dist-unsigned/unsigned.tar; tar -C w/server -xf art/dist-server/server.tar; mv w/unsigned/runner w/runner
           bash platform-probes/distribution/mac_run.sh $PWD/w 2>&1 | tee mac-out.txt
       - name: Result (last)
         if: always()

@@ -41,3 +41,24 @@ echo "##### the bytes: is the server's embedded signature the same kind as the M
 for v in server local; do R "[$v] $(codesign -dvvv $v/launcher 2>&1 | grep -E 'CodeDirectory|Hash type|Signature size|Page size|Format' | tr '\n' '|' | cut -c1-300)"; done
 R "[server] size unsigned $(stat -f %z unsigned/launcher) signed-by-server $(stat -f %z server/launcher) signed-by-codesign $(stat -f %z local/launcher)"
 R "[server] the game file inside the bundle is byte-identical to the unsigned one: $(cmp -s unsigned/App.app/Contents/Resources/game.com server/App.app/Contents/Resources/game.com && echo yes || echo NO)"
+echo "##### keeping the BARE file (no .app around the game): (A) a loader put where the stub looks for it, no compiler; (B) a one-time runner app that opens the file as a document"
+R "[A] the stub looks for: $(grep -a -o -m1 'ape-1.10' ../art/dist-game/game.com 2>/dev/null | head -1) (in PATH or \${TMPDIR:-\$HOME}/.ape-1.10)"
+for v in server local; do
+  H=$PWD/home-$v; rm -rf $H; mkdir -p $H; cp $v/App.app/Contents/MacOS/ape-loader $H/.ape-1.10; chmod +x $H/.ape-1.10
+  cp unsigned/App.app/Contents/Resources/game.com $H/bare.com; chmod +x $H/bare.com
+  R "[A-$v] loader signature: $(codesign -dvvv $H/.ape-1.10 2>&1 | grep -E 'Signature=|not signed' | head -1)"
+  out=$(env -i HOME=$H TMPDIR=$H/tmp PATH=/nonexistent /bin/sh -c "mkdir -p $H/tmp; cd $H; /bin/sh ./bare.com" 2>&1 | tr '\n' ' ' | cut -c1-200); R "[A-$v] bare file, loader in place, no compiler in PATH: exit ${PIPESTATUS[0]} :: $out"
+  xattr -w com.apple.quarantine "$(q)" $H/bare.com
+  out=$(env -i HOME=$H TMPDIR=$H/tmp PATH=/nonexistent /bin/sh -c "cd $H; /bin/sh ./bare.com" 2>&1 | tr '\n' ' ' | cut -c1-200); R "[A-$v] same, bare file quarantined: exit ${PIPESTATUS[0]} :: $out"
+done
+if [ -d runner/Runner.app ]; then
+  chmod -R u+rwX runner; chmod +x runner/Runner.app/Contents/MacOS/*
+  codesign --force --deep -s - runner/Runner.app 2>&1 | head -1
+  cp unsigned/App.app/Contents/Resources/game.com game.cosmo; chmod +x game.cosmo; xattr -w com.apple.quarantine "$(q)" game.cosmo
+  R "[B] document attribute: $(xattr -l game.cosmo | head -1 | cut -c1-60)"
+  rm -f /tmp/runner-proof.txt
+  R "[B] open -W -a Runner.app game.cosmo (quarantined document, ad-hoc runner), 40 s limit: exit $(to 40 open -W -a runner/Runner.app game.cosmo >/dev/null 2>&1; echo $?)"
+  R "[B] what the runner recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-200)"
+  cp -R runner/Runner.app runner/RunnerQ.app; xattr -rw com.apple.quarantine "$(q)" runner/RunnerQ.app; rm -f /tmp/runner-proof.txt
+  R "[B] same with the RUNNER quarantined (what a browser-downloaded runner would be), 25 s limit: exit $(to 25 open -W -a runner/RunnerQ.app game.cosmo >/dev/null 2>&1; echo $?) recorded: $(cat /tmp/runner-proof.txt 2>/dev/null | tr '\n' ' ' | cut -c1-120)"
+fi
