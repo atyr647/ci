@@ -173,8 +173,8 @@ jobs:
       - name: Which GPU would the game use (policy self-test + every adapter Dawn sees)
         continue-on-error: true
         run: |
-          if [ "$RUNNER_OS" = Windows ]; then cp gpu-probe.com gpu-probe.exe; ( ./gpu-probe.exe 2>&1 | cat ) | tr '\r' '\n' | grep -v Warning
-          else chmod +x gpu-probe.com; sh ./gpu-probe.com 2>&1 | grep -v Warning; fi
+          if [ "$RUNNER_OS" = Windows ]; then cp gpu-probe.com gpu-probe.exe; ( ./gpu-probe.exe --bench 2>&1 | cat ) | tr '\r' '\n' | grep -v Warning
+          else chmod +x gpu-probe.com; sh ./gpu-probe.com --bench 2>&1 | grep -v Warning; fi
       - name: Windows only - last Vulkan calls before a crash (DAWN_COSMO_TRACE) and the syscall tail
         if: runner.os == 'Windows'
         continue-on-error: true
