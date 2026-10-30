@@ -39,6 +39,16 @@ print('\nfirst raw example of each shape:')
 for m, c in errors.most_common(25): print('  ' + examples[m][:300])
 
 import subprocess as _sp
+def _show(title, cmd):
+    r = _sp.run(cmd, capture_output=True, text=True); print('\n--- ' + title); print((r.stdout + r.stderr)[:3500])
+inc = os.path.join(sdk, 'usr/include')
+if any('ConditionalMacros' in l for _, l in first_dump):
+    _show('ConditionalMacros.h 120-195', ['sed', '-n', '120,195p', os.path.join(inc, 'ConditionalMacros.h')])
+if any('i386/types.h' in l for _, l in first_dump):
+    _show('i386/types.h 100-120', ['sed', '-n', '100,120p', os.path.join(inc, 'i386/types.h')])
+if any('__nullable' in l for _, l in first_dump):
+    _show('where __nullable is defined', ['grep', '-rn', '-m3', '#\\s*define\\s*__nullable', inc, os.path.join(sdk, 'System/Library/Frameworks/Foundation.framework/Headers')])
+    _show('sys/cdefs.h nullability block', ['grep', '-n', '-B3', '-A3', '__nullable', os.path.join(inc, 'sys/cdefs.h')])
 if any('TargetConditionals' in l for _, l in first_dump):
     print('\nTargetConditionals.h around the #error:'); print(_sp.run(['sed','-n','330,395p',os.path.join(sdk,'usr/include/TargetConditionals.h')],capture_output=True,text=True).stdout)
 print('\nfirst errors, in order, of the first failing file (later ones are usually cascades):')
