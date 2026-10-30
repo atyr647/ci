@@ -30,7 +30,7 @@ if E.get('WASMER'):
 # ---- WAMR AOT
 if E.get('WAMRC') and E.get('IWASM'):
     rc, out = sh(f'"{E["WAMRC"]}" --help 2>&1 | grep -i -E "cpu|target|simd|opt-level|bounds" | head -12'); note('wamrc: ' + out.strip().replace('\n', ' | ')[:700])
-    isa = '--target=x86_64 --cpu-features=+avx2,+fma,+bmi2' if platform.machine() == 'x86_64' else ''
+    isa = '--target=x86_64 --cpu=haswell' if platform.machine() == 'x86_64' else ''
     for tag, extra in (('default', ''), ('avx2', isa)):
         if tag == 'avx2' and not isa: continue
         for v in VARS:

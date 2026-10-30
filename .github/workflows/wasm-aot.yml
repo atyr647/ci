@@ -40,8 +40,10 @@ jobs:
         run: |
           curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.wt }} | tar xJ; echo "WASMTIME=$PWD/$(ls -d wasmtime-$WT-*/)wasmtime" >> "$GITHUB_ENV"
           mkdir wasmer && curl -fsSL https://github.com/wasmerio/wasmer/releases/download/$WASMER/${{ matrix.wasmer }} | tar xz -C wasmer && echo "WASMER=$PWD/wasmer/bin/wasmer" >> "$GITHUB_ENV" || true
-          mkdir wedge && curl -fsSL https://github.com/WasmEdge/WasmEdge/releases/download/$WEDGE/WasmEdge-$WEDGE-${{ matrix.wedge }} | tar xz -C wedge --strip-components=1 && echo "WASMEDGE=$PWD/wedge/bin/wasmedge" >> "$GITHUB_ENV" && echo "LD_LIBRARY_PATH=$PWD/wedge/lib:$PWD/wedge/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV" && echo "DYLD_LIBRARY_PATH=$PWD/wedge/lib" >> "$GITHUB_ENV" || true
-          ls wasmer wedge 2>&1 | head -12 | tr '\n' ' '
+          mkdir wedge && curl -fsSL https://github.com/WasmEdge/WasmEdge/releases/download/$WEDGE/WasmEdge-$WEDGE-${{ matrix.wedge }} | tar xz -C wedge || true
+          WE=$(find $PWD/wedge -name wasmedge -type f | head -1); WL=$(dirname $(find $PWD/wedge -name 'libwasmedge*' | head -1) 2>/dev/null)
+          echo "WasmEdge binary: $WE libs: $WL"; echo "WASMEDGE=$WE" >> "$GITHUB_ENV"; echo "LD_LIBRARY_PATH=$WL:$LD_LIBRARY_PATH" >> "$GITHUB_ENV"; echo "DYLD_LIBRARY_PATH=$WL" >> "$GITHUB_ENV"
+          ls wasmer | head -5 | tr '\n' ' '
       - name: "Install WAMR AOT compiler and runtime (x86-64 only, no prebuilt arm64 wamrc is published)"
         if: matrix.label == 'linux-x64'
         continue-on-error: true
@@ -64,6 +66,11 @@ jobs:
           cmake --build wb --target wasm2c 2>&1 | tail -2
           echo "W2C=$PWD/wb/wasm2c" >> "$GITHUB_ENV"; echo "WABT=$PWD/wabt" >> "$GITHUB_ENV"
           (cc --version | head -1; command -v gcc && gcc --version | head -1; command -v clang && clang --version | head -1) 2>&1 | head -4
+      - name: Node diagnostics (kernels that produced no output)
+        if: matrix.label == 'linux-x64'
+        continue-on-error: true
+        run: |
+          for v in scalar simd-u2; do node --no-liftoff wasm-perf/node_run.js so/so-$v.wasm nbody1024 2>&1 | tail -4 | cut -c1-300; echo "rc=$? ($v)"; done | tee -a results.md
       - name: Compile every route and smoke-test it
         run: python3 wasm-perf/aot_matrix.py so aot spec.json 2>&1 | cut -c1-900 | tee -a results.md
         env: { MARCH: "${{ matrix.march }}" }
