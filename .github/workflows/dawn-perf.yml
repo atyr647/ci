@@ -1,0 +1,61 @@
+name: dawn-perf
+# Where does the time go in Dawn compiled by Cosmopolitan versus native Dawn? Flat CPU profiles (perf, software clock) of the same benchmark program, same backend
+# (Vulkan on a software GPU), on Linux x86-64 and arm64. The Cosmopolitan side runs the linker's .dbg ELF directly (it carries the symbols that the APE file strips).
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'run id of a dawn-cosmo run that uploaded the artifact dbg-dawn-bench', required: true }
+env:
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+jobs:
+  perf:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    arch: x86_64 }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 120
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1
+          sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y linux-tools-azure || sudo apt-get install -y linux-tools-generic || true
+          PERF=$(command -v perf || ls /usr/lib/linux-tools/*/perf | tail -1); echo "PERF=$PERF" >> "$GITHUB_ENV"; "$PERF" --version || true
+          sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0 || true
+      - name: Restore native Dawn (cache written by the dawn-bench workflow)
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: dawn-native-static-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+          fail-on-cache-miss: true
+      - name: Native benchmark (keeps its symbol table)
+        run: |
+          cmake -S ci-webgpu-test/bench -B benchout -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS="-g1"
+          cmake --build benchout
+      - name: Cosmopolitan benchmark (the .dbg ELF of the link step)
+        run: |
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D dbg
+          ls -la dbg; chmod +x dbg/*
+      - name: Profile
+        run: |
+          export WGT_BACKEND=vulkan
+          N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+          for v in native cosmo native2 cosmo2; do
+            case $v in native*) BIN=$N;; *) BIN=$C;; esac
+            "$PERF" record -e cpu-clock -F 20000 -o perf.$v.data -- $BIN > run.$v.txt 2>&1 || { echo "perf record failed for $v"; tail -5 run.$v.txt; }
+            "$PERF" report -i perf.$v.data --stdio --no-children --sort dso,symbol 2>/dev/null | grep -v '^#' | grep -v '^$' | head -70 > top.$v.txt || true
+            "$PERF" report -i perf.$v.data --stdio --no-children --sort dso 2>/dev/null | grep -v '^#' | grep -v '^$' | head -12 > dso.$v.txt || true
+          done
+          for v in native cosmo; do echo "=== $v: by object"; cat dso.$v.txt; done
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'perf-${{ matrix.label }}', path: 'top.*.txt\ndso.*.txt\nrun.*.txt' }
+      - name: Result (printed last)
+        if: always()
+        run: |
+          for v in native cosmo; do echo "=== $v: flat profile, top 45"; head -45 top.$v.txt; done
