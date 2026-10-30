@@ -2,8 +2,8 @@
 # cwd = repository root; artifacts: out\ (unsigned), signed\ (signed on Linux), pki\ (test PKI). Writes work\.
 $ErrorActionPreference = 'Continue'
 New-Item -ItemType Directory -Force work | Out-Null
-$R = New-Object System.Collections.ArrayList
-function Note([string]$m) { Write-Host $m; [void]$R.Add($m) }
+$Res = New-Object System.Collections.ArrayList
+function Note([string]$m) { Write-Host $m; [void]$Res.Add($m) }
 $os = Get-CimInstance Win32_OperatingSystem
 Note "RESULT host: $($os.Caption) $($os.Version); PROCESSOR_ARCHITECTURE=$env:PROCESSOR_ARCHITECTURE, native=$env:PROCESSOR_ARCHITEW6432"
 certutil -addstore -f Root pki\root.cer | Select-Object -Last 1
@@ -58,4 +58,4 @@ Note "--- re-sign: second signature (dual sign, /as) appended with signtool to t
 Copy-Item signed\app-ossl.exe work\app-dual.exe
 $o = & $st sign /as /fd SHA384 /f pki\leaf.pfx /p pw work\app-dual.exe 2>&1 | Out-String; Note "RESULT [dual] signtool sign /as exit $LASTEXITCODE | $((($o -split "`r?`n") | Where-Object {$_ -match 'Error|Success'} | Select-Object -First 2) -join ' ')"; Check work\app-dual.exe 'osslsigncode + signtool /as'
 
-Note "=== SUMMARY ==="; $R | Where-Object { $_ -like 'RESULT*' } | ForEach-Object { Write-Host $_ }
+Note "=== SUMMARY ==="; $Res | Where-Object { $_ -like 'RESULT*' } | ForEach-Object { Write-Host $_ }

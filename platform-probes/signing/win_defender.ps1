@@ -2,8 +2,8 @@
 # Cosmopolitan files (one that loads nothing, one that loads a library), record the verdicts; then SmartScreen / Smart App Control / WDAC (audit mode) facts.
 # cwd = repository root; artifacts out\, signed\, pki\. SmartScreen's reputation service cannot be exercised from a CI job (no interactive shell launch, no download origin); that is stated in the results.
 $ErrorActionPreference = 'Continue'
-$R = New-Object System.Collections.ArrayList
-function Note([string]$m) { Write-Host $m; [void]$R.Add($m) }
+$Res = New-Object System.Collections.ArrayList
+function Note([string]$m) { Write-Host $m; [void]$Res.Add($m) }
 function Prefs([string]$when) {
   $p = Get-MpPreference; $s = Get-MpComputerStatus
   Note "RESULT [$when] MAPSReporting=$($p.MAPSReporting) SubmitSamplesConsent=$($p.SubmitSamplesConsent) CloudBlockLevel=$($p.CloudBlockLevel) CloudExtendedTimeout=$($p.CloudExtendedTimeout) PUAProtection=$($p.PUAProtection) DisableRealtimeMonitoring=$($p.DisableRealtimeMonitoring) DisableBehaviorMonitoring=$($p.DisableBehaviorMonitoring) DisableIOAVProtection=$($p.DisableIOAVProtection)"
@@ -89,4 +89,4 @@ try {
   foreach ($e in $ev) { if ($e.Id -in 3076, 3077, 3033, 3034, 3089) { Note "RESULT [WDAC audit] event $($e.Id): $(($e.Message -split "`r?`n")[0].Substring(0, [Math]::Min(200, ($e.Message -split "`r?`n")[0].Length)))" } }
   Note "RESULT [WDAC audit] code-integrity events since the runs: $(@($ev).Count) (3076 = audit: would have been blocked, 3077 = blocked, 3089 = signature info)"
 } catch { Note "RESULT WDAC audit test not possible: $($_.Exception.Message)" }
-Note "=== SUMMARY ==="; $R | Where-Object { $_ -like 'RESULT*' } | ForEach-Object { Write-Host $_ }
+Note "=== SUMMARY ==="; $Res | Where-Object { $_ -like 'RESULT*' } | ForEach-Object { Write-Host $_ }

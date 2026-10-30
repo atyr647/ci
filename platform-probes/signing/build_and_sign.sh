@@ -28,12 +28,13 @@ $SIGN -in signed/hello-prep.exe -out signed/hello-ossl.exe 2>&1 | tail -1
 echo "--- zip slot layout (certificate table inside the EOCD comment, zip EOCD stays the last record)"
 for v in plain ts; do
   python3 platform-probes/ape_zip_slot.py reserve signed/app-prep.exe tmp-reserved.exe 16384
-  if [ $v = ts ]; then $SIGN -ts http://127.0.0.1:8318 -in tmp-reserved.exe -out tmp-signed1.exe 2>&1 | tail -1; else $SIGN -in tmp-reserved.exe -out tmp-signed1.exe 2>&1 | tail -1; fi
-  python3 platform-probes/ape_zip_slot.py fill tmp-signed1.exe signed/app-ossl-$v-slot.exe 16384
+  rm -f tmp-signed1.exe
+  if [ $v = ts ]; then $SIGN -ts http://127.0.0.1:8318 -in tmp-reserved.exe -out tmp-signed1.exe 2>&1 | tail -6; else $SIGN -in tmp-reserved.exe -out tmp-signed1.exe 2>&1 | tail -1; fi
+  [ -f tmp-signed1.exe ] && python3 platform-probes/ape_zip_slot.py fill tmp-signed1.exe signed/app-ossl-$v-slot.exe 16384
 done
 kill $TSA 2>/dev/null
 echo "--- checks per file"
-python3 - <<'PY' > zipcheck.py
+cat > zipcheck.py <<'PY'
 import zipfile, sys
 try:
     z = zipfile.ZipFile(sys.argv[1]); print('  python zipfile: OK,', len(z.namelist()), 'entries, asset =', z.read('asset.txt').decode().strip())
