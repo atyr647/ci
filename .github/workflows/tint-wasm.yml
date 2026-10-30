@@ -63,8 +63,10 @@ jobs:
           sed -i 's/^          //' t.wgsl
           WT=$PWD/wasmtime-$WT-x86_64-linux/wasmtime
           for f in spirv hlsl msl wgsl; do
-            echo "=================== --format $f"; /usr/bin/time -f "%es %MKB" $WT run --dir=. "$w" -- --format $f -o out.$f t.wgsl 2>&1 | tail -5; head -c 700 out.$f 2>/dev/null | cat -v | head -20; echo; wc -c out.$f 2>/dev/null
+            echo "=================== --format $f"; /usr/bin/time -f "%es %MKB" $WT run --dir=. "$w" --format $f -o out.$f t.wgsl 2>&1 | tail -5; head -c 700 out.$f 2>/dev/null | cat -v | head -20; echo; wc -c out.$f 2>/dev/null
           done
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: logs, path: "*.log" }
+      - uses: actions/upload-artifact@v4
+        with: { name: tint-wasm, path: build/tint }
