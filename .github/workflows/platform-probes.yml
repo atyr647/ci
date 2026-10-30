@@ -1,0 +1,74 @@
+name: platform-probes
+# (1) Executable memory from a Cosmopolitan program on each OS (needed by any JIT or ahead-of-time code loader inside the one file).
+# (2) Distribution trust, what CI can measure: Windows Defender's verdict on Cosmopolitan outputs, macOS Gatekeeper/quarantine behaviour, file sizes and compression.
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'optional dawn-cosmo run id, to also check its fat Dawn executable (artifact wgt-dawn)', required: false, default: '' }
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          mkdir out; cosmo/bin/cosmocc -O2 platform-probes/jit_probe.c -o out/jit-probe.com; cosmo/bin/cosmocc -O2 platform-probes/hello.c -o out/hello.com
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: probes, path: out }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: probes, path: out }
+      - name: Optional - the fat Dawn executable of a dawn-cosmo run
+        if: inputs.cosmo_run != ''
+        run: gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D out
+      - name: Executable memory
+        run: |
+          cd out; chmod +x *.com
+          if [ "$RUNNER_OS" = Windows ]; then cp jit-probe.com jit-probe.exe; ./jit-probe.exe; else sh ./jit-probe.com; fi
+      - name: Windows Defender verdict (the runner's Defender, signatures as of today)
+        if: runner.os == 'Windows'
+        continue-on-error: true
+        shell: powershell
+        run: |
+          Get-MpComputerStatus | Select-Object AMServiceEnabled, AntivirusEnabled, RealTimeProtectionEnabled, AntivirusSignatureVersion, AntivirusSignatureLastUpdated | Format-List
+          Update-MpSignature -ErrorAction SilentlyContinue
+          $mp = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
+          if (-not (Test-Path $mp)) { $mp = (Get-ChildItem "$env:ProgramData\Microsoft\Windows Defender\Platform" -Recurse -Filter MpCmdRun.exe | Select-Object -Last 1).FullName }
+          "scanner: $mp"
+          Copy-Item out\hello.com out\hello.exe -ErrorAction SilentlyContinue
+          Get-ChildItem out | ForEach-Object { if ($_.Extension -in '.com','.exe') { & $mp -Scan -ScanType 3 -File $_.FullName -DisableRemediation | Select-String -Pattern 'found|Scan|threat' ; "  -> $($_.Name): exit code $LASTEXITCODE (0 = clean, 2 = threat found)" } }
+          "--- threat detections recorded by Defender:"
+          Get-MpThreatDetection | Select-Object ProcessName, Resources, ThreatID | Format-List
+          Get-MpThreat | Select-Object ThreatName, SeverityID | Format-List
+      - name: macOS Gatekeeper and quarantine
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          cd out; sw_vers | head -3; cp hello.com hello-q.com
+          echo "--- signature of the file as built:"; codesign -dv hello.com 2>&1 | head -3 || true
+          echo "--- spctl assessment (what Gatekeeper says about an unsigned executable):"; spctl --assess --type execute -vv hello.com 2>&1 || true
+          xattr -w com.apple.quarantine "0083;$(printf '%x' $(date +%s));Safari;$(uuidgen)" hello-q.com
+          echo "--- quarantined copy, attributes:"; xattr -l hello-q.com
+          echo "--- spctl on the quarantined copy:"; spctl --assess --type execute -vv hello-q.com 2>&1 || true
+          echo "--- running the quarantined copy from a shell (no GUI prompt possible in CI):"; chmod +x hello-q.com; ./hello-q.com; echo "exit: $?"
+          echo "--- direct execution of the unquarantined file:"; chmod +x hello.com; ./hello.com; echo "exit: $?"
+          echo "--- what the first run left behind in the home directory:"; ls -la ~ | grep -i ape || true; ls -la ~/.ape* 2>/dev/null || true
+      - name: Sizes and compression
+        run: |
+          cd out; for f in *.com; do s=$(wc -c < $f); z=$(gzip -9 -c $f | wc -c); x=$(xz -6 -c $f 2>/dev/null | wc -c); echo "$f: $s bytes, gzip -9: $z, xz -6: ${x:-n/a}"; done
