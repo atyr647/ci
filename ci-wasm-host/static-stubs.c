@@ -12,8 +12,4 @@ int eventfd(unsigned int initval, int flags) { (void)initval; (void)flags; retur
 int mkfifo(const char *path, unsigned int mode) { (void)path; (void)mode; return fail(); }
 int waitid(int idtype, unsigned int id, void *info, int options) { (void)idtype; (void)id; (void)info; (void)options; return fail(); }
 
-/* Rust's musl target calls the POSIX (XSI) strerror_r that returns 0 on success; Cosmopolitan's strerror_r does not return that, so Rust read it as a failure and
- * panicked with "strerror_r failure" while already printing an error. Cosmopolitan has the XSI function under another name: the link uses -Wl,--wrap=strerror_r so
- * every call (Rust's, and Cosmopolitan's own strerror) lands here. */
-extern int __xpg_strerror_r(int, char *, unsigned long);
-int __wrap_strerror_r(int errnum, char *buf, unsigned long buflen) { return __xpg_strerror_r(errnum, buf, buflen); }
+/* strerror_r: Cosmopolitan's is already the POSIX (XSI) one that returns 0 on success, which is what Rust's musl target expects - nothing to provide. */
