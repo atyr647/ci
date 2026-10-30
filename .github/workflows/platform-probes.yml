@@ -109,12 +109,12 @@ jobs:
           "sign status: $($r.Status) / $($r.StatusMessage)"
           $v = Get-AuthenticodeSignature signed.exe; "verify: $($v.Status) (UnknownError/NotTrusted is expected for a self-signed root); signer: $($v.SignerCertificate.Subject)"
           ./signed.exe; "run after signing, exit: $LASTEXITCODE"
+          if (Test-Path ..\ossl\hello-ossl-signed.exe) { Copy-Item ..\ossl\hello-ossl-signed.exe ossl.exe; $v2 = Get-AuthenticodeSignature ossl.exe; "osslsigncode-signed file: signature status $($v2.Status), signer $($v2.SignerCertificate.Subject)"; ./ossl.exe; "run after osslsigncode signing, exit: $LASTEXITCODE" }
           # signtool (Windows SDK) with a pfx of the same certificate
           $pw = ConvertTo-SecureString -String "pw" -Force -AsPlainText
           Export-PfxCertificate -Cert $cert -FilePath test.pfx -Password $pw | Out-Null
           $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match 'x64' } | Select-Object -Last 1
-          if ($st) { Copy-Item hello.com signed2.exe; & $st.FullName sign /f test.pfx /p pw /fd SHA256 signed2.exe 2>&1 | Select-Object -First 6; "signtool exit: $LASTEXITCODE"; ./signed2.exe; "run after signtool, exit: $LASTEXITCODE" } else { "signtool not found" }
-          if (Test-Path ..\ossl\hello-ossl-signed.exe) { Copy-Item ..\ossl\hello-ossl-signed.exe ossl.exe; $v2 = Get-AuthenticodeSignature ossl.exe; "osslsigncode-signed file: signature status $($v2.Status), signer $($v2.SignerCertificate.Subject)"; ./ossl.exe; "run after osslsigncode signing, exit: $LASTEXITCODE" }
+          if ($st) { Copy-Item hello.com signed2.exe; try { & $st.FullName sign /f test.pfx /p pw /fd SHA256 signed2.exe 2>&1 | Select-Object -First 6 } catch { "signtool: $($_.Exception.Message)" }; "signtool exit: $LASTEXITCODE"; ./signed2.exe; "run after signtool, exit: $LASTEXITCODE" } else { "signtool not found" }
           (Get-Item hello.com).Length; (Get-Item signed.exe).Length
           # does the zip directory (Cosmopolitan's embedded read-only file system) still resolve after the signature was appended?
           "--- hello.com file listing as a zip, before and after:"
