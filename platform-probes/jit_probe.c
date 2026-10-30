@@ -6,7 +6,7 @@
 #include <errno.h>
 #include <stdint.h>
 #include <sys/mman.h>
-#include <libc/runtime/runtime.h>
+#include <cosmo.h>
 #ifdef __x86_64__
 static const unsigned char code[] = {0xB8, 0x2A, 0x00, 0x00, 0x00, 0xC3};            /* mov eax, 42 ; ret */
 #else
