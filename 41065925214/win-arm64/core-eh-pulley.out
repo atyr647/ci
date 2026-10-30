@@ -1,0 +1,12 @@
+host : platform=windows arch=x86_64 mode=pulley name=eh (68888 bytes) features=0xf
+host : engine+load 10.0 ms, instantiate 2.8 ms, linear memory 0 MiB
+PASS t_catch
+PASS t_catch_all
+PASS t_nested_frames
+PASS t_rethrow_exnref
+PASS t_no_throw
+PASS x_uncaught (trapped as required: error while executing at wasm backtrace:
+    0:     0xd4 - <unknown>!t)
+PASS t_tail_call
+PASS t_tail_call_indirect
+SUMMARY tests=8 pass=8 fail=0

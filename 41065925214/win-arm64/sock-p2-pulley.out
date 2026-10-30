@@ -1,0 +1,2 @@
+host : platform=windows arch=x86_64 mode=pulley name=socktest.p2 (337168 bytes) features=0xf
+host : component loaded in 16.7 ms
