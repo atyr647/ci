@@ -102,7 +102,11 @@ int main(int argc, char **argv) {
 #endif
   if (argc > 1 && !strcmp(argv[1], "--selftest")) return selftest();
   int bad = selftest();
-  dawn::native::Instance instance;
+  // every message Dawn emits (backend start-up failures are otherwise silent: "no adapters" and nothing else)
+  dawn::native::DawnInstanceDescriptor dawnDesc;
+  dawnDesc.SetLoggingCallback([](wgpu::LoggingType type, wgpu::StringView m) { fprintf(stderr, "[dawn %s] %.*s\n", type == wgpu::LoggingType::Error ? "error" : type == wgpu::LoggingType::Warning ? "warning" : "info", (int)(m.length == WGPU_STRLEN ? strlen(m.data) : m.length), m.data); });
+  WGPUInstanceDescriptor instDesc = WGPU_INSTANCE_DESCRIPTOR_INIT; instDesc.nextInChain = reinterpret_cast<WGPUChainedStruct *>(&dawnDesc);
+  dawn::native::Instance instance(&instDesc);
   const char *prefs[] = {"Undefined", "HighPerformance", "LowPower"};
   const WGPUPowerPreference pv[] = {WGPUPowerPreference_Undefined, WGPUPowerPreference_HighPerformance, WGPUPowerPreference_LowPower};
   std::vector<gpu_candidate> cands; std::vector<std::string> names; std::vector<dawn::native::Adapter> ads;
