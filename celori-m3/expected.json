@@ -1,0 +1,42 @@
+{
+ "schema_test": {
+  "SCHEMA_HASH": "8178aa8419f4602a"
+ },
+ "image_compare_test_checks": 17,
+ "captures": {
+  "pillar_removed": {
+   "mean_abs_channel_diff": 0.3053428819444444,
+   "pixels_over_8_pct": 0.75,
+   "max_channel_diff": 182,
+   "ssim": 0.9925312183555723,
+   "min_block_ssim": 0.17259033324742418,
+   "changed_bbox": [
+    177,
+    36,
+    189,
+    79
+   ]
+  },
+  "sun_2pct": {
+   "mean_abs_channel_diff": 0.5527604166666666,
+   "pixels_over_8_pct": 0.0,
+   "max_channel_diff": 3,
+   "ssim": 0.9996910258438764,
+   "min_block_ssim": 0.9971641053924384,
+   "changed_bbox": null
+  },
+  "ground_tint": {
+   "mean_abs_channel_diff": 4.236532118055556,
+   "pixels_over_8_pct": 14.585069444444445,
+   "max_channel_diff": 45,
+   "ssim": 0.7880989432070779,
+   "min_block_ssim": -0.5225562423390943,
+   "changed_bbox": [
+    0,
+    62,
+    319,
+    123
+   ]
+  }
+ }
+}

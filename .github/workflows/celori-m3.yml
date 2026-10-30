@@ -1,0 +1,39 @@
+name: celori-m3
+# Cross-OS check of the engine's M2/M3 pieces, plus a compatibility check of the M1/M2 wasm guests under stock Wasmtime 50.
+#   * the schema test (a wasm32-wasip3 component: JSON Schema, component inspection, a game's own component) under the Wasmtime CLI: its SCHEMA_HASH must equal the Linux x86-64 value
+#   * the image-comparison tests (pure Python) on every OS
+#   * the metrics of three real capture pairs (a vanished pillar, a 2 percent dimmer sun, a tinted ground against the reference) must equal the Linux values to 1e-9
+#   * on the extra row linux-x64-wt50, stock Wasmtime 50.0.0 also runs the five M1 guests (celori-m1/): the hosts are to move to stock Wasmtime >= 50 without patches
+on:
+  workflow_dispatch:
+  push:
+    paths: ['celori-m3/**', '.github/workflows/celori-m3.yml']
+jobs:
+  m3:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    cap: x86_64-linux,    ext: tar.xz, exe: wasmtime,     wt: v49.0.2, m1: no }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, cap: aarch64-linux,   ext: tar.xz, exe: wasmtime,     wt: v49.0.2, m1: no }
+          - { label: win-x64,     os: windows-latest,   cap: x86_64-windows,  ext: zip,    exe: wasmtime.exe, wt: v49.0.2, m1: no }
+          - { label: win-arm64,   os: windows-11-arm,   cap: aarch64-windows, ext: zip,    exe: wasmtime.exe, wt: v49.0.2, m1: no }
+          - { label: mac-arm64,   os: macos-latest,     cap: aarch64-macos,   ext: tar.xz, exe: wasmtime,     wt: v49.0.2, m1: no }
+          - { label: mac-x64,     os: macos-15-intel,   cap: x86_64-macos,    ext: tar.xz, exe: wasmtime,     wt: v49.0.2, m1: no }
+          - { label: linux-x64-wt50, os: ubuntu-latest, cap: x86_64-linux,    ext: tar.xz, exe: wasmtime,     wt: v50.0.0, m1: yes }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Wasmtime CLI
+        run: |
+          curl -fsSL -o wt.${{ matrix.ext }} https://github.com/bytecodealliance/wasmtime/releases/download/${{ matrix.wt }}/wasmtime-${{ matrix.wt }}-${{ matrix.cap }}.${{ matrix.ext }}
+          mkdir wt
+          if [ "${{ matrix.ext }}" = zip ]; then cmake -E chdir wt cmake -E tar xf ../wt.zip; else tar xJf wt.tar.xz -C wt; fi
+          find wt -name '${{ matrix.exe }}' | head -1 | tee wtpath
+          "$(cat wtpath)" --version
+      - name: M2/M3 checks
+        run: python3 celori-m3/run.py "$(cat wtpath)" ${{ matrix.label }}
+      - name: M1 guests under this Wasmtime
+        if: matrix.m1 == 'yes'
+        run: python3 celori-m1/run.py "$(cat wtpath)" ${{ matrix.label }}
