@@ -10,6 +10,7 @@ variants = []
 for v in a.variant:
     name, env, cmd = v.split('|', 2)
     variants.append((name, dict(kv.split('=', 1) for kv in env.split(',') if kv), cmd))
+GITBASH = next((p for p in (r'C:\Program Files\Git\bin\bash.exe', r'C:\Program Files\Git\usr\bin\bash.exe') if os.path.exists(p)), 'bash')   # plain 'bash' on a Windows runner is WSL's launcher
 HIGHER_BETTER = ('GB/s', 'MB/s', 'GFLOP/s')
 samples = {n: {} for n, _, _ in variants}; units = {}; adapters = {}; failures = {n: [] for n, _, _ in variants}
 def machine():
@@ -25,7 +26,7 @@ for r in range(a.rounds):
         e = dict(os.environ); e.update(env)
         t0 = time.time()
         try:
-            p = subprocess.run(['bash', '-c', cmd] if os.name == 'nt' else cmd, shell=(os.name != 'nt'), env=e, capture_output=True, text=True, timeout=a.timeout)   # cmd.exe cannot run ./path/exe
+            p = subprocess.run([GITBASH, '-c', cmd] if os.name == 'nt' else cmd, shell=(os.name != 'nt'), env=e, capture_output=True, text=True, timeout=a.timeout)   # cmd.exe cannot run ./path/exe
             out = p.stdout + p.stderr; rc = p.returncode
         except subprocess.TimeoutExpired as x:
             out = (x.stdout or b'').decode(errors='replace') if isinstance(x.stdout, bytes) else (x.stdout or ''); rc = 124
