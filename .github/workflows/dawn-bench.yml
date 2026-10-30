@@ -81,7 +81,10 @@ jobs:
         run: |
           cmake -S ci-webgpu-test/bench -B benchout -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist" $( [ "$RUNNER_OS" = Linux ] && echo -DCMAKE_CXX_COMPILER=clang++ )
           cmake --build benchout
-          mkdir native && cp benchout/dawn-bench* native/ && ls -la native
+          mkdir native && cp benchout/dawn-bench* native/
+          # native Dawn on Windows loads the FXC shader compiler only from the executable's own directory ("DynamicLib.Open: d3dcompiler_47.dll Windows Error: 87" otherwise); the Cosmopolitan build uses the normal search path
+          if [ "$RUNNER_OS" = Windows ]; then cp /c/Windows/System32/d3dcompiler_47.dll native/ || cp "$SYSTEMROOT/System32/d3dcompiler_47.dll" native/; fi
+          ls -la native
       - name: The Cosmopolitan build (artifact of the dawn-cosmo run)
         run: |
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D cosmo
