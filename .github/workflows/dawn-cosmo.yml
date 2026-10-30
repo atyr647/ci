@@ -31,6 +31,7 @@ jobs:
           sh backend-spikes/setup-wine-headers.sh $PWD/wine
           mkdir dxh && git -C dxh init -q && git -C dxh fetch -q --depth 1 https://github.com/microsoft/DirectX-Headers $DXH_SHA && git -C dxh checkout -q FETCH_HEAD
           W=$PWD/wine/x/usr/include/wine/wine
+          python3 dawn-cosmo/fix_com_struct_returns.py dxh/include/directx   # result pointer order of struct-returning COM methods (GCC vs Microsoft)
           python3 backend-spikes/make_sal_shim.py dawn-cosmo/d3d12-shims/sal_shim.h dxh/include/directx/*.h dawn-cosmo/d3d12-shims/dxcapi.h
           python3 backend-spikes/make_uuid_decls.py dawn-cosmo/d3d12-shims/uuid_decls.h $W/windows dxh/include/directx dawn-cosmo/d3d12-shims
       - name: Restore the Dawn checkout and build directory from the last run
