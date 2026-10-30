@@ -22,6 +22,7 @@ for label, path in files:
     cods = list(CODECS)
     if label.endswith('-x86'): cods.append(('xz-6-bcj', ['xz', '-6', '--x86', '--lzma2=preset=6', '-c'], True))
     if label.endswith('-arm'): cods.append(('xz-6-bcj', ['xz', '-6', '--arm64', '--lzma2=preset=6', '-c'], True))
+    if os.environ.get('LIGHT'): cods = [c for c in cods if c[0] in ('gzip-9', 'zstd-19', 'xz-6', 'xz-6-bcj')]
     for name, cmd, inbench in cods:
         if shutil.which(cmd[0]) is None: print(f'| {label} | {name} | (tool missing) | | |'); continue
         t = time.time()
@@ -30,7 +31,7 @@ for label, path in files:
         if r.returncode: print(f'| {label} | {name} | failed rc={r.returncode} | | |'); continue
         c = r.stdout
         print(f'| {label} | {name} | {len(c):,} | {len(c) / n:.3f} | {dt:.1f} |', flush=True)
-        if inbench:
+        if inbench and not os.environ.get('LIGHT'):
             fn = f'{label}.{name}'; open(os.path.join(out, fn), 'wb').write(c)
             manifest.append(f'{name.split("-bcj")[0]} {out}/{fn} {n} {crc:08x} {label}.{name}')
 open(os.path.join(out, 'manifest.txt'), 'w').write('\n'.join(manifest) + '\n')

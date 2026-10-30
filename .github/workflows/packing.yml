@@ -1,0 +1,185 @@
+name: packing
+# Size and start-up cost of the single Cosmopolitan file: link-level reductions, per-OS content, compression of code and assets, decompression speed on every OS,
+# cold/warm start-up, and whether code can be made executable from inside the file. Inputs are the artifacts of an earlier dawn-cosmo run (nothing of Dawn is recompiled here).
+on:
+  workflow_dispatch:
+    inputs:
+      src_run:    { description: 'dawn-cosmo run id (artifacts lib-x86_64, lib-aarch64, metal-objs, wgt-dawn)', required: false, default: '41047548027' }
+      src_sha:    { description: 'commit of that run (sources for the test program)', required: false, default: '21a8e25fd4f346729102b99e38d571d6b4d13aab' }
+      guests_run: { description: 'wasmtime-nostd run id (artifact guests: wasm and cwasm modules)', required: false, default: '41034378094' }
+env:
+  COSMOCC: 4.0.2
+jobs:
+  link:
+    runs-on: ubuntu-latest
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.src_sha }}', path: pin }
+      - name: Tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y llvm unzip zip
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir -p cosmo && unzip -q cosmocc.zip -d cosmo
+          cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+      - { uses: actions/download-artifact@v4, with: { name: lib-x86_64, path: lib-x86_64, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
+      - { uses: actions/download-artifact@v4, with: { name: lib-aarch64, path: lib-aarch64, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
+      - { uses: actions/download-artifact@v4, with: { name: metal-objs, path: metal, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
+      - { uses: actions/download-artifact@v4, with: { name: wgt-dawn, path: wgt-dawn, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
+      - name: Relink (exact original link, gc variants, per-OS variants) and fat files
+        run: packing/relink.sh 2>&1 | tee relink.log | tail -120
+      - name: Structure of the files
+        run: |
+          B=$PWD/cosmo/bin
+          for f in parts/base.x86_64.com.dbg parts/base.aarch64.com.dbg; do echo "=== $f"; ls -l $f | awk '{print $5}'; llvm-readelf -S -W $f | awk '{print}' | cut -c1-140 | head -70; done
+          echo "=== zip directory of the fat file"; unzip -l out/all.com 2>&1 | tail -25
+          echo "=== first 400 bytes of the fat file (header)"; head -c 400 out/all.com | strings | head -12
+          ls -l out parts/*.com | awk '{print $5, $9}'
+      - name: Inventory (components of each half)
+        run: |
+          { for A in x86_64 aarch64; do python3 -I packing/analyze.py "base $A" maps/base.$A.map work/o-$A; echo; done
+            for v in lnx win; do python3 -I packing/analyze.py "$v x86_64" maps/$v.x86_64.map work/o-x86_64 | sed -n '1,22p'; echo; done
+            for v in lnx mac; do python3 -I packing/analyze.py "$v aarch64" maps/$v.aarch64.map work/o-aarch64 | sed -n '1,22p'; echo; done
+          } > inventory.md; cat inventory.md
+          echo "=== map sizes"; ls -l maps | awk '{print $5, $9}'
+      - uses: actions/upload-artifact@v4
+        with: { name: packing-parts, path: "out/*.com\nparts/base.x86_64.com\nparts/base.aarch64.com\ninventory.md\nrelink.log", compression-level: 1 }
+      - uses: actions/upload-artifact@v4
+        with: { name: packing-maps, path: maps, compression-level: 6 }
+
+  compress:
+    needs: link
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: sudo apt-get update && sudo apt-get install -y zstd lz4 xz-utils brotli zip unzip
+      - { uses: actions/download-artifact@v4, with: { name: packing-parts, path: pp } }
+      - { uses: actions/download-artifact@v4, with: { name: guests, path: guests, run-id: '${{ inputs.guests_run }}', github-token: '${{ github.token }}' } }
+      - name: Public sample assets (glTF geometry and textures)
+        continue-on-error: true
+        run: |
+          mkdir -p assets && cd assets
+          for f in DamagedHelmet.bin Default_albedo.jpg Default_normal.jpg; do curl -fsSL -O https://raw.githubusercontent.com/KhronosGroup/glTF-Sample-Models/main/2.0/DamagedHelmet/glTF/$f || true; done
+          ls -l
+      - name: Compression of the real halves (every codec)
+        run: |
+          echo "versions: $(zstd -V | head -1); $(xz --version | head -1); $(lz4 -V | head -1); $(brotli --version); $(gzip --version | head -1)"
+          ls -l pp/out pp/parts 2>/dev/null | awk '{print $5, $9}'
+          python3 -I packing/prep_data.py data half-x86=pp/out/x64only.com half-arm=pp/out/arm64only.com 2>&1 | tee ratios-halves.md
+      - name: Compression of the fat file and the per-OS variants (light set)
+        run: |
+          LIGHT=1 python3 -I packing/prep_data.py data-light fat-all=pp/out/all.com fat-gc=pp/out/gc.com fat-nonull=pp/out/nonull.com fat-lnx=pp/out/lnx.com win-x64=pp/out/win.com mac-arm64=pp/out/mac.com hello=pp/out/hello.com 2>&1 | tee ratios-variants.md
+      - name: Assets and precompiled modules (per file, and as one bundle)
+        run: |
+          ls -lR guests | head -60
+          find guests -type f \( -name '*.cwasm' -o -name '*.wasm' \) | sort > list.txt; cat list.txt | head -40
+          for ext in cwasm wasm; do
+            : > bundle.$ext; grep "\.$ext\$" list.txt | while read f; do cat "$f" >> bundle.$ext; done; ls -l bundle.$ext
+          done
+          args=""; [ -s bundle.cwasm ] && args="$args cwasm=bundle.cwasm"; [ -s bundle.wasm ] && args="$args wasm=bundle.wasm"
+          [ -f assets/DamagedHelmet.bin ] && args="$args gltf-bin=assets/DamagedHelmet.bin"
+          [ -f assets/Default_albedo.jpg ] && args="$args jpg-texture=assets/Default_albedo.jpg"
+          python3 -I packing/prep_data.py data-assets $args 2>&1 | tee ratios-assets.md
+          # per-file view of the cwasm modules: what one zip entry per module costs compared with one bundle
+          python3 -I - <<'PY'
+          import glob, subprocess, os
+          fs = sorted(glob.glob('guests/**/*.cwasm', recursive=True))
+          tot = {'raw': 0}
+          for f in fs:
+              d = open(f, 'rb').read(); tot['raw'] += len(d)
+              for n, cmd in (('gzip-9', ['gzip', '-9', '-c']), ('zstd-3', ['zstd', '-3', '-c', '-q']), ('zstd-19', ['zstd', '-19', '-c', '-q']), ('lz4-12', ['lz4', '-12', '-c', '-q']), ('xz-6', ['xz', '-6', '-c'])):
+                  tot[n] = tot.get(n, 0) + len(subprocess.run(cmd, input=d, capture_output=True).stdout)
+          print('cwasm modules compressed one by one:', len(fs), 'files', tot)
+          PY
+      - name: Merge the benchmark inputs
+        run: |
+          mkdir -p bench/data && cp data/* bench/data/ && for d in data-assets; do cp $d/* bench/data/ 2>/dev/null || true; done
+          # manifests use the directory they were written with: rewrite to data/
+          { sed 's#^\(\S*\) data/#\1 data/#' data/manifest.txt; sed 's#data-assets/#data/#' data-assets/manifest.txt; } > bench/data/manifest.txt
+          cat bench/data/manifest.txt | cut -c1-150; du -sh bench/data
+      - uses: actions/upload-artifact@v4
+        with: { name: packing-data, path: bench/data, compression-level: 0 }
+      - uses: actions/upload-artifact@v4
+        with: { name: packing-ratios, path: "ratios-*.md" }
+
+  benchbuild:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build the decode benchmark and the slice probe with cosmocc (fat, x86-64 + arm64)
+        run: |
+          sudo apt-get update && sudo apt-get install -y unzip zip
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir -p cosmo && unzip -q cosmocc.zip -d cosmo
+          cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+          B=$PWD/cosmo/bin; mkdir -p src && cd src
+          curl -fsSL https://github.com/facebook/zstd/releases/download/v1.5.6/zstd-1.5.6.tar.gz | tar xz
+          curl -fsSL https://github.com/lz4/lz4/archive/refs/tags/v1.10.0.tar.gz | tar xz
+          curl -fsSL https://github.com/madler/zlib/releases/download/v1.3.1/zlib-1.3.1.tar.gz | tar xz
+          git clone -q --depth 1 https://github.com/tukaani-project/xz-embedded.git xze || true
+          ls xze xze/userspace 2>/dev/null | head -40
+          Z=zstd-1.5.6/lib; L=lz4-1.10.0/lib; ZL=zlib-1.3.1
+          XZ=""; XINC=""; XDEF=""
+          if [ -f xze/linux/lib/xz/xz_dec_stream.c ] || [ -f xze/userspace/xz_config.h ]; then
+            XD=xze/linux/lib/xz; XU=xze/userspace
+            XINC="-Ixze/linux/include/linux -Ixze/userspace -Ixze/linux/lib/xz"
+            XZ="$XD/xz_crc32.c $XD/xz_dec_stream.c $XD/xz_dec_lzma2.c $XD/xz_dec_bcj.c"; XDEF="-DHAVE_XZ"
+            echo "xz-embedded sources: $XZ"
+          fi
+          $B/cosmocc -O2 -DZSTD_DISABLE_ASM -DZSTD_LEGACY_SUPPORT=0 -I$Z -I$L -I$ZL -I../packing $XINC $XDEF \
+            ../packing/packbench.c $Z/common/*.c $Z/decompress/*.c $L/lz4.c $L/lz4frame.c $L/lz4hc.c $L/xxhash.c \
+            $ZL/adler32.c $ZL/crc32.c $ZL/inflate.c $ZL/inftrees.c $ZL/inffast.c $ZL/zutil.c $XZ -o ../packbench.com 2>&1 | tail -30
+          cd ..
+          $B/cosmocc -O2 packing/slice_probe.c -o slice_probe.com
+          ls -l packbench.com slice_probe.com
+          sh ./packbench.com /dev/null | head -3 || true
+      - uses: actions/upload-artifact@v4
+        with: { name: packing-bench, path: "packbench.com\nslice_probe.com" }
+
+  bench:
+    needs: [link, compress, benchbuild]
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 60
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - { uses: actions/download-artifact@v4, with: { name: packing-bench, path: . } }
+      - { uses: actions/download-artifact@v4, with: { name: packing-data, path: data } }
+      - { uses: actions/download-artifact@v4, with: { name: packing-parts, path: pp } }
+      - name: Decode speed (best / median / fresh-memory MB/s of output) - ${{ matrix.label }}
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then cp packbench.com packbench.exe; ./packbench.exe data/manifest.txt | tr -d '\r'; else chmod +x packbench.com; sh ./packbench.com data/manifest.txt; fi
+      - name: Can code inside the file become executable without extraction? - ${{ matrix.label }}
+        continue-on-error: true
+        run: |
+          if [ "$RUNNER_OS" = Windows ]; then cp slice_probe.com slice_probe.exe; R=./slice_probe.exe; else chmod +x slice_probe.com; R="sh ./slice_probe.com"; fi
+          for t in info copy-rx rwx map-rx map-rw-rx; do echo "--- $t"; ( set +e; $R $t 2>&1 | tr -d '\r'; echo "exit=${PIPESTATUS[0]}" ); done
+      - name: Start-up cold / warm, memory split, decompress-then-run (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 zstd lz4 xz-utils
+          chmod +x pp/out/*.com; A=$(uname -m); if [ "$A" = x86_64 ]; then H=x64only; HL=x86; else H=arm64only; HL=arm; fi
+          sh pp/out/hello.com; mkdir -p cache
+          echo "##### floor: a 0.4 MB fat hello (shell + APE loader + exec)"; python3 -I packing/startup.py hello 15 -- sh pp/out/hello.com
+          echo "##### current fat file, all backends linked (47.9 MB)";        python3 -I packing/startup.py fat-all 12 -- sh pp/out/all.com
+          echo "##### Linux-only link (D3D12/Null/Metal stubbed out)";        python3 -I packing/startup.py fat-lnx 12 -- sh pp/out/lnx.com
+          echo "##### this architecture's half alone (self-contained file)";  python3 -I packing/startup.py half-plain 12 -- sh pp/out/$H.com
+          for c in zstd-3 zstd-19 lz4-1; do
+            case $c in zstd*) D="zstd -dc -q";; lz4*) D="lz4 -dc -q";; esac
+            echo "##### decompress-on-every-start: $c payload -> cache file -> run (what a stage-2 loader that writes the half to disk each time would cost)"
+            python3 -I packing/startup.py "half-$c" 12 -- sh -c "$D data/half-$HL.$c > cache/app.com && chmod +x cache/app.com && sh cache/app.com"
+          done
+          ls -l data/half-$HL.* | awk '{print $5, $9}'
+          echo "##### one WebGPU run result, to see the program really works"; sh pp/out/lnx.com 2>&1 | tail -4
