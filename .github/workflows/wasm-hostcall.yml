@@ -1,6 +1,7 @@
 name: wasm-hostcall
 # Host-provided native kernels called from wasm through imports (Wasmtime C API, zero-copy access to linear memory, run-time CPU dispatch AVX-512 / AVX2+FMA / NEON):
 # cost of one import call, and the work size at which the native kernel beats wasm SIMD128 code.
+permissions: { contents: write }
 on:
   workflow_dispatch:
 env: { WT: v50.0.0 }
@@ -24,6 +25,7 @@ jobs:
           - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux-c-api.tar.xz, lib: libwasmtime.so }
           - { label: mac-arm64,   os: macos-latest,     asset: aarch64-macos-c-api.tar.xz, lib: libwasmtime.dylib }
     runs-on: ${{ matrix.os }}
+    env: { RESULTS_FILE: results.md }
     defaults: { run: { shell: bash } }
     steps:
       - uses: actions/checkout@v4
@@ -38,6 +40,12 @@ jobs:
           (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true
       - name: Run (checked and unchecked calling conventions, best kernel; then forced AVX2 / portable)
         run: |
+          { echo "## ${{ matrix.label }}: wasm-hostcall run ${{ github.run_id }}, commit ${{ github.sha }}"; (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true; } | tee -a results.md
+          exec > >(tee -a results.md) 2>&1
           for conv in unchecked checked; do echo "=== $conv"; ./host g/guest.wasm $conv; done
           if [ "$(uname -m)" = x86_64 ]; then for k in avx2 portable; do echo "=== unchecked, HOSTKERNEL=$k"; HOSTKERNEL=$k ./host g/guest.wasm unchecked | grep -E '^(HOSTKERNEL|SAXPY|DOT|MATMUL)'; done; else echo "=== unchecked, HOSTKERNEL=portable"; HOSTKERNEL=portable ./host g/guest.wasm unchecked | grep -E '^(HOSTKERNEL|SAXPY|DOT|MATMUL)'; fi
           for cfg in epoch fuel explicit; do echo "=== unchecked, HOSTCFG=$cfg"; HOSTCFG=$cfg ./host g/guest.wasm unchecked | grep -E '^(ENGINE|CALL import-nop|SAXPY (64|4096) |DOT 1024|MATMUL (32|256))'; done
+      - name: Publish results to the wasm-perf-results branch
+        if: always()
+        uses: ./.github/actions/publish
+        with: { name: "wasm-hostcall-${{ matrix.label }}-${{ github.run_id }}" }

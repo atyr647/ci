@@ -1,0 +1,21 @@
+name: publish-results
+description: Pushes results.md of the current job to the wasm-perf-results branch (out/NAME.md) so that it can be read without downloading job logs.
+inputs:
+  name: { required: true }
+runs:
+  using: composite
+  steps:
+    - shell: bash
+      env: { TOKEN: "${{ github.token }}", REPO: "${{ github.repository }}", NAME: "${{ inputs.name }}" }
+      run: |
+        [ -s results.md ] || { echo "no results.md"; exit 0; }
+        D=$(mktemp -d); cp results.md "$D/f.md"; cd "$D"
+        git init -q; git config user.name atyr647; git config user.email atyr647@users.noreply.github.com
+        git remote add o "https://x-access-token:$TOKEN@github.com/$REPO.git"
+        for i in 1 2 3 4 5 6 7 8; do
+          if git fetch -q o wasm-perf-results 2>/dev/null; then git checkout -q -B res FETCH_HEAD; else git checkout -q --orphan res; fi
+          mkdir -p out; cp f.md "out/$NAME.md"; git add out; git commit -qm "results $NAME"
+          if git push -q o res:wasm-perf-results; then echo "published out/$NAME.md"; exit 0; fi
+          sleep $((RANDOM % 6 + 2))
+        done
+        echo "publish failed"

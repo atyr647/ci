@@ -1,5 +1,6 @@
 name: wasm-cranelift
 # Which Wasmtime/Cranelift settings make wasm fastest (ISA flags, opt level, bounds checks, instrumentation), and how the wasm source variants compare with native on each platform.
+permissions: { contents: write }
 on:
   workflow_dispatch:
 env: { WT: v50.0.0 }
@@ -35,6 +36,7 @@ jobs:
           - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux.tar.xz,  march: "-mcpu=native" }
           - { label: mac-arm64,   os: macos-latest,     asset: aarch64-macos.tar.xz,  march: "-mcpu=native" }
     runs-on: ${{ matrix.os }}
+    env: { RESULTS_FILE: results.md }
     defaults: { run: { shell: bash } }
     steps:
       - uses: actions/checkout@v4
@@ -44,10 +46,10 @@ jobs:
         run: |
           curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
           mkdir wt && tar xJf wt.tar.xz -C wt; WASMTIME=$PWD/$(find wt -name wasmtime -type f | head -1); echo "WASMTIME=$WASMTIME" >> "$GITHUB_ENV"
-          cc --version | head -1
+          { echo "## ${{ matrix.label }}: wasm-cranelift run ${{ github.run_id }}, commit ${{ github.sha }}"; cc --version | head -1
           (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true
           (grep -m1 -o 'flags.*\|Features.*' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx|avx2|fma|bmi2|avx512f|asimd|sve|sve2|asimddp|bf16|i8mm|fphp)$' | tr '\n' ' ') 2>/dev/null || true; echo
-          $WASMTIME settings 2>&1 | sed -n '/Settings inferred/,$p' | tr '\n' ' '; echo
+          $WASMTIME settings 2>&1 | sed -n '/Settings inferred/,$p' | tr '\n' ' '; echo; } | tee -a results.md
       - name: Phase A, Wasmtime settings on the SIMD128 build
         run: |
           python3 wasm-perf/wt_matrix.py "$WASMTIME" so spec-a.json
@@ -58,7 +60,7 @@ jobs:
           mkdir -p dis; W=$WASMTIME; arch=$(uname -m)
           if [ "$arch" = x86_64 ]; then T=x86_64-unknown-linux-gnu; else T=aarch64-unknown-linux-gnu; fi
           mix() { objdump -d --no-show-raw-insn "$1" | awk -F'\t' 'NF>=2{split($2,a," "); print a[1]}' | sort | uniq -c | sort -rn; }
-          for v in simd relaxed simd-vb32-u2; do
+          { for v in simd relaxed simd-vb32-u2; do
             $W compile -o dis/host-$v.cwasm so/so-$v.wasm; $W compile --target $T -o dis/base-$v.cwasm so/so-$v.wasm
             for k in host base; do mix dis/$k-$v.cwasm > dis/$k-$v.txt; done
             echo "== $v: total instructions host=$(awk '{s+=$1}END{print s}' dis/host-$v.txt) baseline-target=$(awk '{s+=$1}END{print s}' dis/base-$v.txt)"
@@ -68,7 +70,7 @@ jobs:
               echo "   fmla=$(awk '$2 == "fmla"{s+=$1}END{print s+0}' dis/host-$v.txt) fmul=$(awk '$2 == "fmul"{s+=$1}END{print s+0}' dis/host-$v.txt) fadd=$(awk '$2 == "fadd"{s+=$1}END{print s+0}' dis/host-$v.txt) ldr=$(awk '$2 == "ldr"{s+=$1}END{print s+0}' dis/host-$v.txt) ldp=$(awk '$2 == "ldp"{s+=$1}END{print s+0}' dis/host-$v.txt)"
             fi
           done
-          echo "top mnemonics, host, simd:"; head -22 dis/host-simd.txt | tr '\n' ';' | tr -s ' '; echo
+          echo "top mnemonics, host, simd:"; head -22 dis/host-simd.txt | tr '\n' ';' | tr -s ' '; echo; } | tee -a results.md
       - name: Native builds
         run: |
           mkdir bin; cd wasm-perf; CC=cc; M="${{ matrix.march }}"; F="-O3 -fno-math-errno shootout.c -lm"
@@ -96,3 +98,7 @@ jobs:
           json.dump(rows, open('spec-b.json', 'w'))
           PY
           python3 wasm-perf/runner.py spec-b.json --rounds 3 --ref 'native n-scalar' --kernels matmul256,nbody1024,transform,interp,hash16MB,sort1M --title "Phase B ${{ matrix.label }}: wasm source variants vs native (ref = native scalar, baseline ISA)"
+      - name: Publish results to the wasm-perf-results branch
+        if: always()
+        uses: ./.github/actions/publish
+        with: { name: "wasm-cranelift-${{ matrix.label }}-${{ github.run_id }}" }

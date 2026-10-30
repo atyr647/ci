@@ -6,6 +6,8 @@
  *   --run-tests                  call every export named t_* (must return 1) and x_* (must trap) in one instance
  *   --call=name[:arg]            call one export with an i64 argument and time it       --invoke=a,b,c  call exports in order (like the first host)
  *   --async                      async store (fibers): host function env.yield_n(n) suspends n times
+
+ *   --plain-await                env.await_host as an ordinary synchronous host function (baseline for --asyncify)
  *   --asyncify=entry:data:size   drive an asyncify-instrumented module        --collector=drc|null|copying
  *   --component                  the file is a component (needs the component / p2 build) */
 #define _COSMO_SOURCE 1
@@ -73,12 +75,13 @@ static int32_t sync_nop(void *u, uint8_t *mem, size_t memlen, const uint64_t *a,
 
 /* ---- asyncify host work between unwind and rewind: a trivial computation standing in for completed I/O ---- */
 static int32_t asy_work(void *u, int32_t req) { (void)u; return req * 2 + 1; }
+static int32_t plain_await(void *u, uint8_t *mem, size_t memlen, const uint64_t *a, uint64_t *r) { (void)u; (void)mem; (void)memlen; r[0] = (uint32_t)((int32_t)a[0] * 2 + 1); return 0; }
 
 int main(int argc, char **argv) {
     if (argc < 3) { fprintf(stderr, "usage: %s sig|nosig|pulley <name> [options] [-- guest args]\n", argv[0]); return 64; }
     const char *mode = argv[1], *base = argv[2];
     int m = !strcmp(mode, "sig") ? 0 : !strcmp(mode, "nosig") ? 1 : 2;
-    int use_p1 = 0, run_tests = 0, use_async = 0, component = 0, collector = 0, selfclient = 0;
+    int plain_await_mode = 0, use_p1 = 0, run_tests = 0, use_async = 0, component = 0, collector = 0, selfclient = 0;
     const char *invoke = NULL, *asyncify = NULL; const char *calls[16]; int ncalls = 0;
     const char *dirs[8]; int ndirs = 0; const char *envs[64]; int nenvs = 0; const char *listen_spec = NULL;
     int gargc = 0; char *gargv[64]; gargv[gargc++] = (char *)base;
@@ -90,6 +93,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(a, "--async")) use_async = 1;
         else if (!strcmp(a, "--component")) component = 1;
         else if (!strcmp(a, "--selfclient")) selfclient = 1;
+        else if (!strcmp(a, "--plain-await")) plain_await_mode = 1;
         else if (!strncmp(a, "--invoke=", 9)) invoke = a + 9;
         else if (!strncmp(a, "--call=", 7) && ncalls < 16) calls[ncalls++] = a + 7;
         else if (!strncmp(a, "--asyncify=", 11)) asyncify = a + 11;
@@ -132,6 +136,7 @@ int main(int argc, char **argv) {
         }
         if (use_async) { rc |= wn_define_yield("env", "yield_n"); rc |= wn_define("env", "sync_nop", "i", sync_nop, 0); }
         if (asyncify) rc |= wn_define_asyncify("env", "await_host", asy_work, 0);
+        if (plain_await_mode) rc |= wn_define("env", "await_host", "i>i", plain_await, 0);
         if (rc) { fprintf(stderr, "define failed: %s\n", wn_last_error()); return 67; }
         if (wn_load(bytes, len)) { fprintf(stderr, "load failed: %s\n", wn_last_error()); return 68; }
         double t1 = now_ms();
@@ -139,6 +144,7 @@ int main(int argc, char **argv) {
         double t2 = now_ms();
         printf("host : engine+load %.1f ms, instantiate %.1f ms, linear memory %zu MiB\n", t1 - t0, t2 - t1, wn_memory_size() >> 20); fflush(stdout);
         uint64_t res[2] = {0, 0};
+        if (run_tests || ncalls || asyncify || invoke) { uint64_t tmp = 0; wn_call("_initialize", NULL, 0, &tmp, 0); }   /* reactor modules */
         if (run_tests) {
             static uint8_t names[16384]; size_t need = wn_list_exports(names, sizeof names - 1); if (need >= sizeof names) need = sizeof names - 1; names[need] = 0;
             int pass = 0, fail = 0, total = 0;

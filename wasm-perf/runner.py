@@ -48,6 +48,8 @@ def main():
         sp.append(f'| {n} | ' + ' | '.join(cells) + ' |')
     text = '\n'.join(ms + sp)
     print(text)
+    if os.environ.get('RESULTS_FILE'):
+        open(os.environ['RESULTS_FILE'], 'a').write(text + '\n\n')
     if os.environ.get('GITHUB_STEP_SUMMARY'):
         open(os.environ['GITHUB_STEP_SUMMARY'], 'a').write(text + '\n\n')
 
