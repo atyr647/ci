@@ -160,9 +160,12 @@ jobs:
           mkdir parts
           for A in x86_64 aarch64; do
             L=$PWD/lib-$A; INC="-I$L/inc1 -I$L/inc2 -I$PWD/ci-webgpu-test"; extra=""
+            # per-thread small-block cache in front of Cosmopolitan's locked malloc (alloc-probe: 45 ns -> 4 ns per new/delete pair, 4 threads 396 -> 9 ns)
+            $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -c alloc-probe/tcache_new.cpp -o tcache_new.$A.o
+            extra="$PWD/tcache_new.$A.o"
             if [ $A = aarch64 ] && [ -f metal/objc_shim.c ]; then
               $B/aarch64-unknown-cosmo-cc -O2 -c metal/objc_shim.c -o objc_shim.o
-              extra="$(ls $PWD/metal/objs/*.o) objc_shim.o"
+              extra="$extra $(ls $PWD/metal/objs/*.o) objc_shim.o"
               echo "arm64: linking $(ls metal/objs/*.o | wc -l) Metal objects"
             fi
             $B/$A-unknown-cosmo-cc -O2 $INC -c ci-webgpu-test/wgt.c -o wgt.$A.o

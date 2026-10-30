@@ -40,6 +40,9 @@ int main() {
     { const long per = 1000000; double best = 1e30;
       for (int r = 0; r < 3; r++) { auto t = Clock::now(); std::vector<std::thread> th; for (int k = 0; k < 4; k++) th.emplace_back([&] { alloc_loop(per, [](size_t s) { return malloc(s); }, [](void *p) { free(p); }); }); for (auto &x : th) x.join(); double x = since(t); if (x < best) best = x; }
       report("malloc/free, 4 threads (per op, wall/4)", best, per * 4 / 4 * 1); }
+    { const long per = 1000000; double best = 1e30;
+      for (int r = 0; r < 3; r++) { auto t = Clock::now(); std::vector<std::thread> th; for (int k = 0; k < 4; k++) th.emplace_back([&] { alloc_loop(per, [](size_t s) { return ::operator new(s); }, [](void *p) { ::operator delete(p); }); }); for (auto &x : th) x.join(); double x = since(t); if (x < best) best = x; }
+      report("operator new/delete, 4 threads", best, per); }
 #ifdef HAVE_MIMALLOC
     { const long per = 1000000; double best = 1e30;
       for (int r = 0; r < 3; r++) { auto t = Clock::now(); std::vector<std::thread> th; for (int k = 0; k < 4; k++) th.emplace_back([&] { alloc_loop(per, [](size_t s) { return mi_malloc(s); }, [](void *p) { mi_free(p); }); }); for (auto &x : th) x.join(); double x = since(t); if (x < best) best = x; }
