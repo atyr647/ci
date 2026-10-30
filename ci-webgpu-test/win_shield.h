@@ -24,8 +24,30 @@ typedef unsigned long (__attribute__((ms_abi)) *win_shield_remove_t)(void *);
 typedef void *(__attribute__((ms_abi)) *win_shield_ptr_t)(void *);
 static win_shield_veh_t win_shield_runtime_veh;   /* the Cosmopolitan crash handler, once extracted */
 static __attribute__((ms_abi)) long win_shield_dummy(WinShieldPtrs *ep) { (void)ep; return 0; }
+typedef int (__attribute__((ms_abi)) *win_shield_modfromaddr_t)(unsigned long, const void *, void **);
+typedef unsigned long (__attribute__((ms_abi)) *win_shield_modname_t)(void *, char *, unsigned long);
+static win_shield_modfromaddr_t win_shield_modfromaddr; static win_shield_modname_t win_shield_modname;
+/* "module+offset" for an address, or 0 when it is not inside a loaded module */
+static const char *win_shield_where(uintptr_t a, char *buf, size_t n) {
+  void *mod = 0;
+  if (!win_shield_modfromaddr || !win_shield_modname || !win_shield_modfromaddr(6, (const void *)a, &mod) || !mod) return 0;   /* FROM_ADDRESS | UNCHANGED_REFCOUNT */
+  char path[260]; unsigned long len = win_shield_modname(mod, path, sizeof path); const char *base = path;
+  for (unsigned long i = 0; i < len; i++) if (path[i] == '\\' || path[i] == '/') base = path + i + 1;
+  snprintf(buf, n, "%s+0x%lx", base, (unsigned long)(a - (uintptr_t)mod)); return buf;
+}
+/* DAWN_COSMO_TRACE=1: where an access violation happened and which modules the values on its stack point into (a poor man's backtrace through code without symbols) */
+static void win_shield_describe(WinShieldPtrs *ep) {
+  if (ep->rec->ExceptionCode != 0xC0000005u || !getenv("DAWN_COSMO_TRACE")) return;
+  char b[400]; uintptr_t rip = *(uintptr_t *)((char *)ep->ctx + 0xF8), rsp = *(uintptr_t *)((char *)ep->ctx + 0x98);
+  const char *w = win_shield_where(rip, b, sizeof b);
+  fprintf(stderr, "[shield] access violation at %#lx = %s, rsp=%#lx\n", (unsigned long)rip, w ? w : "(not in a module)", (unsigned long)rsp);
+  int shown = 0;
+  for (int i = 0; i < 96 && shown < 14; i++) { uintptr_t v = ((uintptr_t *)rsp)[i]; w = win_shield_where(v, b, sizeof b); if (w) { fprintf(stderr, "[shield]   stack[%d] %#lx = %s\n", i, (unsigned long)v, w); shown++; } }
+  fflush(stderr);
+}
 static __attribute__((ms_abi)) long win_shield_handler(WinShieldPtrs *ep) {
   uint32_t c = ep->rec->ExceptionCode;
+  win_shield_describe(ep);
   if (c == 0x40010006u || c == 0x4001000Au || c == 0x406D1388u) return -1;       /* EXCEPTION_CONTINUE_EXECUTION: OutputDebugString A/W, SetThreadName */
   if (c == 0xE06D7363u || c == 0xE0434352u || c == 0xE0434F4Du) return 0;        /* MSVC C++ / CLR exception: EXCEPTION_CONTINUE_SEARCH so the DLL's own catch handles it */
   return win_shield_runtime_veh ? win_shield_runtime_veh(ep) : 0;
@@ -72,6 +94,8 @@ static int win_shield_install(void) {
   win_shield_ptr_t decode = (win_shield_ptr_t)cosmo_dlsym(k32, "DecodePointer");
   typedef void *(__attribute__((ms_abi)) *getmod_t)(const char *);
   getmod_t getmod = (getmod_t)cosmo_dlsym(k32, "GetModuleHandleA");
+  win_shield_modfromaddr = (win_shield_modfromaddr_t)cosmo_dlsym(k32, "GetModuleHandleExA");
+  win_shield_modname = (win_shield_modname_t)cosmo_dlsym(k32, "GetModuleFileNameA");
   if (!add || !rem || !decode || !getmod) return 0;
   /* the image of this executable: base + SizeOfImage from the PE header */
   uintptr_t base = (uintptr_t)getmod(0), lo = base, hi = base;
