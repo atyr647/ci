@@ -1,7 +1,10 @@
-name: dawn-clang
-# Is part of the remaining gap between Dawn built by Cosmopolitan and native Dawn the compiler? Cosmopolitan's default compiler on both architectures is GCC; native Dawn is built by clang.
-# The Tint-only profile (dawn-perf) shows a hash-map insert (tint::Hashmap<ast::Identifier*,...>::Add) and Keccak taking much more of the time in the Cosmopolitan build.
-# This workflow builds the same patched Dawn (Vulkan only, no D3D12/Metal pieces) with cosmocc's `-mclang` and benchmarks it against the GCC build of the same sources and native Dawn.
+name: dawn-flags
+# Which part of the remaining gap between Dawn built by Cosmopolitan and native Dawn is the compiler or its default flags? The Cosmopolitan cross driver adds, to every compile:
+# -fno-omit-frame-pointer (last on the command line, so it wins), -fpatchable-function-entry=18,16 (x86-64) / 7,6 (arm64) (16 bytes of NOPs before every function), -ffixed-x18 -ffixed-x28 (arm64),
+# -mno-red-zone and -mno-tls-direct-seg-refs (x86-64), -fno-inline-functions-called-once (GCC). The Tint-only profile shows Keccak (a leaf function with very high register pressure) and one hash-map
+# insert taking far more time than natively. Variants, each built from the same patched Dawn sources, benchmarked against the default GCC build and native Dawn:
+#   gcc-flags : GCC with -fomit-frame-pointer (leaf functions lose the frame pointer, tail calls on), -fpatchable-function-entry=0, -finline-functions-called-once
+#   clang     : cosmocc's clang with the same default flags and the same overrides
 on:
   workflow_dispatch:
     inputs:
@@ -16,9 +19,10 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
+        variant: [gcc-flags, clang]
     runs-on: ubuntu-latest
     timeout-minutes: 340
-    env: { COSMO_ARCH: '${{ matrix.arch }}' }
+    env: { COSMO_ARCH: '${{ matrix.arch }}', VARIANT: '${{ matrix.variant }}' }
     steps:
       - uses: actions/checkout@v4
       - name: Tools
@@ -33,8 +37,8 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-clang-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
-          restore-keys: dawn-clang-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-
+          key: dawn-flags-${{ matrix.variant }}-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
+          restore-keys: dawn-flags-${{ matrix.variant }}-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-
       - name: Fetch Dawn at the pinned commit (unless restored)
         run: |
           if [ ! -d dawn/.git ]; then
@@ -48,15 +52,20 @@ jobs:
           git -C dawn checkout -q -- .
           python3 dawn-cosmo/patch.py dawn
           python3 dawn-cosmo/keep_mtimes.py restore dawn $RUNNER_TEMP/mtimes.json
-      - name: Configure (cosmocc -mclang)
+      - name: Configure
         run: |
+          OVR="-fomit-frame-pointer -fpatchable-function-entry=0"
+          if [ "$VARIANT" = clang ]; then
+            printf '#!/bin/sh\nexec sh %s/dawn-cosmo/clang-wrap.sh %s cc "$@"\n' "$PWD" "$COSMO_ARCH" > $HOME/wrap-cc; printf '#!/bin/sh\nexec sh %s/dawn-cosmo/clang-wrap.sh %s c++ "$@"\n' "$PWD" "$COSMO_ARCH" > $HOME/wrap-cxx
+            chmod +x $HOME/wrap-cc $HOME/wrap-cxx; export DAWN_COSMO_CC=$HOME/wrap-cc DAWN_COSMO_CXX=$HOME/wrap-cxx
+          else OVR="$OVR -finline-functions-called-once"; fi
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
-          cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_FLAGS=-mclang -DCMAKE_CXX_FLAGS=-mclang \
+          cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release "-DCMAKE_C_FLAGS=$OVR" "-DCMAKE_CXX_FLAGS=$OVR" \
             -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF \
             -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF \
             -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
             -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DDAWN_BUILD_PROTOBUF=OFF $emu 2>&1 | tee configure.log | tail -15
-          grep -m3 -- '-mclang' build/build.ninja | cut -c1-200 || true
+          grep -m2 -E "wrap-cxx|fomit-frame-pointer" build/build.ninja | cut -c1-260 || true; test -f build/build.ninja
       - name: Build libwebgpu_dawn.a
         run: |
           cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
@@ -72,7 +81,7 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-clang-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
+          key: dawn-flags-${{ matrix.variant }}-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v1-${{ github.run_id }}
       - name: Link the benchmark (single-architecture ELF, same flags as the GCC build's link)
         run: |
           B=$HOME/cosmo/bin; A=$COSMO_ARCH; L=$PWD/dist; mkdir -p dist/inc1 dist/inc2
@@ -80,10 +89,10 @@ jobs:
           INC="-I$L/inc1 -I$L/inc2 -I$PWD/ci-webgpu-test"
           $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -c alloc-probe/tcache_new.cpp -o tcache_new.o
           $B/$A-unknown-cosmo-c++ -O2 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.o
-          $B/$A-unknown-cosmo-c++ -O2 dawn_bench.o tcache_new.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o dawn-bench-clang.$A.com
-          ls -la dawn-bench-clang.$A.com*
+          $B/$A-unknown-cosmo-c++ -O2 dawn_bench.o tcache_new.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o dawn-bench-$VARIANT.$A.com
+          ls -la dawn-bench-$VARIANT.$A.com*
       - uses: actions/upload-artifact@v4
-        with: { name: 'bench-clang-${{ matrix.arch }}', path: 'dawn-bench-clang.${{ matrix.arch }}.com.dbg' }
+        with: { name: 'bench-${{ matrix.variant }}-${{ matrix.arch }}', path: 'dawn-bench-${{ matrix.variant }}.${{ matrix.arch }}.com.dbg' }
   run:
     needs: build
     strategy:
@@ -112,16 +121,16 @@ jobs:
         run: |
           mkdir cosmo
           gh run download ${{ inputs.gcc_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D cosmo
-          gh run download $GITHUB_RUN_ID -R ${{ github.repository }} -n bench-clang-${{ matrix.arch }} -D cosmo
+          for v in gcc-flags clang; do gh run download $GITHUB_RUN_ID -R ${{ github.repository }} -n bench-$v-${{ matrix.arch }} -D cosmo; done
           chmod +x cosmo/*; ls -la cosmo
       - name: Run (interleaved)
         run: |
-          N=./benchout/dawn-bench; G=./cosmo/dawn-bench.${{ matrix.arch }}.com.dbg; C=./cosmo/dawn-bench-clang.${{ matrix.arch }}.com.dbg
-          python3 ci-webgpu-test/bench_ab.py --rounds ${{ inputs.rounds }} --title "${{ matrix.label }}: native vs Cosmopolitan built by GCC vs Cosmopolitan built by clang" --json bench-clang-${{ matrix.label }}.json \
-            --variant "native|WGT_BACKEND=vulkan|$N" --variant "cosmo-gcc|WGT_BACKEND=vulkan|$G" --variant "cosmo-clang|WGT_BACKEND=vulkan|$C" --variant "native-again|WGT_BACKEND=vulkan|$N" 2>&1 | tee bench-out.txt
+          N=./benchout/dawn-bench; G=./cosmo/dawn-bench.${{ matrix.arch }}.com.dbg; F=./cosmo/dawn-bench-gcc-flags.${{ matrix.arch }}.com.dbg; C=./cosmo/dawn-bench-clang.${{ matrix.arch }}.com.dbg
+          python3 ci-webgpu-test/bench_ab.py --rounds ${{ inputs.rounds }} --title "${{ matrix.label }}: native vs Cosmopolitan default GCC build vs GCC without frame pointers / NOP padding vs clang" --json bench-clang-${{ matrix.label }}.json \
+            --variant "native|WGT_BACKEND=vulkan|$N" --variant "cosmo-gcc|WGT_BACKEND=vulkan|$G" --variant "cosmo-gcc-flags|WGT_BACKEND=vulkan|$F" --variant "cosmo-clang|WGT_BACKEND=vulkan|$C" --variant "native-again|WGT_BACKEND=vulkan|$N" 2>&1 | tee bench-out.txt
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: 'bench-clang-result-${{ matrix.label }}', path: 'bench-*.json' }
+        with: { name: 'bench-flags-result-${{ matrix.label }}', path: 'bench-*.json' }
       - name: Result (last)
         if: always()
         run: tail -n 40 bench-out.txt 2>/dev/null || echo "no output"
