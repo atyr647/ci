@@ -12,6 +12,7 @@ cdb = json.load(open(os.path.join(build, 'compile_commands.json')))
 metal = [e for e in cdb if re.search(r'/src/dawn/native/metal/[^/]+\.(mm|cpp)$', e['file'])]
 print(f'{len(metal)} translation units in src/dawn/native/metal')
 APPLE_DEFS = ['-DDAWN_COSMO_AS_APPLE=1', '-DOBJC_OLD_DISPATCH_PROTOTYPES=1']   # __APPLE__ & co. come from the compat header, AFTER the C/C++ library headers
+OBJ = os.environ.get('METAL_OBJ_DIR', '/tmp/metal-objs'); os.makedirs(OBJ, exist_ok=True)
 errors = collections.Counter(); examples = {}; results = []; first_dump = []
 for e in metal[:limit]:
     toks = shlex.split(e['command'])
@@ -23,7 +24,7 @@ for e in metal[:limit]:
         if t == e['file'] or t.endswith(('.mm', '.cpp')) and t.startswith('/') and os.path.basename(t) == os.path.basename(e['file']): continue
         keep.append(t)
     cmd = [cosmocxx, '-mclang', '-c', '-x', 'objective-c++', '-include', compat, '-fblocks', '-fobjc-runtime=macosx', '-Wno-everything'] + APPLE_DEFS + \
-          ['-F' + sdk + '/System/Library/Frameworks', '-idirafter' + sdk + '/usr/include'] + keep + [e['file'], '-o', '/tmp/metal_spike.o']
+          ['-F' + sdk + '/System/Library/Frameworks', '-idirafter' + sdk + '/usr/include'] + keep + [e['file'], '-o', os.path.join(OBJ, os.path.basename(e['file']) + '.o')]
     p = subprocess.run(cmd, capture_output=True, text=True)
     errs = [l for l in p.stderr.splitlines() if ' error:' in l or 'fatal error' in l]
     if errs and not first_dump: first_dump = [(os.path.basename(e['file']), l) for l in p.stderr.splitlines() if 'error' in l][:14]
@@ -53,3 +54,19 @@ if any('TargetConditionals' in l for _, l in first_dump):
     print('\nTargetConditionals.h around the #error:'); print(_sp.run(['sed','-n','330,395p',os.path.join(sdk,'usr/include/TargetConditionals.h')],capture_output=True,text=True).stdout)
 print('\nfirst errors, in order, of the first failing file (later ones are usually cascades):')
 for n, l in first_dump: print('  ' + n + ': ' + l.replace(sdk, '$SDK')[:260])
+
+# ---- what the objects need from the outside (the list the in-file Objective-C runtime shim has to provide) ----
+import glob as _glob
+nm = os.path.join(os.path.dirname(cosmocc), 'x86_64-linux-cosmo-nm'); readelf = os.path.join(os.path.dirname(cosmocc), 'x86_64-linux-cosmo-readelf')
+objs = sorted(_glob.glob(os.path.join(OBJ, '*.o')))
+und = collections.Counter(); secs = collections.Counter()
+for o in objs:
+    for l in subprocess.run([nm, '-u', o], capture_output=True, text=True).stdout.splitlines():
+        sym = l.split()[-1] if l.split() else ''
+        if sym and not sym.startswith(('_Z', '__cxa', '__gxx', '_Unwind')): und[sym] += 1
+    for l in subprocess.run([readelf, '-S', '-W', o], capture_output=True, text=True).stdout.splitlines():
+        m = re.search(r'\]\s+(__objc\S*|__DATA\S*|\.objc\S*|\.data\.rel\.ro)\s', l)
+        if m: secs[m.group(1)] += 1
+print(f'\n{len(objs)} objects; undefined symbols that are not C++ library internals ({len(und)}):')
+for s_, c in sorted(und.items()): print(f'  {c:3d} {s_}')
+print('Objective-C related sections in the objects:', dict(secs))
