@@ -1,0 +1,69 @@
+name: wasm-aot
+# The same wasm modules through every ahead-of-time / alternative route: Wasmtime (reference), Wasmer (LLVM, Cranelift, Singlepass), WAMR AOT (wamrc/LLVM), WasmEdge AOT (LLVM),
+# V8 in Node (TurboFan, and its experimental 128->256 bit revectoriser), wasm2c from wabt master compiled by gcc/clang with the host ISA.
+on:
+  workflow_dispatch:
+env: { WT: v50.0.0, WASMER: v7.5.0, WEDGE: 0.18.1, WAMR: 2.4.5 }
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          wasm-perf/build_wasm.sh $PWD/$(ls -d wasi-sdk-34*) $PWD/out
+      - uses: actions/upload-artifact@v4
+        with: { name: so-wasm, path: out }
+  run:
+    needs: build-wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    wt: x86_64-linux.tar.xz,  wasmer: wasmer-linux-amd64.tar.gz,   wedge: manylinux_2_28_x86_64.tar.gz,  march: "-march=native" }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, wt: aarch64-linux.tar.xz, wasmer: wasmer-linux-aarch64.tar.gz, wedge: manylinux_2_28_aarch64.tar.gz, march: "-mcpu=native" }
+          - { label: mac-arm64,   os: macos-latest,     wt: aarch64-macos.tar.xz, wasmer: wasmer-darwin-arm64.tar.gz,   wedge: darwin_arm64.tar.gz,            march: "-mcpu=native" }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: so-wasm, path: so }
+      - name: Machine
+        run: |
+          (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true
+          (grep -m1 -o 'flags.*\|Features.*' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx2|fma|avx512f|asimd|sve|sve2)$' | tr '\n' ' ') 2>/dev/null || true; echo
+      - name: Install Wasmtime, Wasmer, WasmEdge (continue on failure of any)
+        continue-on-error: true
+        run: |
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.wt }} | tar xJ; echo "WASMTIME=$PWD/$(ls -d wasmtime-$WT-*/)wasmtime" >> "$GITHUB_ENV"
+          mkdir wasmer && curl -fsSL https://github.com/wasmerio/wasmer/releases/download/$WASMER/${{ matrix.wasmer }} | tar xz -C wasmer && echo "WASMER=$PWD/wasmer/bin/wasmer" >> "$GITHUB_ENV" || true
+          mkdir wedge && curl -fsSL https://github.com/WasmEdge/WasmEdge/releases/download/$WEDGE/WasmEdge-$WEDGE-${{ matrix.wedge }} | tar xz -C wedge --strip-components=1 && echo "WASMEDGE=$PWD/wedge/bin/wasmedge" >> "$GITHUB_ENV" && echo "LD_LIBRARY_PATH=$PWD/wedge/lib:$PWD/wedge/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV" && echo "DYLD_LIBRARY_PATH=$PWD/wedge/lib" >> "$GITHUB_ENV" || true
+          ls wasmer wedge 2>&1 | head -12 | tr '\n' ' '
+      - name: Install WAMR AOT compiler and runtime (x86-64 only: no prebuilt arm64 wamrc is published)
+        if: matrix.label == 'linux-x64'
+        continue-on-error: true
+        run: |
+          mkdir wamr && cd wamr
+          curl -fsSL https://github.com/bytecodealliance/wasm-micro-runtime/releases/download/WAMR-$WAMR/wamrc-$WAMR-x86_64-ubuntu-22.04.tar.gz | tar xz
+          curl -fsSL https://github.com/bytecodealliance/wasm-micro-runtime/releases/download/WAMR-$WAMR/iwasm-$WAMR-x86_64-ubuntu-22.04.tar.gz | tar xz
+          chmod +x wamrc iwasm; ls; echo "WAMRC=$PWD/wamrc" >> "$GITHUB_ENV"; echo "IWASM=$PWD/iwasm" >> "$GITHUB_ENV"
+          ./iwasm --version 2>&1 | head -2 || true
+      - name: Node (V8)
+        if: matrix.label == 'linux-x64'
+        run: node --version && echo "NODE=$(which node)" >> "$GITHUB_ENV"
+      - name: Build wasm2c from wabt master
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y ninja-build >/dev/null 2>&1 || brew install ninja >/dev/null 2>&1 || true
+          git clone --depth 1 --recurse-submodules --shallow-submodules https://github.com/WebAssembly/wabt wabt 2>&1 | tail -1
+          (cd wabt && git log -1 --format='wabt master %h %ad' --date=short)
+          cmake -S wabt -B wb -G Ninja -DCMAKE_BUILD_TYPE=Release -DBUILD_TESTS=OFF -DWITH_WASI=OFF 2>&1 | tail -2
+          cmake --build wb --target wasm2c 2>&1 | tail -2
+          echo "W2C=$PWD/wb/wasm2c" >> "$GITHUB_ENV"; echo "WABT=$PWD/wabt" >> "$GITHUB_ENV"
+          (cc --version | head -1; command -v gcc && gcc --version | head -1; command -v clang && clang --version | head -1) 2>&1 | head -4
+      - name: Compile every route and smoke-test it
+        run: python3 wasm-perf/aot_matrix.py so aot spec.json 2>&1 | cut -c1-900
+        env: { MARCH: "${{ matrix.march }}" }
+      - name: Run (interleaved, 3 rounds)
+        run: python3 wasm-perf/runner.py spec.json --rounds 3 --ref 'wasmtime simd' --kernels matmul256,nbody1024,transform,interp --title "AOT routes ${{ matrix.label }} (ref = wasmtime simd)"

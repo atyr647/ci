@@ -14,7 +14,7 @@ jobs:
     steps:
       - uses: actions/checkout@v4
       - uses: actions/cache@v4
-        with: { path: "~/.cargo/registry\n~/.cargo/git\nwasmtime-nostd/embedding/target", key: "wn-cargo-${{ matrix.arch }}-v1-${{ hashFiles('wasmtime-nostd/embedding/Cargo.toml') }}" }
+        with: { path: "~/.cargo/registry\n~/.cargo/git\nwasmtime-nostd/embedding/target", key: "wn-cargo-${{ matrix.arch }}-v2-${{ hashFiles('wasmtime-nostd/embedding/Cargo.toml', 'wasmtime-nostd/patches/wasmtime-*.patch') }}" }
       - name: Rust nightly with rust-src
         run: |
           rustup toolchain install nightly --profile minimal -c rust-src
@@ -37,6 +37,12 @@ jobs:
               fs = [x for x in d.get('features', '').split(',') if x and 'outline-atomics' not in x]; d['features'] = ','.join(fs + ['+reserve-x28'])   # Cosmopolitan keeps its thread pointer in x28
           import os; os.makedirs('spec-${{ matrix.arch }}', exist_ok=True); json.dump(d, open('spec-${{ matrix.arch }}/${{ matrix.arch }}-unknown-linux-gnu.json', 'w'), indent=1)   # same NAME as the real triple: build scripts (target-lexicon) take the host triple from it, and .cwasm files are checked against it
           PY
+      - name: Wasmtime 50.0.0 from crates.io with the no_std threads patch (the published crate ties the threads feature to std)
+        working-directory: wasmtime-nostd/embedding
+        run: |
+          rm -rf vendor && mkdir vendor
+          curl -fsSL https://static.crates.io/crates/wasmtime/wasmtime-50.0.0.crate | tar xz -C vendor && mv vendor/wasmtime-50.0.0 vendor/wasmtime
+          patch -p1 -d vendor/wasmtime < ../patches/wasmtime-50.0.0-nostd-threads.patch
       - name: Build the runtime as a static library (core and alloc rebuilt from source for that target)
         working-directory: wasmtime-nostd/embedding
         run: |
@@ -45,30 +51,83 @@ jobs:
           ls -la target/${{ matrix.arch }}-unknown-linux-gnu/release/*.a
       - uses: actions/upload-artifact@v4
         with: { name: 'lib-${{ matrix.arch }}', path: 'wasmtime-nostd/embedding/target/${{ matrix.arch }}-unknown-linux-gnu/release/libwn_embedding.a' }
-  guests:
+  cli:
+    # The official CLI plus ONE change in Cranelift's aarch64 register allocator: x28 is never allocated (patches/cranelift-0.137-aarch64-reserve-x28.patch).
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
-      - name: wasm guests (wasi-sdk clang) and precompiled .cwasm (official Wasmtime CLI)
+      - uses: actions/cache@v4
+        id: cache
+        with: { path: wasmtime-patched, key: "wn-cli-${{ env.WT }}-v1-${{ hashFiles('wasmtime-nostd/patches/cranelift-*.patch') }}" }
+      - name: Build Wasmtime CLI from the release tag with the patch
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          git clone -q --depth 1 --branch $WT https://github.com/bytecodealliance/wasmtime wt-src
+          patch -p1 -d wt-src/cranelift/codegen < wasmtime-nostd/patches/cranelift-0.137-aarch64-reserve-x28.patch
+          (cd wt-src && git diff --stat && cargo build --release --no-default-features --features "compile,cranelift,pulley,wat,threads,gc,gc-drc,gc-null,gc-copying,component-model,component-model-async,all-arch,parallel-compilation,logging" 2>&1 | tail -15)
+          mkdir -p wasmtime-patched && cp wt-src/target/release/wasmtime wasmtime-patched/ && wasmtime-patched/wasmtime --version
+      - uses: actions/upload-artifact@v4
+        with: { name: cli, path: wasmtime-patched/wasmtime }
+  guests:
+    needs: cli
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: cli, path: cli }
+      - name: wasm guests (wasi-sdk clang) and precompiled .cwasm (official Wasmtime CLI; aarch64 by the CLI with x28 reserved, the stock aarch64 output kept as the baseline)
         run: |
           curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
-          S=$(ls -d $PWD/wasi-sdk-34*); mkdir -p wasm out
+          S=$(ls -d $PWD/wasi-sdk-34*); mkdir -p wasm out out-stock
           $S/bin/clang --target=wasm32-wasip1 -O2 ci-wasm-host/guest.c -o wasm/wire.wasm
           $S/bin/clang --target=wasm32-wasip1 -O1 -mexec-model=reactor -Wl,--no-entry wasmtime-nostd/guest/trap.c -o wasm/trap.wasm
+          $S/bin/clang --target=wasm32-wasip1 -O2 -mexec-model=reactor -Wl,--no-entry wasmtime-nostd/guest/stress.c -o wasm/stress.wasm
           $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DSIMD=0 wasm-perf/shootout.c -o wasm/so-scalar.wasm -lm
           $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 -DSIMD=1 wasm-perf/shootout.c -o wasm/so-simd.wasm -lm
+          $S/bin/clang --target=wasm32-wasip1-threads -pthread -O2 wasmtime-nostd/guest/par.c -o wasm/par.wasm -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576
           curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux.tar.xz && mkdir wt && tar xJf wt.tar.xz -C wt
-          W=$(find wt -name wasmtime -type f | head -1); $W --version
-          for g in wire trap so-scalar so-simd; do
+          W=$(find wt -name wasmtime -type f | head -1); chmod +x cli/wasmtime; WP=$PWD/cli/wasmtime; $W --version; $WP --version
+          F="-W gc-support=n -W concurrency-support=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n"
+          for g in wire trap stress so-scalar so-simd par; do
+            T="-W threads=n"; [ $g = par ] && T="-W threads=y"
             for a in x86_64 aarch64; do
-              $W compile --target $a-unknown-linux-gnu -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n -O signals-based-traps=y wasm/$g.wasm -o out/$g.sig.$a.cwasm
-              $W compile --target $a-unknown-linux-gnu -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n -O signals-based-traps=n wasm/$g.wasm -o out/$g.nosig.$a.cwasm
+              C=$W; [ $a = aarch64 ] && C=$WP
+              $C compile --target $a-unknown-linux-gnu $F $T -O signals-based-traps=y wasm/$g.wasm -o out/$g.sig.$a.cwasm
+              $C compile --target $a-unknown-linux-gnu $F $T -O signals-based-traps=n wasm/$g.wasm -o out/$g.nosig.$a.cwasm
             done
-            $W compile --target pulley64 -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n wasm/$g.wasm -o out/$g.pulley.cwasm || echo "pulley compile failed for $g"
+            $W compile --target aarch64-unknown-linux-gnu $F $T -O signals-based-traps=y wasm/$g.wasm -o out-stock/$g.sig.aarch64.cwasm
+            $W compile --target aarch64-unknown-linux-gnu $F $T -O signals-based-traps=n wasm/$g.wasm -o out-stock/$g.nosig.aarch64.cwasm
+            $W compile --target pulley64 $F $T wasm/$g.wasm -o out/$g.pulley.cwasm || echo "pulley compile failed for $g"
           done
-          ls -la out wasm
+          echo "== patched CLI vs official CLI, x86_64 and pulley output (the patch touches aarch64 only): byte-identical?"
+          for g in stress so-simd par; do
+            $WP compile --target x86_64-unknown-linux-gnu $F $( [ $g = par ] && echo -W threads=y || echo -W threads=n ) -O signals-based-traps=y wasm/$g.wasm -o /tmp/p.cwasm && cmp /tmp/p.cwasm out/$g.sig.x86_64.cwasm && echo "$g x86_64: identical"
+          done
+          ls -la out out-stock wasm
+      - name: Does the generated aarch64 code touch x28? (disassembly of the stock and the patched .cwasm)
+        run: |
+          sudo apt-get install -y -qq binutils-aarch64-linux-gnu > /dev/null
+          python3 - <<'PY'
+          import subprocess, re, collections
+          def scan(path):
+              out = subprocess.run(['aarch64-linux-gnu-objdump', '-d', '--no-show-raw-insn', path], capture_output=True, text=True).stdout
+              total = 0; mn = collections.Counter(); dest = 0; ins = 0
+              for l in out.splitlines():
+                  m = re.match(r'\s*[0-9a-f]+:\s+(\w[\w.]*)\s+(.*)', l)
+                  if not m: continue
+                  ins += 1
+                  if not re.search(r'\bx28\b', m.group(2)): continue
+                  total += 1; mn[m.group(1)] += 1
+                  ops = m.group(2).split(',')
+                  if m.group(1) not in ('str', 'stp', 'cmp', 'cmn', 'tst', 'cbz', 'cbnz', 'strb', 'strh', 'stur', 'sturb', 'sturh') and re.match(r'\s*x28\b', ops[0]) or (m.group(1) == 'ldp' and re.match(r'\s*x28\b', ops[1] if len(ops) > 1 else '')): dest += 1
+              return ins, total, dest, dict(mn)
+          for g in ['so-scalar', 'so-simd', 'stress', 'wire', 'par']:
+              for label, d in (('stock  ', 'out-stock'), ('patched', 'out')):
+                  ins, total, dest, mn = scan(f'{d}/{g}.sig.aarch64.cwasm')
+                  print(f'{g:10s} {label} instructions {ins:7d}  mention x28: {total:6d}  x28 as destination: {dest:6d}  by mnemonic: {mn}')
+          PY
       - uses: actions/upload-artifact@v4
-        with: { name: guests, path: "out\nwasm" }
+        with: { name: guests, path: "out\nout-stock\nwasm" }
   link:
     needs: [rust, guests]
     runs-on: ubuntu-latest
@@ -86,18 +145,20 @@ jobs:
           cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
           B=$PWD/cosmo/bin; cd wasmtime-nostd; mkdir -p ../parts
           for A in x86_64 aarch64; do
-            $B/$A-unknown-cosmo-cc -O2 -Iplatform -DWASMTIME_VIRTUAL_MEMORY -DWASMTIME_NATIVE_SIGNALS -c platform/platform.c -o ../parts/platform.$A.o
-            $B/$A-unknown-cosmo-cc -O2 -c host/host.c -o ../parts/host.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -Iplatform -DWASMTIME_VIRTUAL_MEMORY -DWASMTIME_NATIVE_SIGNALS -DWASMTIME_CUSTOM_SYNC -c platform/platform.c -o ../parts/platform.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -Iplatform -Iguest -c host/host.c -o ../parts/host.$A.o
+            $B/$A-unknown-cosmo-cc -O2 guest/par.c -o ../parts/par.$A.com
             $B/$A-unknown-cosmo-cc -O2 ../parts/host.$A.o ../parts/platform.$A.o ../lib/$A/libwn_embedding.a -Wl,--gc-sections -lm -o ../parts/wn.$A.com 2>&1 | tail -30
           done
           cd ..; ls -la parts lib/*
           $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wn.com parts/wn.x86_64.com.dbg parts/wn.aarch64.com.dbg
           ls -la wn.com
+          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o par-native.com parts/par.x86_64.com.dbg parts/par.aarch64.com.dbg
           cp wn.com wn-bare.com
           (cd guests/out && zip -q ../../wn.com *.cwasm)
           ls -la wn.com wn-bare.com; echo "libs: $(ls -la lib/x86_64/libwn_embedding.a lib/aarch64/libwn_embedding.a | awk '{print $5}' | tr '\n' ' ')"
       - uses: actions/upload-artifact@v4
-        with: { name: wn, path: "wn.com\nwn-bare.com" }
+        with: { name: wn, path: "wn.com\nwn-bare.com\npar-native.com" }
   test:
     needs: link
     strategy:
@@ -133,6 +194,49 @@ jobs:
           for g in so-scalar so-simd; do for mode in sig nosig pulley; do echo "=== $g $mode"; $RUN $mode $g; echo "exit: $?"; done; done
       - uses: actions/download-artifact@v4
         with: { name: guests, path: guests }
+      - name: Fault address and trap classification (out-of-bounds, guard region, end of memory, divide by zero, unreachable, stack overflow)
+        continue-on-error: true
+        run: |
+          for mode in sig nosig pulley; do echo "=== stress guest traps, mode $mode"; WN_TRACE=1 $RUN $mode stress --invoke=ok,oob,oob2,oob3,ok,div0,ok,unreach,ok,recurse,ok --expect-fault; echo "exit: $?"; done
+      - name: Stress - N OS threads x (wasm compute, host calls, memory.grow, deliberate traps), results checked
+        continue-on-error: true
+        run: |
+          set +e; fail=0
+          for mode in sig nosig pulley; do for eng in shared private; do $RUN $mode stress --stress --threads=4 --seconds=3 --engine=$eng || fail=1; done; done
+          $RUN sig stress --stress --threads=8 --seconds=6 --engine=shared || fail=1
+          exit $fail
+      - name: x28 baselines with the stock compiler output (arm64 only)
+        if: matrix.label == 'linux-arm64' || matrix.label == 'mac-arm64'
+        continue-on-error: true
+        run: |
+          set +e
+          limited() { "$@" & p=$!; ( sleep 100; kill -9 $p 2>/dev/null ) & w=$!; wait $p; rc=$?; kill $w 2>/dev/null; return $rc; }
+          for mode in sig nosig; do for cfg in "none 1" "save 1" "save 4" "none 4"; do set -- $cfg
+            echo "=== stock cwasm, mode $mode, x28 workaround: $1, threads: $2"
+            if [ $1 = save ]; then export WN_X28=save; else unset WN_X28; fi
+            WN_CWASM_DIR=guests/out-stock limited $RUN $mode stress --stress --threads=$2 --seconds=3 --engine=shared 2>&1 | tail -6; echo "exit: ${PIPESTATUS[0]}"
+          done; done
+      - name: Wasm threads - shared memory, atomics, wait/notify, wasi:thread-spawn
+        continue-on-error: true
+        run: |
+          set +e
+          for mode in sig nosig pulley; do
+            echo "=== threads, mode $mode"
+            for t in 1 2 4; do $RUN $mode par -- $t scale; echo "exit: $?"; done
+            $RUN $mode par -- 4 sync; echo "exit: $?"
+            $RUN $mode par -- 1 waitnotify; echo "exit: $?"
+            $RUN $mode par -- 1 trapthread; echo "exit: $?"
+          done
+      - name: Thread scaling, wasm threads in the static Wasmtime against native pthreads of the same C source
+        continue-on-error: true
+        run: |
+          set +e
+          PY=$(command -v python3 || command -v python)
+          cp par-native.com par-native.exe 2>/dev/null; if [ "$RUNNER_OS" = Windows ]; then NAT=./par-native.exe; else NAT="sh ./par-native.com"; fi
+          CC=$(command -v cc || command -v gcc); [ -n "$CC" ] && $CC -O2 -pthread wasmtime-nostd/guest/par.c -o par-cc && echo "native cc: $CC"
+          [ -x par-cc ] && CCV="native, $($CC --version | head -1) -O2 -pthread|./par-cc {n} scale" || CCV="skip|true"
+          [ -f par-cc.exe ] && CCV="native, gcc -O2 -pthread|./par-cc.exe {n} scale"
+          AB_TITLE="${{ matrix.label }}: scaling of a parallel integer kernel" $PY wasmtime-nostd/par-bench.py 3 "wasm threads, signals-based traps (static Wasmtime in the Cosmopolitan file)|$RUN sig par -- {n} scale" "wasm threads, explicit bounds checks|$RUN nosig par -- {n} scale" "native, Cosmopolitan pthreads, same C source|$NAT {n} scale" "$CCV"
       - name: Against the official Wasmtime v50 CLI on the same machine (JIT from the .wasm, and its runtime on our precompiled .cwasm), interleaved
         if: matrix.asset != ''
         continue-on-error: true

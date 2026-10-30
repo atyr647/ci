@@ -69,6 +69,8 @@ static void *client_main(void *p) {
     g_cl_result[n] = 0; close(s); return NULL;
 }
 
+static int32_t sync_nop(void *u, uint8_t *mem, size_t memlen, const uint64_t *a, uint64_t *r) { (void)u; (void)mem; (void)memlen; (void)a; (void)r; return 0; }
+
 /* ---- asyncify host work between unwind and rewind: a trivial computation standing in for completed I/O ---- */
 static int32_t asy_work(void *u, int32_t req) { (void)u; return req * 2 + 1; }
 
@@ -128,7 +130,7 @@ int main(int argc, char **argv) {
             wasi_set_args(gargc, gargv);
             rc |= wasi_p1_register();
         }
-        if (use_async) rc |= wn_define_yield("env", "yield_n");
+        if (use_async) { rc |= wn_define_yield("env", "yield_n"); rc |= wn_define("env", "sync_nop", "i", sync_nop, 0); }
         if (asyncify) rc |= wn_define_asyncify("env", "await_host", asy_work, 0);
         if (rc) { fprintf(stderr, "define failed: %s\n", wn_last_error()); return 67; }
         if (wn_load(bytes, len)) { fprintf(stderr, "load failed: %s\n", wn_last_error()); return 68; }
