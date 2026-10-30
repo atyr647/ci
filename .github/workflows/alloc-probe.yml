@@ -1,0 +1,40 @@
+name: alloc-probe
+# Dawn compiled by Cosmopolitan spends 3-4x longer per allocation and per mutex lock than native Dawn (dawn-bench). Which pieces are slow, and does a different allocator fix it?
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2, MIMALLOC: v2.1.7 }
+jobs:
+  probe:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          curl -fsSL https://github.com/microsoft/mimalloc/archive/refs/tags/$MIMALLOC.tar.gz | tar xz
+          ls
+      - name: Build (native compiler as the reference; Cosmopolitan with the default C library; Cosmopolitan with mimalloc)
+        run: |
+          mkdir bin; M=$(ls -d mimalloc-*); CXX=${CXX:-c++}
+          if [ "$RUNNER_OS" = Windows ]; then CXX=g++; fi
+          $CXX -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o bin/native -pthread
+          cosmo/bin/cosmocc -O2 -c -I$M/include -I$M/src -DMI_MALLOC_OVERRIDE=0 -DMI_STATIC_LIB $M/src/static.c -o bin/mimalloc.o 2>&1 | tail -3
+          cosmo/bin/cosmoc++ -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o bin/cosmo-default.com -pthread 2>&1 | tail -3
+          cosmo/bin/cosmoc++ -O2 -std=c++17 -DHAVE_MIMALLOC -I$M/include alloc-probe/alloc_probe.cpp bin/mimalloc.o -o bin/cosmo-mimalloc.com -pthread 2>&1 | tail -3
+          ls -la bin
+      - name: Run
+        run: |
+          echo "=== native ($RUNNER_OS)"; if [ "$RUNNER_OS" = Windows ]; then ./bin/native.exe; else ./bin/native; fi
+          for v in cosmo-default cosmo-mimalloc; do echo "=== $v"; if [ "$RUNNER_OS" = Windows ]; then cp bin/$v.com bin/$v.exe; ./bin/$v.exe; else sh ./bin/$v.com; fi; done
+      - name: Result (last, short)
+        if: always()
+        run: echo done
