@@ -1,0 +1,16 @@
+host : platform=windows arch=x86_64 mode=sig name=gc-null (19960 bytes) features=0xf
+host : engine+load 10.4 ms, instantiate 2.5 ms, linear memory 0 MiB
+PASS t_struct
+PASS t_array
+PASS t_array_fixed
+PASS t_array_copy_fill
+PASS t_i31
+PASS t_cast
+PASS x_bad_cast (trapped as required: error while executing at wasm backtrace:
+    0:    0x259 - <unknown>!<)
+PASS x_array_oob (trapped as required: error while executing at wasm backtrace:
+    0:    0x269 - <unknown>!<)
+PASS t_br_on_cast
+PASS t_call_ref
+PASS t_linked_list
+SUMMARY tests=11 pass=11 fail=0

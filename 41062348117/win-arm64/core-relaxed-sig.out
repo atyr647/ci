@@ -1,0 +1,12 @@
+host : platform=windows arch=x86_64 mode=sig name=relaxed (15000 bytes) features=0xf
+host : engine+load 9.2 ms, instantiate 2.1 ms, linear memory 0 MiB
+PASS t_madd
+PASS t_nmadd
+PASS t_trunc
+PASS t_swizzle
+PASS t_laneselect
+PASS t_minmax
+PASS t_q15mulr
+PASS t_dot
+PASS t_regular_simd_still_works
+SUMMARY tests=9 pass=9 fail=0
