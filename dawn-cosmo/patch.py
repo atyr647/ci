@@ -303,8 +303,10 @@ if os.environ.get('DAWN_COSMO_D3D12') == '1':
 # COSMO-PATCH-D3D12: the D3D and D3D12 sources are compiled as if for Windows (Wine headers, see dawn-cosmo/d3d12.md); everything else stays POSIX-flavoured.
 if (DAWN_COSMO_D3D12 AND DAWN_ENABLE_D3D12)
     file(GLOB _cosmo_win_srcs RELATIVE "${CMAKE_CURRENT_SOURCE_DIR}" "d3d/*.cpp" "d3d12/*.cpp")
+    list(APPEND _cosmo_win_srcs "WindowsUtilsCosmo.cpp")   # Dawn's WindowsUtils.cpp (UTF-8 <-> UTF-16), only built for WIN32 upstream
     set_source_files_properties(${_cosmo_win_srcs} PROPERTIES COMPILE_OPTIONS "${DAWN_COSMO_D3D12_FLAGS}")
-    target_sources(dawn_native_objects PRIVATE "${DAWN_COSMO_FILES_DIR}/Win32Shim.cpp")
+    target_sources(dawn_native_objects PRIVATE "WindowsUtilsCosmo.cpp" "${DAWN_COSMO_FILES_DIR}/Win32Shim.cpp")
 endif()
 '''
     edit2('src/dawn/native/CMakeLists.txt', 'COSMO-PATCH-D3D12', native_cmake)
+    shutil.copyfile(os.path.join(root, 'src/dawn/common/WindowsUtils.cpp'), os.path.join(root, 'src/dawn/native/WindowsUtilsCosmo.cpp'))   # built as a Windows-flavoured unit

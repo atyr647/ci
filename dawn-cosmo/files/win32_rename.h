@@ -12,3 +12,4 @@
 #define ResetEvent dawn_w32_ResetEvent
 #define VerSetConditionMask dawn_w32_VerSetConditionMask
 #define VerifyVersionInfoW dawn_w32_VerifyVersionInfoW
+#define WideCharToMultiByte dawn_w32_WideCharToMultiByte

@@ -44,6 +44,7 @@ W32(void*, CreateEventA, "kernel32.dll", (void* sa, int32_t manual, int32_t init
 W32V(GetSystemTime, "kernel32.dll", (void* st), (st))
 W32V(GetSystemTimeAsFileTime, "kernel32.dll", (void* ft), (ft))
 W32(int32_t, MultiByteToWideChar, "kernel32.dll", (uint32_t cp, uint32_t flags, const char* s, int32_t n, uint16_t* out, int32_t outn), (cp, flags, s, n, out, outn))
+W32(int32_t, WideCharToMultiByte, "kernel32.dll", (uint32_t cp, uint32_t flags, const uint16_t* wide, int32_t cch, char* out, int32_t cb, const char* def, int32_t* used), (cp, flags, wide, cch, out, cb, def, used))
 W32(int32_t, QueryPerformanceFrequency, "kernel32.dll", (int64_t * freq), (freq))
 W32(int32_t, RegCloseKey, "advapi32.dll", (void* key), (key))
 W32(int32_t, RegOpenKeyExW, "advapi32.dll", (void* key, const uint16_t* sub, uint32_t opts, uint32_t sam, void** out), (key, sub, opts, sam, out))
