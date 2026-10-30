@@ -28,6 +28,9 @@ jobs:
           B s-O3-autovec-fastmath-relaxed -O3 -msimd128 -mrelaxed-simd -DSIMD=0 -ffast-math
           B s-O3-bleeding      -O3 -mcpu=bleeding-edge -DSIMD=0
           B x-O3-simd-u4       -O3 -msimd128 -DSIMD=1 -DUNROLL=4
+          B x-O3-simd-u4-nojt  -O3 -msimd128 -DSIMD=1 -DUNROLL=4 -fno-jump-tables
+          B x-O3-simd-u4-Os    -Os -msimd128 -DSIMD=1 -DUNROLL=4
+          B x-O2-simd-u4       -O2 -msimd128 -DSIMD=1 -DUNROLL=4
           B x-O3-simd-vb32-u2  -O3 -msimd128 -DSIMD=1 -DVB=32 -DUNROLL=2
           B x-O3-simd-relaxed-u2 -O3 -msimd128 -mrelaxed-simd -ffp-contract=fast -DSIMD=1 -DUNROLL=2
           cd ../out
@@ -64,6 +67,7 @@ jobs:
         run: |
           mkdir bin; cd wasm-perf; M="${{ matrix.march }}"; F="-O3 -fno-math-errno shootout.c -lm"
           cc $F -DSIMD=0 -o ../bin/cc-scalar-O3
+          cc $F -fno-jump-tables -DSIMD=0 -o ../bin/cc-scalar-nojt
           cc -O2 -fno-math-errno shootout.c -lm -DSIMD=0 -o ../bin/cc-scalar-O2
           if cc --version | grep -qi clang; then NOVEC="-fno-vectorize -fno-slp-vectorize"; else NOVEC="-fno-tree-vectorize -fno-tree-slp-vectorize"; fi
           cc $F $NOVEC -DSIMD=0 -o ../bin/cc-novec
@@ -81,7 +85,7 @@ jobs:
           for f in sorted(glob.glob('so/*.wasm')): rows.append({'name': 'wasmtime ' + os.path.basename(f)[:-5], 'cmd': f'{W} run {f}'})
           json.dump(rows, open('spec.json', 'w'))
           PY
-          python3 wasm-perf/runner.py spec.json --rounds 3 --ref 'native cc-scalar-O3' --kernels matmul256,nbody1024,transform --title "Scalar gap ${{ matrix.label }} (ref = native cc -O3 scalar source, baseline ISA, auto-vectorised by the compiler)"
+          python3 wasm-perf/runner.py spec.json --rounds 3 --ref 'native cc-scalar-O3' --kernels matmul256,nbody1024,transform,interp --title "Scalar gap ${{ matrix.label }} (ref = native cc -O3 scalar source, baseline ISA, auto-vectorised by the compiler)"
       - name: Publish results to the wasm-perf-results branch
         if: always()
         uses: ./.github/actions/publish
