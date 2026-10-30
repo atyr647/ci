@@ -8,6 +8,7 @@ import sys, re, subprocess, glob, os, collections
 label, mapf, objdir = sys.argv[1:4]
 
 def cls_of(sec):
+    if sec.startswith(('.debug', '.comment', '.GCC', '.zip', '.stab', '.note.GNU')): return 'debug'
     if sec.startswith(('.text', '.init', '.fini', '.plt')): return 'text'
     if sec.startswith('.data.rel.ro') or sec.startswith('.rodata') and False: return 'relro'
     if sec.startswith('.rodata'): return 'rodata'
@@ -75,7 +76,7 @@ CH = 400
 for k in range(0, len(members), CH):
     out = subprocess.run(['llvm-nm', '-A', '-S', '--defined-only', '-C'] + members[k:k + CH], capture_output=True, text=True).stdout
     for l in out.split('\n'):
-        m = re.match(r'^(.+?\.o):[0-9a-f]+ ([0-9a-f]+) (\w) (.*)$', l)
+        m = re.match(r'^(.+?\.o):\s*[0-9a-f]+ ([0-9a-f]+) (\w) (.*)$', l)
         if not m: continue
         f, size, t, name = m.group(1), int(m.group(2), 16), m.group(3), m.group(4)
         if size == 0: continue
@@ -126,7 +127,7 @@ for c in sorted(tot, key=lambda c: -fsize(tot[c])):
     print(f'| {c} | {fsize(cn):,} | {cn["text"]:,} | {cn["rodata"]:,} | {cn["relro"]:,} | {cn["data"]:,} | {cn["eh_frame"] + cn["except"]:,} | {cn["initarr"] + cn["other"] + cn["fill"]:,} |')
 print(f'| **sum** | **{g:,}** | | | | | | |')
 print()
-print(f'bss+tbss (memory only): {sum(tot[c]["bss"] + tot[c]["tbss"] for c in tot):,}')
+print(f'bss+tbss (memory only): {sum(tot[c]["bss"] + tot[c]["tbss"] for c in tot):,}; debug/non-alloc sections in the unstripped link (not in the shipped file): {sum(tot[c]["debug"] for c in tot):,}')
 print()
 print(f'### {label}: the 25 biggest objects/members')
 rows = sorted(bymem.items(), key=lambda kv: -fsize(kv[1]))[:25]

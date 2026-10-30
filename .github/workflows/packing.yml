@@ -34,7 +34,8 @@ jobs:
         run: |
           B=$PWD/cosmo/bin
           for f in parts/base.x86_64.com.dbg parts/base.aarch64.com.dbg; do echo "=== $f"; ls -l $f | awk '{print $5}'; llvm-readelf -S -W $f | awk '{print}' | cut -c1-140 | head -70; done
-          echo "=== zip directory of the fat file"; unzip -l out/all.com 2>&1 | tail -25
+          echo "=== zip directory of the fat file: biggest entries (size, method, compressed)"; unzip -v out/all.com 2>&1 | sort -k1,1nr | head -14; unzip -v out/all.com 2>&1 | tail -2
+          echo "=== zip directory of the half-only files"; unzip -v out/x64only.com 2>&1 | tail -1; unzip -v out/hello.com 2>&1 | tail -1
           echo "=== first 400 bytes of the fat file (header)"; head -c 400 out/all.com | strings | head -12
           ls -l out parts/*.com | awk '{print $5, $9}'
       - name: Inventory (components of each half)
@@ -44,9 +45,11 @@ jobs:
             for v in lnx mac; do python3 -I packing/analyze.py "$v aarch64" maps/$v.aarch64.map work/o-aarch64 | sed -n '1,22p'; echo; done
           } > inventory.md; cat inventory.md
           echo "=== why is the Vulkan backend still in the Windows link (stubbed connector)? objects outside BackendVk.cpp that reference it"
-          python3 -I packing/whopulls.py maps/win.x86_64.map BackendVk.cpp.o 25
-          python3 -I packing/whopulls.py maps/win.x86_64.map VulkanFunctions.cpp.o 12
+          python3 -I packing/whopulls.py maps/win.x86_64.map '[0-9]_[A-Za-z0-9_]*(Vk|Vulkan)[A-Za-z0-9_]*\.cpp\.o' 30
           echo "=== map sizes"; ls -l maps | awk '{print $5, $9}'
+      - name: Compact summary
+        run: |
+          grep -E 'IDENTICAL|differs' relink.log; ls -l out/*.com | awk '{printf "%s %s\n", $5, $9}'; ls -l parts/*.com | awk '{printf "%s %s\n", $5, $9}'
       - uses: actions/upload-artifact@v4
         with: { name: packing-parts, path: "out/*.com\nparts/base.x86_64.com\nparts/base.aarch64.com\ninventory.md\nrelink.log", compression-level: 1 }
       - uses: actions/upload-artifact@v4

@@ -5,7 +5,7 @@ name: packing-build
 on:
   workflow_dispatch:
     inputs:
-      variants:   { description: 'comma list of variant names (o2, os, o2-tintos, o2-nounwind, o2-min, lto)', required: false, default: 'o2,os,o2-tintos,o2-nounwind,o2-min,lto' }
+      variants:   { description: 'comma list of variant names (o2, os, o2-tintos, o2-nounwind, o2-min, lto, win-novk)', required: false, default: 'o2,os,o2-tintos,o2-nounwind,o2-min,lto,win-novk' }
       src_run:    { description: 'dawn-cosmo run id (baseline library lib-x86_64)', required: false, default: '41047548027' }
       src_sha:    { description: 'commit of that run (patch.py, shims, test sources)', required: false, default: '21a8e25fd4f346729102b99e38d571d6b4d13aab' }
       rounds:     { description: 'interleaved benchmark rounds', required: false, default: '7' }
@@ -31,8 +31,10 @@ jobs:
             'o2-nounwind': dict(rel=O2 + ' -fno-asynchronous-unwind-tables -fno-unwind-tables', extra='', tintos='0', lto='0'),
             'o2-min':      dict(rel=O2, extra='-DTINT_BUILD_SPV_READER=OFF -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_NULL_WRITER=OFF -DDAWN_ENABLE_NULL=OFF', tintos='0', lto='0'),
             'lto':         dict(rel=O2 + ' -flto=auto -ffat-lto-objects', extra='', tintos='0', lto='1'),
+            'win-novk':    dict(rel=O2, extra='-DDAWN_ENABLE_VULKAN=OFF', tintos='0', lto='0', novk='1'),
           }
           sel = [v.strip() for v in os.environ['V'].split(',') if v.strip()]
+          for k, v in allv.items(): v.setdefault('novk', '0')
           print('matrix=' + json.dumps({'include': [dict(name=n, **allv[n]) for n in sel]}))
           PY
   build:
@@ -110,13 +112,16 @@ jobs:
           # headers of the variant build (same API) are used for both
           INC="-Ilib-base/inc1 -Ilib-base/inc2 -Ipin/ci-webgpu-test"
           LTOF=""; [ "${{ matrix.lto }}" = 1 ] && LTOF="-flto=auto"
+          $B/x86_64-unknown-cosmo-cc -O2 -c packing/cosmo_os_shim.c -o out/shim.o
+          SHIM=""; [ "${{ matrix.novk }}" = 1 ] && SHIM="out/shim.o"
           $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 -c pin/alloc-probe/tcache_new.cpp -o out/tcache.o
           $B/x86_64-unknown-cosmo-cc -O2 $INC -c pin/ci-webgpu-test/wgt.c -o out/wgt.o
           $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 $INC -Ici-webgpu-test -c ci-webgpu-test/dawn_bench.cpp -o out/bench.o
           for v in base variant; do
             L=out/libvariant.a; F=$LTOF; [ $v = base ] && { L=lib-base/libwebgpu_dawn.a; F=""; }
-            $B/x86_64-unknown-cosmo-c++ -O2 $F out/wgt.o out/tcache.o $L -Wl,--wrap=pthread_create -o out/wgt-$v.com
-            $B/x86_64-unknown-cosmo-c++ -O2 $F out/bench.o out/tcache.o $L -Wl,--wrap=pthread_create -o out/bench-$v.com
+            X=""; [ $v = variant ] && X="$SHIM"
+            $B/x86_64-unknown-cosmo-c++ -O2 $F out/wgt.o out/tcache.o $X $L -Wl,--wrap=pthread_create -o out/wgt-$v.com
+            $B/x86_64-unknown-cosmo-c++ -O2 $F out/bench.o out/tcache.o $X $L -Wl,--wrap=pthread_create -o out/bench-$v.com
             $B/apelink -V -1 -l $B/ape-x86_64.elf -o out/wgt-$v-x64.com out/wgt-$v.com.dbg
             $B/apelink -V -1 -l $B/ape-x86_64.elf -o out/bench-$v-x64.com out/bench-$v.com.dbg
           done
@@ -125,8 +130,9 @@ jobs:
           { echo "### ${{ matrix.name }} (flags: ${{ matrix.rel }} ${{ matrix.extra }} tintos=${{ matrix.tintos }} lto=${{ matrix.lto }})"
             echo "- x86-64 half, wgt: baseline $(stat -c %s out/wgt-base-x64.com) bytes, variant $(stat -c %s out/wgt-variant-x64.com) bytes"
             echo "- libwebgpu_dawn.a: baseline $(stat -c %s lib-base/libwebgpu_dawn.a), variant $(stat -c %s out/libvariant.a)"; } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "=== correctness"
+          echo "=== correctness (Linux, Vulkan on lavapipe)"
           chmod +x pin/ci-webgpu-test/run-one.sh
+          if [ "${{ matrix.novk }}" = 1 ]; then echo "(no Vulkan in this variant: tested on Windows)"; exit 0; fi
           for v in base variant; do WGT_BACKEND=vulkan pin/ci-webgpu-test/run-one.sh "wgt $v" sh ./out/wgt-$v-x64.com | tail -3; done
           echo "=== benchmark"
           python3 ci-webgpu-test/bench_ab.py --rounds ${{ inputs.rounds }} --title "baseline (-O3 library of the dawn-cosmo run) vs ${{ matrix.name }}" --json bench-${{ matrix.name }}.json \
@@ -134,4 +140,32 @@ jobs:
           cat bench-out.txt >> "$GITHUB_STEP_SUMMARY"
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: 'pb-${{ matrix.name }}', path: "out/wgt-variant-x64.com\nout/bench-variant-x64.com\nbench-*.json\nbench-out.txt\nconfigure.log", compression-level: 1 }
+        with: { name: 'pb-${{ matrix.name }}', path: "out/wgt-variant-x64.com\nout/bench-variant-x64.com\nout/wgt-base-x64.com\nout/bench-base-x64.com\nbench-*.json\nbench-out.txt\nconfigure.log", compression-level: 1 }
+
+  wintest:
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: windows-latest
+    timeout-minutes: 90
+    defaults: { run: { shell: bash } }
+    env: { RUNNER_LABEL: win-x64, WGT_BACKEND: d3d12 }
+    steps:
+      - uses: actions/checkout@v4
+      - { uses: actions/download-artifact@v4, with: { name: 'pb-${{ matrix.name }}', path: pb } }
+      - name: D3D12 (WARP) - the variant must produce the same result as the baseline
+        run: |
+          ls -l pb/out | awk '{print $5, $9}'
+          for v in base variant; do cp pb/out/wgt-$v-x64.com pb/out/wgt-$v.exe; cp pb/out/bench-$v-x64.com pb/out/bench-$v.exe; done
+          chmod +x ci-webgpu-test/run-one.sh
+          for v in base variant; do ci-webgpu-test/run-one.sh "${{ matrix.name }} wgt $v (D3D12)" ./pb/out/wgt-$v.exe | tail -4; done
+      - name: D3D12 benchmark, interleaved (CPU side; the runner has no GPU)
+        continue-on-error: true
+        run: |
+          [ "${{ matrix.novk }}" = 1 ] && R=3 || R=5
+          PY=$(command -v python3 || command -v python)
+          "$PY" ci-webgpu-test/bench_ab.py --rounds $R --title "Windows D3D12: baseline vs ${{ matrix.name }}" --json bench-win.json \
+            --variant "base|WGT_BACKEND=d3d12|./pb/out/bench-base.exe" --variant "${{ matrix.name }}|WGT_BACKEND=d3d12|./pb/out/bench-variant.exe" --variant "base-again|WGT_BACKEND=d3d12|./pb/out/bench-base.exe" 2>&1 | tee bench-win.txt
+          cat bench-win.txt >> "$GITHUB_STEP_SUMMARY"

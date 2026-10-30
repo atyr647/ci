@@ -3,6 +3,7 @@
 usage: whopulls.py <map> <substring-of-defining-object> [max]"""
 import sys, re, collections
 mp, sub = sys.argv[1], sys.argv[2]; mx = int(sys.argv[3]) if len(sys.argv) > 3 else 40
+rx = re.compile(sub)   # a regular expression for the defining set
 txt = open(mp, errors='replace').read()
 i = txt.find('Cross Reference Table')
 lines = txt[i:].split('\n')[3:]
@@ -16,9 +17,9 @@ for l in lines:
     elif cur: cur[1].append(l.strip())
 hits = collections.defaultdict(set)
 for sym, files in ent:
-    if not files or sub not in files[0]: continue
+    if not files or not rx.search(files[0]): continue
     for f in files[1:]:
-        if sub not in f: hits[f].add(sym)
+        if not rx.search(f): hits[f].add(sym)
 rank = sorted(hits.items(), key=lambda kv: -len(kv[1]))
 print(f'{len(rank)} other objects reference symbols defined in *{sub}*')
 for f, syms in rank[:mx]: print(f'- {f}: {len(syms)} symbols, e.g. {sorted(syms)[0][:120]}')
