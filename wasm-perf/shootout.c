@@ -76,7 +76,7 @@ static void transform(void) {
         for (int r = 0; r < 4; r++) O4[4*i+r] = M4[r]*x + M4[4+r]*y + M4[8+r]*z + M4[12+r]*w; }
 #endif
 }
-static uint64_t fsum(const float *p, int n) { double s = 0; for (int i = 0; i < n; i += 7) s += p[i]; return (uint64_t)(int64_t)(s * 16.0); }
+static uint64_t fchk(const float *p, int n) { double s = 0; for (int i = 0; i < n; i += 7) s += p[i]; return (uint64_t)(int64_t)(s * 16.0); }
 
 int main(void) {
     for (int i = 0; i < MN * MN; i++) { MA[i] = (float)(i % 13) * 0.25f; MB[i] = (float)(i % 7) * 0.5f; }
@@ -87,12 +87,12 @@ int main(void) {
     for (int i = 0; i < (1 << 20); i++) ints0[i] = (int)((uint32_t)i * 2654435761u >> 3);
     for (int i = 0; i < 16; i++) M4[i] = 0.5f + 0.01f * i;
     for (int i = 0; i < NV * 4; i++) V4[i] = (float)(i % 97) * 0.25f;
-    BEST("matmul256", 5, matmul(), fsum(MC, MN * MN));
+    BEST("matmul256", 5, matmul(), fchk(MC, MN * MN));
     BEST("nbody1024", 5, nbody(), (uint64_t)(int64_t)(px[5] * 1e6) ^ (uint64_t)(int64_t)(vz[9] * 1e9));
     BEST("interp", 5, sink += interp(60000000), interp(1000));
-    BEST("triad32MB", 7, triad(), fsum(SA, SN));
+    BEST("triad32MB", 7, triad(), fchk(SA, SN));
     BEST("hash16MB", 7, sink += hash(), hash());
     BEST("sort1M", 3, { memcpy(ints, ints0, sizeof ints); qs(ints, 0, (1 << 20) - 1, cmp); }, (uint64_t)ints[12345] + ints[999999]);
-    BEST("transform", 7, transform(), fsum(O4, NV * 4));
+    BEST("transform", 7, transform(), fchk(O4, NV * 4));
     return sink == 12345;
 }
