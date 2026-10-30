@@ -40,16 +40,16 @@ jobs:
         with: { name: sync-stress-bin, path: out }
       - name: Native reference (the platform's own C++ library)
         run: |
-          CXX=c++; [ "$RUNNER_OS" = Windows ] && CXX=g++
-          $CXX -O2 -std=c++17 alloc-probe/sync_stress.cpp -o out/stress-native -pthread
-          $CXX -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o out/probe-native -pthread
+          CXX=c++; ST=""; if [ "$RUNNER_OS" = Windows ]; then CXX=g++; ST="-static"; fi
+          $CXX -O2 -std=c++17 alloc-probe/sync_stress.cpp -o out/stress-native -pthread $ST
+          $CXX -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o out/probe-native -pthread $ST
           ls out
       - name: Run
         run: |
           run() { if [ "$RUNNER_OS" = Windows ]; then if [ -f "$1.com" ]; then cp "$1.com" "$1.exe"; fi; "./$1.exe"; elif [ -f "$1.com" ]; then sh "./$1.com"; else "./$1"; fi; }
-          cd out; chmod +x *
-          for v in native library fast; do echo "=== stress $v"; run stress-$v 2>&1 | grep -E "FAIL|TIME|RESULT"; done
-          for v in native library fast; do echo "=== probe $v"; run probe-$v 2>&1 | grep -iE "mutex"; done 2>&1 | tee ../run-out.txt
+          set +e; cd out; chmod +x *
+          for v in native library fast; do echo "=== stress $v"; run stress-$v > ../s-$v.txt 2>&1; echo "exit=$?"; grep -E "FAIL|TIME|RESULT" ../s-$v.txt || tail -3 ../s-$v.txt; done
+          for v in native library fast; do echo "=== probe $v"; run probe-$v > ../p-$v.txt 2>&1; echo "exit=$?"; grep -iE "mutex" ../p-$v.txt || tail -3 ../p-$v.txt; done
       - name: Result (last)
         if: always()
         run: echo "(see the Run step; stress lines then probe lines)"
