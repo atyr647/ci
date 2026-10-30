@@ -1,0 +1,138 @@
+name: packing-build
+# Compile-level size/speed experiments on the x86-64 half of the Cosmopolitan Dawn file (the half that carries Vulkan AND D3D12): optimisation level, Tint at -Os, unwind tables,
+# build-flag feature trimming, LTO. Same recipe, patches and pinned sources as the dawn-cosmo run named below; each variant is linked next to a baseline built from that run's
+# library and the two are benchmarked interleaved on the same machine.
+on:
+  workflow_dispatch:
+    inputs:
+      variants:   { description: 'comma list of variant names (o2, os, o2-tintos, o2-nounwind, o2-min, lto)', required: false, default: 'o2,os,o2-tintos,o2-nounwind,o2-min,lto' }
+      src_run:    { description: 'dawn-cosmo run id (baseline library lib-x86_64)', required: false, default: '41047548027' }
+      src_sha:    { description: 'commit of that run (patch.py, shims, test sources)', required: false, default: '21a8e25fd4f346729102b99e38d571d6b4d13aab' }
+      rounds:     { description: 'interleaved benchmark rounds', required: false, default: '7' }
+env:
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+  COSMOCC: 4.0.2
+  DXH_SHA: faf928dc6feb8b86e9e3d6a39fc5171de7d8ac36
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs: { matrix: '${{ steps.m.outputs.matrix }}' }
+    steps:
+      - id: m
+        env: { V: '${{ inputs.variants }}' }
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          O2 = '-O2 -DNDEBUG'
+          allv = {
+            'o2':          dict(rel=O2, extra='', tintos='0', lto='0'),
+            'os':          dict(rel='-Os -DNDEBUG', extra='', tintos='0', lto='0'),
+            'o2-tintos':   dict(rel=O2, extra='', tintos='1', lto='0'),
+            'o2-nounwind': dict(rel=O2 + ' -fno-asynchronous-unwind-tables -fno-unwind-tables', extra='', tintos='0', lto='0'),
+            'o2-min':      dict(rel=O2, extra='-DTINT_BUILD_SPV_READER=OFF -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_NULL_WRITER=OFF -DDAWN_ENABLE_NULL=OFF', tintos='0', lto='0'),
+            'lto':         dict(rel=O2 + ' -flto=auto -ffat-lto-objects', extra='', tintos='0', lto='1'),
+          }
+          sel = [v.strip() for v in os.environ['V'].split(',') if v.strip()]
+          print('matrix=' + json.dumps({'include': [dict(name=n, **allv[n]) for n in sel]}))
+          PY
+  build:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 340
+    env:
+      COSMO_ARCH: x86_64
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/checkout@v4
+        with: { ref: '${{ inputs.src_sha }}', path: pin }
+      - name: Tools
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build llvm unzip mesa-vulkan-drivers libvulkan1
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir -p $HOME/cosmo && unzip -q cosmocc.zip -d $HOME/cosmo
+          cp $HOME/cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+      - { uses: actions/download-artifact@v4, with: { name: lib-x86_64, path: lib-base, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
+      - name: Inputs for the in-file D3D12 backend
+        run: |
+          sh pin/backend-spikes/setup-wine-headers.sh $PWD/wine
+          mkdir dxh && git -C dxh init -q && git -C dxh fetch -q --depth 1 https://github.com/microsoft/DirectX-Headers $DXH_SHA && git -C dxh checkout -q FETCH_HEAD
+          W=$PWD/wine/x/usr/include/wine/wine
+          python3 pin/dawn-cosmo/fix_com_struct_returns.py dxh/include/directx
+          python3 pin/backend-spikes/make_sal_shim.py pin/dawn-cosmo/d3d12-shims/sal_shim.h dxh/include/directx/*.h pin/dawn-cosmo/d3d12-shims/dxcapi.h
+          python3 pin/backend-spikes/make_uuid_decls.py pin/dawn-cosmo/d3d12-shims/uuid_decls.h $W/windows dxh/include/directx pin/dawn-cosmo/d3d12-shims
+      - name: Fetch and patch Dawn
+        env: { DAWN_COSMO_D3D12: '1', DAWN_COSMO_METAL: '0' }
+        run: |
+          mkdir -p dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
+          git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD && cd ..
+          python3 pin/dawn-cosmo/patch.py dawn
+      - name: Configure
+        run: |
+          emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
+          DXH=$PWD/dxh/include; SH=$PWD/pin/dawn-cosmo/d3d12-shims; FILES=$PWD/pin/dawn-cosmo/files; WINE=$PWD/wine/x/usr/include/wine/wine
+          FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;-include$FILES/win32_rename.h;-include$SH/pre.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
+          d3d="-DDAWN_ENABLE_D3D12=ON -DTINT_BUILD_HLSL_WRITER=ON -DDAWN_COSMO_D3D12=ON -DDAWN_COSMO_FILES_DIR=$FILES"
+          cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/pin/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release \
+            "-DCMAKE_C_FLAGS_RELEASE=${{ matrix.rel }}" "-DCMAKE_CXX_FLAGS_RELEASE=${{ matrix.rel }}" \
+            -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF \
+            -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF \
+            -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
+            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DDAWN_BUILD_PROTOBUF=OFF $emu $d3d ${{ matrix.extra }} "-DDAWN_COSMO_D3D12_FLAGS=$FLAGS" 2>&1 | tee configure.log | tail -40
+          cp -r dxh/include/directx/. dawn/third_party/directx-headers/src/include/directx/
+          cp pin/dawn-cosmo/d3d12-shims/dxcapi.h dawn/third_party/directx-shader-compiler/src/include/dxc/dxcapi.h
+          grep -n 'Tint build\|Dawn build' configure.log | head -20
+      - name: Tint at -Os (only for the o2-tintos variant)
+        if: matrix.tintos == '1'
+        run: |
+          grep -n 'function(tint_default_compile_options' dawn/src/tint/CMakeLists.txt
+          python3 - <<'PY'
+          p = 'dawn/src/tint/CMakeLists.txt'; s = open(p).read()
+          k = 'function(tint_default_compile_options TARGET)\n'
+          assert k in s
+          s = s.replace(k, k + '  target_compile_options(${TARGET} PRIVATE -Os)  # packing experiment\n', 1)
+          open(p, 'w').write(s)
+          PY
+          cmake build >/dev/null   # re-run the generator with the changed list file
+      - name: Build libwebgpu_dawn.a
+        run: |
+          cmake --build build --target webgpu_dawn -- -k 0 > build.log 2>&1 || true
+          echo '=== failed objects'; grep 'FAILED:' build.log | cut -c1-200 | head -20
+          tail -3 build.log
+          find build -name 'libwebgpu_dawn.a' -exec ls -l {} \;
+          ! grep -q '^FAILED:' build.log
+      - name: Link next to the baseline, sizes, correctness, interleaved benchmark
+        run: |
+          B=$HOME/cosmo/bin; mkdir -p out
+          VL=$(dirname "$(find build -name libwebgpu_dawn.a | head -1)")
+          cp "$(find build -name libwebgpu_dawn.a | head -1)" out/libvariant.a
+          # headers of the variant build (same API) are used for both
+          INC="-Ilib-base/inc1 -Ilib-base/inc2 -Ipin/ci-webgpu-test"
+          LTOF=""; [ "${{ matrix.lto }}" = 1 ] && LTOF="-flto=auto"
+          $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 -c pin/alloc-probe/tcache_new.cpp -o out/tcache.o
+          $B/x86_64-unknown-cosmo-cc -O2 $INC -c pin/ci-webgpu-test/wgt.c -o out/wgt.o
+          $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 $INC -c pin/ci-webgpu-test/dawn_bench.cpp -o out/bench.o
+          for v in base variant; do
+            L=out/libvariant.a; F=$LTOF; [ $v = base ] && { L=lib-base/libwebgpu_dawn.a; F=""; }
+            $B/x86_64-unknown-cosmo-c++ -O2 $F out/wgt.o out/tcache.o $L -Wl,--wrap=pthread_create -o out/wgt-$v.com
+            $B/x86_64-unknown-cosmo-c++ -O2 $F out/bench.o out/tcache.o $L -Wl,--wrap=pthread_create -o out/bench-$v.com
+            $B/apelink -V -1 -l $B/ape-x86_64.elf -o out/wgt-$v-x64.com out/wgt-$v.com.dbg
+            $B/apelink -V -1 -l $B/ape-x86_64.elf -o out/bench-$v-x64.com out/bench-$v.com.dbg
+          done
+          chmod +x out/*.com
+          echo "=== sizes (bytes)"; ls -l out/libvariant.a lib-base/libwebgpu_dawn.a out/wgt-base-x64.com out/wgt-variant-x64.com out/bench-base-x64.com out/bench-variant-x64.com | awk '{print $5, $9}'
+          { echo "### ${{ matrix.name }} (flags: ${{ matrix.rel }} ${{ matrix.extra }} tintos=${{ matrix.tintos }} lto=${{ matrix.lto }})"
+            echo "- x86-64 half, wgt: baseline $(stat -c %s out/wgt-base-x64.com) bytes, variant $(stat -c %s out/wgt-variant-x64.com) bytes"
+            echo "- libwebgpu_dawn.a: baseline $(stat -c %s lib-base/libwebgpu_dawn.a), variant $(stat -c %s out/libvariant.a)"; } | tee -a "$GITHUB_STEP_SUMMARY"
+          echo "=== correctness"
+          chmod +x pin/ci-webgpu-test/run-one.sh
+          for v in base variant; do WGT_BACKEND=vulkan pin/ci-webgpu-test/run-one.sh "wgt $v" sh ./out/wgt-$v-x64.com | tail -3; done
+          echo "=== benchmark"
+          python3 ci-webgpu-test/bench_ab.py --rounds ${{ inputs.rounds }} --title "baseline (-O3 library of the dawn-cosmo run) vs ${{ matrix.name }}" --json bench-${{ matrix.name }}.json \
+            --variant "base|WGT_BACKEND=vulkan|sh ./out/bench-base-x64.com" --variant "${{ matrix.name }}|WGT_BACKEND=vulkan|sh ./out/bench-variant-x64.com" --variant "base-again|WGT_BACKEND=vulkan|sh ./out/bench-base-x64.com" 2>&1 | tee bench-out.txt
+          cat bench-out.txt >> "$GITHUB_STEP_SUMMARY"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'pb-${{ matrix.name }}', path: "out/wgt-variant-x64.com\nout/bench-variant-x64.com\nbench-*.json\nbench-out.txt\nconfigure.log", compression-level: 1 }

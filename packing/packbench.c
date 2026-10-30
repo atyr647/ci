@@ -7,6 +7,7 @@
 #include <time.h>
 #include <zlib.h>
 #include "zstd.h"
+#include "lz4.h"
 #include "lz4frame.h"
 #ifdef HAVE_XZ
 #include "xz.h"
