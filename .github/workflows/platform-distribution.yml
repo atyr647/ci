@@ -84,7 +84,7 @@ jobs:
           mkdir -p w/pkg && tar -C w/pkg -xf art/unsigned.tar
           cd w && npm init -y >/dev/null && npm i playwright-core >/dev/null 2>&1
           ls "/Applications/Google Chrome.app" >/dev/null 2>&1 && echo "Chrome present" || echo "no Chrome"
-          node ../platform-probes/distribution/browser_probe.js pkg/launcher $PWD 2>&1 | tee ../browser-out.txt
+          NODE_PATH=$PWD/node_modules node ../platform-probes/distribution/browser_probe.js pkg/launcher $PWD 2>&1 | tee ../browser-out.txt
       - name: Result (last)
         if: always()
         run: grep -E '^RESULT' browser-out.txt | cut -c1-400

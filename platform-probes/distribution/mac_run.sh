@@ -22,6 +22,13 @@ for v in unsigned server local; do
   R "[$v] bundle codesign --verify --deep --strict: $(codesign --verify --deep --strict -vvv $v/App.app 2>&1 | head -2 | tr '\n' ' ')"
   R "[$v] bundle signature: $(codesign -dvvv $v/App.app 2>&1 | grep -E 'Signature=|Format|flags|Sealed|CodeDirectory' | tr '\n' '|' | cut -c1-260)"
 done
+echo "##### control: Launch Services (open -W) on the same bundles WITHOUT the quarantine attribute"
+for v in unsigned server local; do
+  R "[$v] open -W, no quarantine, 25 s limit: exit $(to 25 open -W $v/App.app >/dev/null 2>&1; echo $?)  (142 = timed out)"
+done
+echo "##### is code-signing enforced on this runner at all? (an unsigned arm64 program ran above)"
+R "csrutil: $(csrutil status 2>&1 | head -1)  nvram boot-args: $(nvram boot-args 2>&1 | head -1 | cut -c1-120)  sysctl security.mac.amfi: $(sysctl security.mac.amfi 2>&1 | head -3 | tr '\n' ' ' | cut -c1-200)"
+R "hardware: $(sysctl -n machdep.cpu.brand_string 2>/dev/null) $(sysctl -n kern.hv_vmm_present 2>/dev/null) (kern.hv_vmm_present=1 means a virtual machine)"
 echo "##### with the quarantine attribute a browser sets (all files in the bundle, as an unzip of a download would leave them)"
 for v in unsigned server local; do
   cp -R $v Q-$v; xattr -rw com.apple.quarantine "$(q)" Q-$v/App.app; xattr -w com.apple.quarantine "$(q)" Q-$v/launcher
