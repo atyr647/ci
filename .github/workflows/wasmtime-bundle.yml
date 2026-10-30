@@ -28,7 +28,7 @@ jobs:
           cp "$(find dl -path '*aarch64-linux*' -name libwasmtime.so  | grep -v /min/ | head -1)" stage/wasmtime/libwasmtime-arm64.so
           cp "$(find dl -path '*aarch64-macos*' -name libwasmtime.dylib | grep -v /min/ | head -1)" stage/wasmtime/libwasmtime-arm64.dylib
           cp "$(find dl -path '*windows*' -name wasmtime.dll | grep -v /min/ | head -1)" stage/wasmtime/wasmtime-x64.dll
-          inc=$(dirname "$(find dl -path '*x86_64-linux*' -name wasmtime.h | head -1)")
+          inc=$PWD/$(dirname "$(find dl -path '*x86_64-linux*' -name wasmtime.h | head -1)")
           cd ci-wasm-host
           cat $inc/wasmtime.h $inc/wasmtime/*.h $inc/wasm.h $inc/wasi.h > all.h
           python3 gen-shim.py wt-host.c all.h
@@ -84,7 +84,10 @@ jobs:
         working-directory: wt
         run: |
           A=${{ matrix.arch }}; T=${A}_unknown_linux_musl
-          export CC_$T=$GITHUB_WORKSPACE/cosmo/bin/${A}-unknown-cosmo-cc AR_$T=$GITHUB_WORKSPACE/cosmo/bin/${A}-linux-cosmo-ar
+          # cosmo's tools are APE files: a shell can start them (execve fails, sh runs them as scripts) but Rust's build helper cannot - give it small wrappers
+          mkdir -p $GITHUB_WORKSPACE/wrap
+          for t in ${A}-unknown-cosmo-cc ${A}-linux-cosmo-ar; do printf '#!/bin/sh\nexec sh %s/cosmo/bin/%s "$@"\n' "$GITHUB_WORKSPACE" "$t" > $GITHUB_WORKSPACE/wrap/$t; chmod +x $GITHUB_WORKSPACE/wrap/$t; done
+          export CC_$T=$GITHUB_WORKSPACE/wrap/${A}-unknown-cosmo-cc AR_$T=$GITHUB_WORKSPACE/wrap/${A}-linux-cosmo-ar
           cargo rustc -p wasmtime-c-api --release --target ${A}-unknown-linux-musl --no-default-features \
             --features wasi,wat,async,cranelift,pulley,component-model,component-model-async,gc,gc-drc,threads,pooling-allocator --crate-type staticlib 2>&1 | tail -15
           find target -name '*.a' -size +5M -exec ls -la {} \;
@@ -93,7 +96,7 @@ jobs:
           A=${{ matrix.arch }}
           lib=$(find wt/target/${A}-unknown-linux-musl/release -maxdepth 1 -name 'lib*.a' -size +5M | head -1); echo "lib: $lib"
           inc=$(dirname "$(find wasmtime-$WT-x86_64-linux-c-api -name wasmtime.h | head -1)")
-          cosmo/bin/${A}-unknown-cosmo-c++ -O2 -DWT_STATIC -I$inc ci-wasm-host/wt-host.c "$lib" -o wt-static.$A.com -lm -lpthread -ldl 2>&1 | tee link.log | grep -E "undefined reference|multiple definition|error" | sed -E 's/.*(undefined reference to|multiple definition of)/\1/' | sort | uniq -c | sort -rn | head -60
+          cosmo/bin/${A}-unknown-cosmo-cc -O2 -DWT_STATIC -I$inc ci-wasm-host/wt-host.c "$lib" -o wt-static.$A.com -lm -lpthread -ldl 2>&1 | tee link.log | grep -E "undefined reference|multiple definition|error" | sed -E 's/.*(undefined reference to|multiple definition of)/\1/' | sort | uniq -c | sort -rn | head -60
           ls -la wt-static.$A.com* 2>&1 | head
       - name: "Run it (x86_64 only, because this runner is x86-64)"
         if: matrix.arch == 'x86_64'
