@@ -1,8 +1,10 @@
 #!/bin/bash
-# publish.sh <directory> <destination inside the branch>: copies a directory of results to the branch `coverage-results` so they can be read without downloading artifacts.
+# publish.sh <directory> <destination inside the branch>: copies a directory of results to the branch `nostd-coverage-results` (the older `coverage-results` branch got a Git-for-Windows tree pushed by accident when the source directory did not exist; do not use it) so they can be read without downloading artifacts.
 # env: GITHUB_TOKEN, GITHUB_REPOSITORY (set by the workflow)
 set +e
-SRC=$(cd "$1" && pwd); DEST=$2; BR=coverage-results
+[ -d "$1" ] || { echo "publish: $1 does not exist, nothing published"; exit 0; }
+SRC=$(cd "$1" && pwd); [ -n "$SRC" ] && [ "$SRC" != "/" ] || { echo "publish: bad source"; exit 0; }
+DEST=$2; BR=nostd-coverage-results
 D=$(mktemp -d); cd "$D"
 git init -q; git config user.name atyr647; git config user.email atyr647@users.noreply.github.com
 git remote add o "https://x-access-token:$GITHUB_TOKEN@github.com/$GITHUB_REPOSITORY.git"
