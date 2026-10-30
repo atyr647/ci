@@ -9,7 +9,7 @@ crate-type = ["staticlib"]
 [dependencies]
 # Runtime only: no Cranelift, no std, no WASI. Native code is loaded through the embedder-supplied virtual memory and signal functions
 # (platform/platform.c); without them only the Pulley interpreter can run.
-wasmtime = { version = "=50.0.0", default-features = false, features = ["runtime", "custom-virtual-memory", "custom-native-signals"] }
+wasmtime = { version = "=50.0.0", default-features = false, features = ["runtime", "pulley", "custom-virtual-memory", "custom-native-signals"] }
 
 [profile.release]
 opt-level = 3

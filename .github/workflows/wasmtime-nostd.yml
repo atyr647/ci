@@ -122,4 +122,4 @@ jobs:
       - name: Kernels (mode sig / nosig / pulley)
         continue-on-error: true
         run: |
-          for g in so-scalar so-simd; do for mode in sig nosig pulley; do echo "=== $g $mode"; timeout 600 $RUN $mode $g; echo "exit: $?"; done; done
+          for g in so-scalar so-simd; do for mode in sig nosig pulley; do echo "=== $g $mode"; $RUN $mode $g; echo "exit: $?"; done; done
