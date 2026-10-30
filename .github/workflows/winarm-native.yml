@@ -30,9 +30,10 @@ jobs:
       - name: Native arm64 host with stock tools (cl.exe, the official C API DLL)
         run: |
           C=$(find "$PWD/capi" -maxdepth 1 -type d -name 'wasmtime-*' | head -1)
-          cl.exe /nologo /O2 /DWASM_API_EXTERN= /DWASI_API_EXTERN= /I"$(cygpath -w $C/include)" winarm/host.c /Fe:wt-host.exe /link "$(cygpath -w $C/lib/wasmtime.dll.lib)" 2>&1 | tail -5
+          export MSYS_NO_PATHCONV=1   # Git bash would turn /O2 into a path
+          cl.exe -nologo -O2 -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$(cygpath -w $C/include)" winarm/host.c -Fe:wt-host.exe -link "$(cygpath -w $C/lib/wasmtime.dll.lib)" 2>&1 | tail -5
           cp $C/lib/wasmtime.dll . 2>/dev/null || cp $C/bin/wasmtime.dll . ; ls -la wt-host.exe wasmtime.dll
-          dumpbin.exe //headers wt-host.exe 2>/dev/null | grep -i -E "machine|AA64|ARM" | head -2
+          dumpbin.exe -headers wt-host.exe 2>/dev/null | grep -i -E "machine|AA64|ARM" | head -2
       - name: Same kernels - native arm64 official CLI, native arm64 host, Cosmopolitan file (x86-64 under emulation)
         run: |
           set +e; SO=$(ls so/so-simd.wasm so/*/so-simd.wasm 2>/dev/null | head -1); SC=$(ls so/so-scalar.wasm so/*/so-scalar.wasm 2>/dev/null | head -1); echo "simd=$SO scalar=$SC"
