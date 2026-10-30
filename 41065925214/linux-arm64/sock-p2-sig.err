@@ -1,0 +1,10 @@
+run failed: error while executing at wasm backtrace:
+    0:   0xc652 - socktest.p2.wasm!__overflow
+    1:   0xc7b3 - socktest.p2.wasm!puts
+    2:   0x2ea0 - socktest.p2.wasm!__original_main
+    3:   0x2e64 - socktest.p2.wasm!_start
+
+Caused by:
+    0: memory fault at wasm address 0xfffefbef in linear memory of size 0x20000
+    1: wasm trap: out of bounds memory access
+

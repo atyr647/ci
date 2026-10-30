@@ -1,0 +1,10 @@
+host : platform=linux arch=aarch64 mode=sig name=wasibench.p2 (367904 bytes) features=0xf
+host : component loaded in 0.3 ms
+BENCH clock_gettime                 147 ns/op  (200000 ops)
+BENCH getentropy 16B                914 ns/op  (100000 ops)
+BENCH write 4 KiB                  2677 ns/op  (20000 ops)
+BENCH pread 4 KiB                 54124 ns/op  (20000 ops)
+BENCH fstat                        2925 ns/op  (50000 ops)
+BENCH stat (path)                 11837 ns/op  (20000 ops)
+BENCH open+close                   7740 ns/op  (5000 ops)
+host : component finished in 1689.9 ms, exit code 0, suspensions 0
