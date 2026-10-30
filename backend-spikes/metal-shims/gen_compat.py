@@ -7,7 +7,7 @@ usage: gen_compat.py <sdk-path> <out.h>"""
 import re, sys, os, glob
 sdk, out = sys.argv[1], sys.argv[2]
 cosmo_has = set('''int8_t int16_t int32_t int64_t uint8_t uint16_t uint32_t uint64_t intptr_t uintptr_t intmax_t uintmax_t size_t ssize_t off_t wchar_t ptrdiff_t time_t clock_t
-pid_t uid_t gid_t mode_t dev_t ino_t nlink_t useconds_t suseconds_t socklen_t blkcnt_t blksize_t fsblkcnt_t fsfilcnt_t id_t key_t u_int8_t u_int16_t u_int32_t u_int64_t
+pid_t uid_t gid_t mode_t dev_t ino_t nlink_t useconds_t suseconds_t socklen_t blkcnt_t blksize_t fsblkcnt_t fsfilcnt_t id_t key_t 
 va_list sigset_t wint_t wctype_t rsize_t errno_t timespec timeval fd_set pthread_t pthread_attr_t pthread_mutex_t pthread_mutexattr_t pthread_cond_t pthread_condattr_t
 pthread_key_t pthread_once_t pthread_rwlock_t pthread_rwlockattr_t FILE fpos_t mbstate_t max_align_t'''.split())
 guards, skipped, kept = [], [], []
@@ -43,7 +43,8 @@ lines += ['/* Apple headers must not redefine what Cosmopolitan just provided: *
 lines += [f'#ifndef {g}\n#define {g}\n#endif' for g in sorted(set(guards))]
 lines += ['#ifndef __BEGIN_DECLS', '#ifdef __cplusplus', '#define __BEGIN_DECLS extern "C" {', '#define __END_DECLS }', '#else', '#define __BEGIN_DECLS', '#define __END_DECLS', '#endif', '#endif']
 lines += ['/* NOW pretend to be Apple: nothing above (libc++, C library) may see these macros */',
-          '#define __APPLE__ 1', '#define __MACH__ 1', '#ifdef __aarch64__', '#define __arm64__ 1', '#endif',
+          '#define __APPLE__ 1', '#define __MACH__ 1', '#ifdef __aarch64__', '#define __arm64__ 1', '#define TARGET_CPU_ARM64 1', '#else', '#define TARGET_CPU_X86_64 1', '#endif',
+          '#define TARGET_OS_MAC 1', '#define TARGET_OS_OSX 1', '#define TARGET_OS_IPHONE 0', '#define TARGET_OS_SIMULATOR 0', '#define TARGET_OS_EMBEDDED 0', '#define TARGET_OS_IOS 0', '#define TARGET_OS_WIN32 0', '#define TARGET_OS_UNIX 0',
           '/* Apple\'s own <sys/cdefs.h> (Cosmopolitan\'s was found first and lacks __DARWIN_*, __ASSUME_PTR_ABI_*, __sized_by ...): read it explicitly, redefinitions are only warnings */',
           '#undef __BEGIN_DECLS', '#undef __END_DECLS', '#undef _CDEFS_H_', '#include "%s/usr/include/sys/cdefs.h"' % sdk]
 open(out, 'w').write('\n'.join(lines) + '\n')
