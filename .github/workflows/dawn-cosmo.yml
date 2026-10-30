@@ -60,7 +60,7 @@ jobs:
           if [ "$COSMO_ARCH" = x86_64 ]; then
             DXH=$PWD/dxh/include; SH=$PWD/dawn-cosmo/d3d12-shims; FILES=$PWD/dawn-cosmo/files; WINE=$PWD/wine/x/usr/include/wine/wine
             FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;-include$FILES/win32_rename.h;-include$SH/pre.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
-            d3d="-DDAWN_ENABLE_D3D12=ON -DDAWN_COSMO_D3D12=ON -DDAWN_COSMO_FILES_DIR=$FILES"
+            d3d="-DDAWN_ENABLE_D3D12=ON -DTINT_BUILD_HLSL_WRITER=ON -DDAWN_COSMO_D3D12=ON -DDAWN_COSMO_FILES_DIR=$FILES"   # (the Tint option is cached from the earlier Vulkan-only configure, so it is set explicitly)
           fi
           cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release \
             -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF \
@@ -80,6 +80,7 @@ jobs:
           tail -3 build.log
           find build -name 'libwebgpu_dawn.a' -exec ls -la {} \;
           test -n "$(find build -name libwebgpu_dawn.a)"
+          ! grep -q '^FAILED:' build.log   # a stale libwebgpu_dawn.a from the cache must not hide failed objects
       - name: Save the Dawn checkout and build directory
         if: always()
         uses: actions/cache/save@v4
