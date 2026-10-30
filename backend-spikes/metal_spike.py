@@ -10,7 +10,7 @@ metal = [e for e in cdb if re.search(r'/src/dawn/native/metal/[^/]+\.(mm|cpp)$',
 print(f'{len(metal)} translation units in src/dawn/native/metal')
 APPLE_DEFS = ['-D__APPLE__=1', '-D__MACH__=1', '-DTARGET_OS_MAC=1', '-DTARGET_OS_OSX=1', '-DTARGET_OS_IPHONE=0', '-DTARGET_OS_SIMULATOR=0', '-DTARGET_CPU_ARM64=1',
               '-DDAWN_COSMO_AS_APPLE=1', '-DOBJC_OLD_DISPATCH_PROTOTYPES=1']
-errors = collections.Counter(); results = []
+errors = collections.Counter(); examples = {}; results = []
 for e in metal[:limit]:
     toks = shlex.split(e['command'])
     keep = []; skip = 0
@@ -25,10 +25,12 @@ for e in metal[:limit]:
     p = subprocess.run(cmd, capture_output=True, text=True)
     errs = [l for l in p.stderr.splitlines() if ' error:' in l or 'fatal error' in l]
     for l in errs:
-        m = re.sub(r'^.*?(error:|fatal error:)', r'\1', l); m = re.sub(r"'[^']*'", "'_'", m)[:150]; errors[m] += 1
+        m = re.sub(r'^.*?(error:|fatal error:)', r'\1', l); m = re.sub(r"'[^']*'", "'_'", m)[:150]; errors[m] += 1; examples.setdefault(m, l)
     results.append((os.path.basename(e['file']), len(errs)))
     print(f"{'OK  ' if not errs else 'FAIL'} {os.path.basename(e['file']):42s} errors={len(errs)}", flush=True)
 ok = sum(1 for _, n in results if n == 0)
 print(f'\n{ok}/{len(results)} files compile clean')
 print('most common distinct errors (message shape, count):')
 for m, c in errors.most_common(25): print(f'  {c:5d}  {m}')
+print('\nfirst raw example of each shape:')
+for m, c in errors.most_common(25): print('  ' + examples[m][:300])
