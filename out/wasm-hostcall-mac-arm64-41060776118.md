@@ -1,0 +1,130 @@
+## mac-arm64: wasm-hostcall run 41060776118, commit 661166eb44f17e06d9364820271c5442c242c72b
+Apple M1 (Virtual)
+=== unchecked
+HOSTKERNEL neon
+CALL wasm-to-wasm-noinline 1.23
+CALL import-nop 3.50
+CALL import-3args-1result 3.81
+CALL import-memory-lookup-by-name 48.71
+CALL import-memory-handle-cached 5.18
+SAXPY 8 5.2 10.3 same
+SAXPY 16 3.6 11.2 same
+SAXPY 32 5.3 13.4 same
+SAXPY 64 11.3 20.3 same
+SAXPY 128 23.0 26.1 same
+SAXPY 256 47.4 36.3 same
+SAXPY 512 94.8 57.1 same
+SAXPY 1024 190.5 95.0 same
+SAXPY 4096 1266.4 360.2 same
+SAXPY 16384 3210.3 1211.6 same
+SAXPY 65536 11921.4 8832.1 same
+DOT 8 3.9 13.0 same
+DOT 16 2.9 12.6 same
+DOT 32 4.2 13.7 same
+DOT 64 6.7 19.8 same
+DOT 128 13.5 27.7 same
+DOT 256 23.3 31.7 same
+DOT 512 42.0 47.1 same
+DOT 1024 82.2 86.4 same
+DOT 4096 334.4 364.5 same
+DOT 16384 1339.2 1418.2 same
+DOT 65536 7334.0 7018.0 same
+MATMUL 8 69.1 54.6 same
+MATMUL 16 279.9 158.6 same
+MATMUL 32 1798.6 1077.7 same
+MATMUL 64 13829.5 9632.4 same
+MATMUL 128 104613.3 77337.9 same
+MATMUL 256 866526.1 614135.4 same
+ENGINE default
+CONVENTION unchecked
+=== checked
+HOSTKERNEL neon
+CALL wasm-to-wasm-noinline 1.23
+CALL import-nop 14.65
+CALL import-3args-1result 43.93
+CALL import-memory-lookup-by-name 85.55
+CALL import-memory-handle-cached 24.48
+SAXPY 8 5.6 48.8 same
+SAXPY 16 3.8 48.6 same
+SAXPY 32 5.7 50.8 same
+SAXPY 64 11.6 54.8 same
+SAXPY 128 22.6 62.7 same
+SAXPY 256 43.7 71.8 same
+SAXPY 512 88.5 91.4 same
+SAXPY 1024 177.8 127.4 same
+SAXPY 4096 727.5 387.6 same
+SAXPY 16384 3255.9 1444.8 same
+SAXPY 65536 13408.4 8533.4 same
+DOT 8 3.4 60.2 same
+DOT 16 3.2 57.6 same
+DOT 32 4.6 53.1 same
+DOT 64 6.6 54.1 same
+DOT 128 11.6 63.7 same
+DOT 256 22.5 72.0 same
+DOT 512 42.2 87.6 same
+DOT 1024 79.5 137.0 same
+DOT 4096 330.1 395.4 same
+DOT 16384 1326.0 1483.3 same
+DOT 65536 6851.7 7047.1 same
+MATMUL 8 68.4 90.7 same
+MATMUL 16 255.6 221.2 same
+MATMUL 32 2104.0 1327.7 same
+MATMUL 64 16202.1 11285.6 same
+MATMUL 128 130318.4 91961.6 same
+MATMUL 256 911375.0 666333.2 same
+ENGINE default
+CONVENTION checked
+=== unchecked, HOSTKERNEL=portable
+HOSTKERNEL scalar
+SAXPY 8 6.0 11.7 same
+SAXPY 16 3.8 12.4 same
+SAXPY 32 5.9 14.1 same
+SAXPY 64 23.8 24.9 same
+SAXPY 128 26.4 28.6 same
+SAXPY 256 44.0 32.6 same
+SAXPY 512 87.1 49.6 same
+SAXPY 1024 172.8 80.1 same
+SAXPY 4096 685.3 282.8 same
+SAXPY 16384 2742.0 1141.2 same
+SAXPY 65536 11369.9 7658.8 same
+DOT 8 3.2 11.5 same
+DOT 16 2.6 13.1 same
+DOT 32 3.8 19.0 same
+DOT 64 6.6 38.5 same
+DOT 128 12.0 87.4 same
+DOT 256 26.1 198.2 same
+DOT 512 51.1 393.3 same
+DOT 1024 84.0 912.7 same
+DOT 4096 330.5 4012.2 same
+DOT 16384 1302.3 16443.2 same
+DOT 65536 6756.7 66350.3 same
+MATMUL 8 67.1 208.6 same
+MATMUL 16 260.2 990.2 same
+MATMUL 32 1830.9 5233.4 same
+MATMUL 64 14078.9 25806.0 same
+MATMUL 128 109117.8 139669.2 same
+MATMUL 256 873302.0 1391698.0 same
+=== unchecked, HOSTCFG=epoch
+CALL import-nop 3.63
+SAXPY 64 11.9 20.7 same
+SAXPY 4096 798.6 322.0 same
+DOT 1024 255.4 102.1 same
+MATMUL 32 4316.7 1083.9 same
+MATMUL 256 2261812.5 621151.1 same
+ENGINE epoch
+=== unchecked, HOSTCFG=fuel
+CALL import-nop 3.74
+SAXPY 64 12.3 20.3 same
+SAXPY 4096 838.9 310.9 same
+DOT 1024 237.5 87.8 same
+MATMUL 32 4783.2 1259.9 same
+MATMUL 256 2288500.0 657349.0 same
+ENGINE fuel
+=== unchecked, HOSTCFG=explicit
+CALL import-nop 3.72
+SAXPY 64 17.3 19.8 same
+SAXPY 4096 1032.5 296.5 same
+DOT 1024 149.0 86.5 same
+MATMUL 32 3055.4 1118.7 same
+MATMUL 256 1737437.5 727291.6 same
+ENGINE explicit
