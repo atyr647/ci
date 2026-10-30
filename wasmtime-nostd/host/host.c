@@ -23,16 +23,16 @@ static char g_reply[64]; static int g_reply_len;
 CB(wire_send) { uint32_t p = (uint32_t)a[0], n = (uint32_t)a[1]; printf("host : wire.send got %u bytes: \"%.*s\"\n", n, (int)n, mem + p); g_reply_len = snprintf(g_reply, sizeof g_reply, "pong (%u)", n); r[0] = 0; return 0; }
 CB(wire_recv) { uint32_t p = (uint32_t)a[0], mx = (uint32_t)a[1]; int n = g_reply_len < (int)mx ? g_reply_len : (int)mx; memcpy(mem + p, g_reply, n); r[0] = (uint64_t)n; return 0; }
 /* the small slice of WASI preview 1 that wasi-libc programs need to print and exit */
-CB(fd_write) { uint32_t fd = (uint32_t)a[0], iovs = (uint32_t)a[1], n = (uint32_t)a[2], out = (uint32_t)a[3], total = 0;
+CB(h_fd_write) { uint32_t fd = (uint32_t)a[0], iovs = (uint32_t)a[1], n = (uint32_t)a[2], out = (uint32_t)a[3], total = 0;
     for (uint32_t i = 0; i < n; i++) { uint32_t p, l; memcpy(&p, mem + iovs + 8 * i, 4); memcpy(&l, mem + iovs + 8 * i + 4, 4); fwrite(mem + p, 1, l, fd == 2 ? stderr : stdout); total += l; }
     memcpy(mem + out, &total, 4); r[0] = 0; return 0; }
-CB(clock_time_get) { struct timespec t; clock_gettime((uint32_t)a[0] == 0 ? CLOCK_REALTIME : CLOCK_MONOTONIC, &t); uint64_t ns = (uint64_t)t.tv_sec * 1000000000ull + t.tv_nsec; memcpy(mem + (uint32_t)a[2], &ns, 8); r[0] = 0; return 0; }
-CB(proc_exit) { fflush(stdout); fflush(stderr); exit((int)a[0]); }
+CB(h_clock_time_get) { struct timespec t; clock_gettime((uint32_t)a[0] == 0 ? CLOCK_REALTIME : CLOCK_MONOTONIC, &t); uint64_t ns = (uint64_t)t.tv_sec * 1000000000ull + t.tv_nsec; memcpy(mem + (uint32_t)a[2], &ns, 8); r[0] = 0; return 0; }
+CB(h_proc_exit) { fflush(stdout); fflush(stderr); exit((int)a[0]); }
 CB(zero2) { uint32_t z = 0; memcpy(mem + (uint32_t)a[0], &z, 4); memcpy(mem + (uint32_t)a[1], &z, 4); r[0] = 0; return 0; }   /* args_sizes_get, environ_sizes_get */
 CB(ok2) { r[0] = 0; return 0; }                                                                                                      /* args_get, environ_get, fd_close */
-CB(ebadf) { r[0] = 8; return 0; }                                                                                                    /* fd_prestat_get, fd_prestat_dir_name */
-CB(fd_seek) { r[0] = 70; return 0; }
-CB(fd_fdstat_get) { memset(mem + (uint32_t)a[1], 0, 24); mem[(uint32_t)a[1]] = 2; r[0] = 0; return 0; }
+CB(h_ebadf) { r[0] = 8; return 0; }                                                                                                    /* fd_prestat_get, fd_prestat_dir_name */
+CB(h_fd_seek) { r[0] = 70; return 0; }
+CB(h_fd_fdstat_get) { memset(mem + (uint32_t)a[1], 0, 24); mem[(uint32_t)a[1]] = 2; r[0] = 0; return 0; }
 
 static uint8_t *read_all(const char *path, size_t *n) {
     FILE *f = fopen(path, "rb"); if (!f) return NULL;
@@ -58,10 +58,10 @@ int main(int argc, char **argv) {
     const char *W = "wasi_snapshot_preview1";
     int rc = 0;
     rc |= wn_define("sample:wire/transport@0.1.0", "send", "ii>i", wire_send, 0) | wn_define("sample:wire/transport@0.1.0", "recv", "ii>i", wire_recv, 0);
-    rc |= wn_define(W, "fd_write", "iiii>i", fd_write, 0) | wn_define(W, "clock_time_get", "ili>i", clock_time_get, 0) | wn_define(W, "proc_exit", "i", proc_exit, 0);
+    rc |= wn_define(W, "fd_write", "iiii>i", h_fd_write, 0) | wn_define(W, "clock_time_get", "ili>i", h_clock_time_get, 0) | wn_define(W, "proc_exit", "i", h_proc_exit, 0);
     rc |= wn_define(W, "args_sizes_get", "ii>i", zero2, 0) | wn_define(W, "environ_sizes_get", "ii>i", zero2, 0) | wn_define(W, "args_get", "ii>i", ok2, 0) | wn_define(W, "environ_get", "ii>i", ok2, 0);
-    rc |= wn_define(W, "fd_close", "i>i", ok2, 0) | wn_define(W, "fd_prestat_get", "ii>i", ebadf, 0) | wn_define(W, "fd_prestat_dir_name", "iii>i", ebadf, 0);
-    rc |= wn_define(W, "fd_seek", "ilii>i", fd_seek, 0) | wn_define(W, "fd_fdstat_get", "ii>i", fd_fdstat_get, 0);
+    rc |= wn_define(W, "fd_close", "i>i", ok2, 0) | wn_define(W, "fd_prestat_get", "ii>i", h_ebadf, 0) | wn_define(W, "fd_prestat_dir_name", "iii>i", h_ebadf, 0);
+    rc |= wn_define(W, "fd_seek", "ilii>i", h_fd_seek, 0) | wn_define(W, "fd_fdstat_get", "ii>i", h_fd_fdstat_get, 0);
     if (rc) { fprintf(stderr, "define failed: %s\n", wn_last_error()); return 67; }
     if (wn_load(bytes, len)) { fprintf(stderr, "load failed: %s\n", wn_last_error()); return 68; }
     double t1 = now_ms();
