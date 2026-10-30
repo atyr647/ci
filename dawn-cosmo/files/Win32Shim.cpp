@@ -25,16 +25,26 @@ void* Resolve(const char* dll, const char* name) {
 #define W32(RET, NAME, DLL, PARAMS, ARGS)                                         \
     extern "C" MS RET dawn_w32_##NAME PARAMS {                                    \
         using F = RET(MS*) PARAMS;                                                \
-        static F f = reinterpret_cast<F>(Resolve(DLL, #NAME));                    \
-        return f ? f ARGS : RET();                                                \
+        static F fn = reinterpret_cast<F>(Resolve(DLL, #NAME));                    \
+        return fn ? fn ARGS : static_cast<RET>(0);                                              \
+    }
+
+// the same for functions that return nothing
+#define W32V(NAME, DLL, PARAMS, ARGS)                                            \
+    extern "C" MS void dawn_w32_##NAME PARAMS {                                  \
+        using F = void(MS*) PARAMS;                                              \
+        static F fn = reinterpret_cast<F>(Resolve(DLL, #NAME));                   \
+        if (fn) {                                                                \
+            fn ARGS;                                                             \
+        }                                                                        \
     }
 
 W32(int32_t, CompareObjectHandles, "kernel32.dll", (void* a, void* b), (a, b))
 W32(void*, CreateEventA, "kernel32.dll", (void* sa, int32_t manual, int32_t initial, const char* name), (sa, manual, initial, name))
-W32(void, GetSystemTime, "kernel32.dll", (void* st), (st))
-W32(void, GetSystemTimeAsFileTime, "kernel32.dll", (void* ft), (ft))
+W32V(GetSystemTime, "kernel32.dll", (void* st), (st))
+W32V(GetSystemTimeAsFileTime, "kernel32.dll", (void* ft), (ft))
 W32(int32_t, MultiByteToWideChar, "kernel32.dll", (uint32_t cp, uint32_t flags, const char* s, int32_t n, uint16_t* out, int32_t outn), (cp, flags, s, n, out, outn))
-W32(int32_t, QueryPerformanceFrequency, "kernel32.dll", (int64_t * f), (f))
+W32(int32_t, QueryPerformanceFrequency, "kernel32.dll", (int64_t * freq), (freq))
 W32(int32_t, RegCloseKey, "advapi32.dll", (void* key), (key))
 W32(int32_t, RegOpenKeyExW, "advapi32.dll", (void* key, const uint16_t* sub, uint32_t opts, uint32_t sam, void** out), (key, sub, opts, sam, out))
 W32(int32_t, RegQueryValueExA, "advapi32.dll", (void* key, const char* name, uint32_t* reserved, uint32_t* type, uint8_t* data, uint32_t* cb), (key, name, reserved, type, data, cb))

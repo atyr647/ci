@@ -18,7 +18,7 @@ for t in toks:
     base.append(t)
 dxh = os.environ.get('DXH_INCLUDE') or os.path.join(dawn, 'third_party/directx-headers/src/include')   # newer than Dawn's pin if the backend needs Agility-SDK-level names
 extra = ['-DDAWN_ENABLE_BACKEND_D3D12', '-DDAWN_ENABLE_BACKEND_D3D11', '-DDAWN_COSMO_AS_WINDOWS=1', '-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-w'] + ([] if os.environ.get('OBJ_DIR') else ['-fsyntax-only']) + [ '-UTINT_BUILD_HLSL_WRITER', '-DTINT_BUILD_HLSL_WRITER=1', '-fshort-wchar', '-DWINE_UNICODE_NATIVE', '-Dwcslen=dawn_wcslen16',
-         '-include', os.path.join(stubs, 'pre.h'), '-I' + stubs] + (['-include', os.path.join(os.environ['D3D12_FILES'], 'win32_rename.h')] if os.environ.get('D3D12_FILES') else []) + [
+         ] + (['-include', os.path.join(os.environ['D3D12_FILES'], 'win32_rename.h')] if os.environ.get('D3D12_FILES') else []) + ['-include', os.path.join(stubs, 'pre.h'), '-I' + stubs] + [
          '-I' + os.path.join(dxh, 'directx'), '-I' + dxh,
          '-I' + os.path.join(dawn, 'third_party/directx-shader-compiler/src/include/dxc'),
          '-I' + os.path.join(wine, 'windows'), '-I' + wine]

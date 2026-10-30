@@ -11,8 +11,7 @@ limit = int(sys.argv[4]) if len(sys.argv) > 4 else 10**9
 cdb = json.load(open(os.path.join(build, 'compile_commands.json')))
 metal = [e for e in cdb if re.search(r'/src/dawn/native/metal/[^/]+\.(mm|cpp)$', e['file'])]
 print(f'{len(metal)} translation units in src/dawn/native/metal')
-APPLE_DEFS = ['-D__APPLE__=1', '-D__MACH__=1', '-DTARGET_OS_MAC=1', '-DTARGET_OS_OSX=1', '-DTARGET_OS_IPHONE=0', '-DTARGET_OS_SIMULATOR=0', '-DTARGET_CPU_ARM64=1',
-              '-DDAWN_COSMO_AS_APPLE=1', '-DOBJC_OLD_DISPATCH_PROTOTYPES=1']
+APPLE_DEFS = ['-DDAWN_COSMO_AS_APPLE=1', '-DOBJC_OLD_DISPATCH_PROTOTYPES=1']   # __APPLE__ & co. come from the compat header, AFTER the C/C++ library headers
 errors = collections.Counter(); examples = {}; results = []; first_dump = []
 for e in metal[:limit]:
     toks = shlex.split(e['command'])
