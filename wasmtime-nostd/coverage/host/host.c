@@ -23,6 +23,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cosmo.h>
+#include <libc/nt/process.h>
 #include "wasi_p1.h"
 
 int32_t wn_init_ex(int32_t mode, int32_t collector);
@@ -79,7 +80,7 @@ static int32_t sync_nop(void *u, uint8_t *mem, size_t memlen, const uint64_t *a,
 static int32_t asy_work(void *u, int32_t req) { (void)u; return req * 2 + 1; }
 static int32_t plain_await(void *u, uint8_t *mem, size_t memlen, const uint64_t *a, uint64_t *r) { (void)u; (void)mem; (void)memlen; r[0] = (uint32_t)((int32_t)a[0] * 2 + 1); return 0; }
 
-int main(int argc, char **argv) {
+static int real_main(int argc, char **argv) {
     if (argc < 3) { fprintf(stderr, "usage: %s sig|nosig|pulley <name> [options] [-- guest args]\n", argv[0]); return 64; }
     const char *mode = argv[1], *base = argv[2];
     int m = !strcmp(mode, "sig") ? 0 : !strcmp(mode, "nosig") ? 1 : 2;
@@ -220,4 +221,11 @@ int main(int argc, char **argv) {
 #else
     fprintf(stderr, "this build has no component support\n"); return 72;
 #endif
+}
+
+/* On Windows a Cosmopolitan program that returns N from main reaches the parent as N << 8 (measured: 65 arrived as 16640 in PowerShell, 0 in bash/cmd). Ending the process with ExitProcess gives the real code. */
+int main(int argc, char **argv) {
+    int rc = real_main(argc, argv);
+    wasi_exit(rc);
+    return rc;
 }

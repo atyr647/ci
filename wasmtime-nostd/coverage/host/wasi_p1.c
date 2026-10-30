@@ -25,6 +25,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cosmo.h>
+#include <libc/nt/process.h>
 #include "wasi_p1.h"
 
 #ifndef PATH_MAX
@@ -189,7 +190,8 @@ CB(p_clock_res_get) { clockid_t c; CHK(A32(1), 8); if (clk_of(A32(0), &c)) RET(W
 CB(p_clock_time_get) { clockid_t c; CHK(A32(2), 8); if (clk_of(A32(0), &c)) RET(W_INVAL); struct timespec t; if (clock_gettime(c, &t)) { if (A32(0) >= 2) RET(W_NOTSUP); return ERR(); } put64(mem, A32(2), (uint64_t)t.tv_sec * 1000000000ull + (uint64_t)t.tv_nsec); RET(0); }
 CB(p_random_get) { uint32_t p = A32(0), n = A32(1); CHK(p, n); uint32_t done = 0; while (done < n) { uint32_t k = n - done > 256 ? 256 : n - done; ssize_t g = getrandom(mem + p + done, k, 0); if (g <= 0) RET(W_IO); done += (uint32_t)g; } RET(0); }
 CB(p_sched_yield) { sched_yield(); RET(0); }
-CB(p_proc_exit) { fflush(stdout); fflush(stderr); exit((int)A32(0)); }
+void wasi_exit(int code) { fflush(stdout); fflush(stderr); if (IsWindows()) ExitProcess((uint32_t)code); exit(code); }
+CB(p_proc_exit) { wasi_exit((int)A32(0)); }
 CB(p_proc_raise) { int s = (int)A32(0); int h = s == 6 ? SIGABRT : s == 2 ? SIGINT : s == 15 ? SIGTERM : s == 9 ? SIGKILL : s == 8 ? SIGFPE : s == 11 ? SIGSEGV : 0; if (!h) RET(W_NOSYS); fflush(stdout); raise(h); RET(0); }
 
 /* ---- fd_* ---- */

@@ -18,6 +18,7 @@
 #endif
 
 static int pass, fail;
+static void section(const char *name) { static struct timespec t0; struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); if (!t0.tv_sec && !t0.tv_nsec) t0 = t; printf("== %s\n", name); fprintf(stderr, "[t=%ld ms] %s\n", (long)((t.tv_sec - t0.tv_sec) * 1000 + (t.tv_nsec - t0.tv_nsec) / 1000000), name); }
 #define CHECK(name, cond) do { int ok_ = !!(cond); if (ok_) pass++; else fail++; printf("%s %s\n", ok_ ? "ok  " : "FAIL", name); if (!ok_) printf("       (errno %d)\n", errno); } while (0)
 static uint64_t fnv(const unsigned char *p, size_t n) { uint64_t h = 1469598103934665603ull; for (size_t i = 0; i < n; i++) { h ^= p[i]; h *= 1099511628211ull; } return h; }
 static void bye(void) { printf("atexit handler ran\n"); fflush(stdout); }
@@ -31,23 +32,23 @@ static char *slurp(const char *path, size_t *n) {
 
 int main(int argc, char **argv) {
     atexit(bye);
-    printf("== args\n");
+    section("args");
     printf("argc=%d argv0=%s\n", argc, argv[0]);
     for (int i = 1; i < argc; i++) printf("argv[%d]=%s\n", i, argv[i]);
     if (argc > 1 && !strcmp(argv[1], "exit7")) { printf("exiting with 7\n"); return 7; }
 
-    printf("== environment\n");
+    section("environment");
     const char *ev = getenv("WN_TEST_VAR");
     CHECK("getenv WN_TEST_VAR", ev && !strcmp(ev, "hello env"));
     CHECK("getenv missing", getenv("WN_NO_SUCH_VAR") == NULL);
 
-    printf("== stdio\n");
+    section("stdio");
     printf("stdout line\n"); fprintf(stderr, "stderr line\n");
     char line[128]; const char *g = fgets(line, sizeof line, stdin);
     if (g) { line[strcspn(line, "\r\n")] = 0; printf("stdin line: [%s]\n", line); } else printf("stdin: eof\n");
     CHECK("stdin read", g == NULL || strlen(line) > 0);
 
-    printf("== files\n");
+    section("files");
     const char *D = "/sandbox";
     char p[256], q[256];
     snprintf(p, sizeof p, "%s/work", D);
@@ -96,7 +97,7 @@ int main(int argc, char **argv) {
       size_t rn = 0; char *rb = slurp(p, &rn); CHECK("read 3 MiB back, same hash", rb && rn == total && fnv((unsigned char *)rb, rn) == fnv(buf, total));
       printf("big.bin fnv=%016llx\n", (unsigned long long)fnv(buf, total)); free(rb); free(buf); }
 
-    printf("== directories\n");
+    section("directories");
     snprintf(p, sizeof p, "%s/work/sub", D); CHECK("mkdir sub", mkdir(p, 0755) == 0);
     snprintf(p, sizeof p, "%s/work/sub/inner.txt", D); f = fopen(p, "w"); if (f) { fputs("x", f); fclose(f); }
     DIR *d = opendir("/sandbox/work"); CHECK("opendir", d != NULL);
@@ -111,7 +112,7 @@ int main(int argc, char **argv) {
     CHECK("rmdir empty", rmdir(p) == 0);
     CHECK("unlink a directory fails", unlink("/sandbox/work") != 0);
 
-    printf("== symbolic links and the sandbox\n");
+    section("symbolic links and the sandbox");
     int sl = symlink("b.txt", "/sandbox/work/link-to-b");
     printf("symlink: %s\n", sl == 0 ? "created" : "not supported here");
     if (sl == 0) { char tgt[64] = {0}; ssize_t rl = readlink("/sandbox/work/link-to-b", tgt, sizeof tgt - 1); CHECK("readlink", rl == 5 && !strcmp(tgt, "b.txt"));
@@ -122,7 +123,7 @@ int main(int argc, char **argv) {
     CHECK("absolute path outside the preopens is refused", fopen("/etc/passwd", "r") == NULL);
     CHECK("relative dot-dot inside is fine", stat("/sandbox/work/../work/b.txt", &st) == 0);
 
-    printf("== clocks, random, poll\n");
+    section("clocks, random, poll");
     struct timespec t0, t1, wall; clock_gettime(CLOCK_MONOTONIC, &t0); struct timespec nap = {0, 20 * 1000000}; nanosleep(&nap, NULL); clock_gettime(CLOCK_MONOTONIC, &t1);
     long ms = (t1.tv_sec - t0.tv_sec) * 1000 + (t1.tv_nsec - t0.tv_nsec) / 1000000;
     CHECK("nanosleep 20 ms", ms >= 19 && ms < 2000);
@@ -134,7 +135,7 @@ int main(int argc, char **argv) {
     int nz = 0; for (int i = 0; i < 32; i++) nz |= r1[i]; CHECK("random not all zero and two draws differ", nz && memcmp(r1, r2, 32));
 
 #ifdef __wasip1__
-    printf("== sockets (preview 1)\n");
+    section("sockets (preview 1)");
     const char *lf = getenv("LISTEN_FD");
     if (lf) {
         int lfd = atoi(lf); struct pollfd pf = { lfd, POLLIN, 0 };
@@ -147,7 +148,7 @@ int main(int argc, char **argv) {
     } else printf("no listening socket supplied\n");
 #endif
 
-    printf("== memory\n");
+    section("memory");
     { size_t sz = 48u << 20; unsigned char *m = malloc(sz); CHECK("malloc 48 MiB", m != NULL); if (m) { for (size_t i = 0; i < sz; i += 4096) m[i] = (unsigned char)(i >> 12); uint64_t h = 0; for (size_t i = 0; i < sz; i += 4096) h += m[i]; printf("touched pages checksum=%llu\n", (unsigned long long)h); free(m); } }
 
     printf("SUMMARY pass=%d fail=%d\n", pass, fail);

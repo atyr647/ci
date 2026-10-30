@@ -12,5 +12,6 @@ void wasi_add_env(const char *kv);                                          /* "
 int  wasi_add_tcp_listen(const char *ip, int port, int *bound_port);        /* pre-opened listening socket; its guest fd is returned in wasi_listen_fd() */
 int  wasi_listen_fd(void);
 int  wasi_p1_register(void);                                                /* wn_define for every function; 0 ok */
+void wasi_exit(int code) __attribute__((noreturn));                         /* flushes stdio and ends the process with the real exit code on every OS (see host.c) */
 extern uint64_t wasi_p1_calls;                                              /* number of p1 calls served */
 #endif
