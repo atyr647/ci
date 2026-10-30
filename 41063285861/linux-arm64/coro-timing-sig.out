@@ -1,0 +1,4 @@
+host : platform=linux arch=aarch64 mode=sig name=coro (272272 bytes) features=0xf
+host : engine+load 0.2 ms, instantiate 0.1 ms, linear memory 0 MiB
+CALL s_coro(3000000) -> 13499998500000 in 9.848 ms, suspensions 0
+CALL s_plain(3000000) -> 13499998500000 in 4.553 ms, suspensions 0

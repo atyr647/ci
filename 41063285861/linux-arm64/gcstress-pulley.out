@@ -1,0 +1,3 @@
+host : platform=linux arch=aarch64 mode=pulley name=gc (69032 bytes) features=0xf
+host : engine+load 0.1 ms, instantiate 0.0 ms, linear memory 0 MiB
+CALL s_gcstress(300000) -> 44999850000 in 25.042 ms, suspensions 0
