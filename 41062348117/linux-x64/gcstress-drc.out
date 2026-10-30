@@ -1,0 +1,4 @@
+host : platform=linux arch=x86_64 mode=sig name=gc-drc (20016 bytes) features=0xf
+host : engine+load 0.1 ms, instantiate 0.0 ms, linear memory 0 MiB
+CALL s_gcstress(2000000) -> 1999999000000 in 90.611 ms, suspensions 0
+CALL s_gcstress_arrays(200000) -> 12800000 in 13.072 ms, suspensions 0
