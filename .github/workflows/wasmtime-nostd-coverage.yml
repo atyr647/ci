@@ -17,8 +17,9 @@ jobs:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
-        set: [base, gc, async, cm, full]
+        set: [base, gc, async, cm, full, cma]
         include:
+          - { set: cma,   feats: "component-async" }
           - { set: base,  feats: "" }
           - { set: gc,    feats: "gc" }
           - { set: async, feats: "async" }

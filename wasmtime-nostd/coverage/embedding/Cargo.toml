@@ -12,6 +12,8 @@ gc = ["wasmtime/gc", "wasmtime/gc-drc", "wasmtime/gc-null", "wasmtime/gc-copying
 async = ["wasmtime/async"]
 component = ["wasmtime/component-model"]
 p2 = ["component", "async", "dep:wasmtime-wasi-io"]
+# compile-only probe: the async component model (futures, streams; WASI 0.3 direction)
+component-async = ["component", "async", "wasmtime/component-model-async"]
 
 [dependencies]
 wasmtime = { version = "=50.0.0", default-features = false, features = ["runtime", "pulley", "custom-virtual-memory", "custom-native-signals"] }
