@@ -40,8 +40,8 @@ jobs:
         with: { name: sync-stress-bin, path: out }
       - name: Native reference (the platform's own C++ library)
         run: |
-          CXX=c++; ST=""; if [ "$RUNNER_OS" = Windows ]; then CXX=g++; ST="-static"; fi
-          $CXX -O2 -std=c++17 -DHAVE_TIMEDLOCK alloc-probe/sync_stress.cpp -o out/stress-native -pthread $ST
+          CXX=c++; ST=""; TL="-DHAVE_TIMEDLOCK"; if [ "$RUNNER_OS" = Windows ]; then CXX=g++; ST="-static"; fi; if [ "$RUNNER_OS" = macOS ]; then TL=""; fi   # macOS has no pthread_mutex_timedlock
+          $CXX -O2 -std=c++17 $TL alloc-probe/sync_stress.cpp -o out/stress-native -pthread $ST
           $CXX -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o out/probe-native -pthread $ST
           ls out
       - name: Run
