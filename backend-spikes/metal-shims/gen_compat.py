@@ -43,7 +43,9 @@ lines += ['/* Apple headers must not redefine what Cosmopolitan just provided: *
 lines += [f'#ifndef {g}\n#define {g}\n#endif' for g in sorted(set(guards))]
 lines += ['#ifndef __BEGIN_DECLS', '#ifdef __cplusplus', '#define __BEGIN_DECLS extern "C" {', '#define __END_DECLS }', '#else', '#define __BEGIN_DECLS', '#define __END_DECLS', '#endif', '#endif']
 lines += ['/* NOW pretend to be Apple: nothing above (libc++, C library) may see these macros */',
-          '#define __APPLE__ 1', '#define __MACH__ 1', '#ifdef __aarch64__', '#define __arm64__ 1', '#endif']
+          '#define __APPLE__ 1', '#define __MACH__ 1', '#ifdef __aarch64__', '#define __arm64__ 1', '#endif',
+          '/* Apple\'s own <sys/cdefs.h> (Cosmopolitan\'s was found first and lacks __DARWIN_*, __ASSUME_PTR_ABI_*, __sized_by ...): read it explicitly, redefinitions are only warnings */',
+          '#undef __BEGIN_DECLS', '#undef __END_DECLS', '#undef _CDEFS_H_', '#include "%s/usr/include/sys/cdefs.h"' % sdk]
 open(out, 'w').write('\n'.join(lines) + '\n')
 print(f'{len(set(guards))} guards predefined; skipped headers: {" ".join(skipped)}')
 print('kept (Apple definitions used):', ' '.join(kept[:80]))

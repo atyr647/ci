@@ -22,7 +22,7 @@ for e in metal[:limit]:
         if t in ('-c', '-MD', '-MMD') or t.startswith('-mmacosx-version-min') or t.startswith('-fcolor') or t.startswith('-Werror') or t.startswith('-Wno-') and False: continue
         if t == e['file'] or t.endswith(('.mm', '.cpp')) and t.startswith('/') and os.path.basename(t) == os.path.basename(e['file']): continue
         keep.append(t)
-    cmd = [cosmocxx, '-mclang', '-c', '-x', 'objective-c++', '-include', compat, '-fobjc-arc', '-fblocks', '-fobjc-runtime=macosx', '-Wno-everything'] + APPLE_DEFS + \
+    cmd = [cosmocxx, '-mclang', '-c', '-x', 'objective-c++', '-include', compat, '-fblocks', '-fobjc-runtime=macosx', '-Wno-everything'] + APPLE_DEFS + \
           ['-F' + sdk + '/System/Library/Frameworks', '-idirafter' + sdk + '/usr/include'] + keep + [e['file'], '-o', '/tmp/metal_spike.o']
     p = subprocess.run(cmd, capture_output=True, text=True)
     errs = [l for l in p.stderr.splitlines() if ' error:' in l or 'fatal error' in l]
@@ -38,5 +38,8 @@ for m, c in errors.most_common(25): print(f'  {c:5d}  {m}')
 print('\nfirst raw example of each shape:')
 for m, c in errors.most_common(25): print('  ' + examples[m][:300])
 
+import subprocess as _sp
+if any('TargetConditionals' in l for _, l in first_dump):
+    print('\nTargetConditionals.h around the #error:'); print(_sp.run(['sed','-n','330,395p',os.path.join(sdk,'usr/include/TargetConditionals.h')],capture_output=True,text=True).stdout)
 print('\nfirst errors, in order, of the first failing file (later ones are usually cascades):')
 for n, l in first_dump: print('  ' + n + ': ' + l.replace(sdk, '$SDK')[:260])
