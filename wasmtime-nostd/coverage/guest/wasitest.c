@@ -86,7 +86,7 @@ int main(int argc, char **argv) {
 
     struct timespec ts[2] = {{1700000000, 0}, {1700000123, 0}};
     CHECK("utimensat", utimensat(AT_FDCWD, q, ts, 0) == 0);
-    CHECK("mtime/atime read back", stat(q, &st) == 0 && st.st_mtim.tv_sec == 1700000123 && st.st_atim.tv_sec == 1700000000);
+    int sr = stat(q, &st); CHECK("mtime/atime read back", sr == 0 && st.st_mtim.tv_sec == 1700000123 && st.st_atim.tv_sec == 1700000000); if (!(sr == 0 && st.st_mtim.tv_sec == 1700000123 && st.st_atim.tv_sec == 1700000000)) printf("       stat=%d mtime=%lld atime=%lld\n", sr, (long long)st.st_mtim.tv_sec, (long long)st.st_atim.tv_sec);
 
     /* a larger file, written in odd-sized chunks, read back, hashed */
     snprintf(p, sizeof p, "%s/work/big.bin", D);

@@ -19,7 +19,7 @@ echo "wasi-sdk 34 clang: $($S/bin/clang --version | head -1)" | tee -a versions.
 G=$REPO/wasmtime-nostd/coverage/guest
 
 # ---- core feature modules from text ----
-for t in gc eh mem relaxed atomics shared yield cm; do $WTOOLS parse $G/$t.wat -o wasm/$t.wasm || echo "WAT-PARSE-FAIL $t" >> compile.log; done
+for t in gc eh mem relaxed atomics shared yield cm; do e=$($WTOOLS parse $G/$t.wat -o wasm/$t.wasm 2>&1) || echo "WAT-PARSE-FAIL $t: $(echo "$e" | tr '\n' ' ' | cut -c1-600)" >> compile.log; done
 # ---- C / C++ guests ----
 $S/bin/clang --target=wasm32-wasip1 -O2 $G/wasitest.c -o wasm/wasitest.wasm 2>&1 | tail -20
 $S/bin/clang --target=wasm32-wasip2 -O2 $G/wasitest.c -o wasm/wasitest.p2.wasm 2>&1 | tail -20

@@ -39,9 +39,11 @@ int32_t wn_define_yield(const char *module, const char *name);
 size_t wn_list_exports(uint8_t *buf, size_t cap);
 int32_t wn_define_asyncify(const char *module, const char *name, int32_t (*cb)(void *, int32_t), void *user);
 int32_t wn_asyncify_run(const char *entry, uint32_t data, uint32_t size, int32_t *res, uint64_t *unwinds);
-#ifdef WN_P2
+#if defined(WN_CM) || defined(WN_P2)
 int32_t wn_cm_load(const uint8_t *bytes, size_t len);
 int32_t wn_cm_selftest(void);
+#endif
+#ifdef WN_P2
 int32_t wn_p2_run(int argc, char **argv, int *exit_code);
 void wn_p2_add_env(const char *k, const char *v);
 #endif
@@ -195,20 +197,26 @@ int main(int argc, char **argv) {
         if (g_cl_on) { pthread_join(g_cl_th, NULL); printf("host : selfclient received: \"%s\"\n", g_cl_result); }
         return 0;
     }
-#ifdef WN_P2
+#if defined(WN_CM) || defined(WN_P2)
     for (int i = 0; i < ndirs; i++) {
         char spec[600]; snprintf(spec, sizeof spec, "%s", dirs[i]); char *sep = strstr(spec, "::"); const char *guest = spec, *host = spec;
         if (sep) { *sep = 0; host = sep + 2; }
         if (wasi_add_preopen(guest, host)) { fprintf(stderr, "cannot pre-open %s\n", dirs[i]); return 71; }
     }
+#ifdef WN_P2
     for (int i = 0; i < nenvs; i++) { char kv[300]; snprintf(kv, sizeof kv, "%s", envs[i]); char *e = strchr(kv, '='); if (e) { *e = 0; wn_p2_add_env(kv, e + 1); } }
+#endif
     if (wn_cm_load(bytes, len)) { fprintf(stderr, "component load failed: %s\n", wn_last_error()); return 68; }
     printf("host : component loaded in %.1f ms\n", now_ms() - t0); fflush(stdout);
     if (run_tests) { int r = wn_cm_selftest(); fflush(stdout); if (r) printf("component selftest failed: %s\n", wn_last_error()); return r ? 1 : 0; }
+#ifdef WN_P2
     int code = 0; double s = now_ms();
     if (wn_p2_run(gargc, gargv, &code)) { fflush(stdout); fprintf(stderr, "run failed: %s\n", wn_last_error()); return 70; }
     fflush(stdout); fprintf(stderr, "host : component finished in %.1f ms, exit code %d, suspensions %llu\n", now_ms() - s, code, (unsigned long long)wn_pending_polls());
     return code;
+#else
+    fprintf(stderr, "this build has the component model but no WASI preview 2 host\n"); return 72;
+#endif
 #else
     fprintf(stderr, "this build has no component support\n"); return 72;
 #endif

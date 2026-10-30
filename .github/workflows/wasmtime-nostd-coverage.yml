@@ -79,8 +79,8 @@ jobs:
           - { set: base,  defs: "" }
           - { set: gc,    defs: "" }
           - { set: async, defs: "" }
-          - { set: cm,    defs: "" }
-          - { set: full,  defs: "-DWN_P2" }
+          - { set: cm,    defs: "-DWN_CM" }
+          - { set: full,  defs: "-DWN_CM -DWN_P2" }
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -136,6 +136,14 @@ jobs:
         with: { name: exe-full, path: exe-full }
       - uses: actions/download-artifact@v4
         with: { name: exe-base, path: exe-base }
+      - name: Windows - does the exit status of the executable reach the shell?
+        if: runner.os == 'Windows'
+        run: |
+          cp exe-full/wnc-full.com t.exe
+          ./t.exe sig no-such-file; echo "bash: \$? = $? (expected 65)"
+          cmd //c "t.exe sig no-such-file & echo cmd: errorlevel=%ERRORLEVEL%"
+          powershell -NoProfile -Command "& ./t.exe sig no-such-file; Write-Host ('powershell: LASTEXITCODE=' + \$LASTEXITCODE)"
+          cmd //c "start /wait t.exe sig no-such-file & echo start-wait: errorlevel=%ERRORLEVEL%"
       - name: All suites
         env: { LABEL: "${{ matrix.label }}", COMPONENTS: "1" }
         run: |
