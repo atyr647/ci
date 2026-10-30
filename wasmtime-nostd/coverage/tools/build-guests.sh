@@ -2,7 +2,7 @@
 # Builds every guest of the coverage run and precompiles it with the official Wasmtime CLI. Runs on ubuntu-latest in CI (not meant for a developer machine: it downloads tools).
 # env: WT (wasmtime version), FLAGS_FULL (feature switches matching the full runtime), FLAGS_BASE (matching the base runtime), GH_TOKEN
 set +e
-cd "$(dirname "$0")/../../.."          # wasmtime-nostd/
+cd "$(dirname "$0")/../.."          # wasmtime-nostd/
 ROOT=$PWD; REPO=$(cd .. && pwd)
 mkdir -p $ROOT/work/wasm $ROOT/work/out $ROOT/work/dl; cd $ROOT/work
 : "${WT:=v50.0.0}"
@@ -14,6 +14,7 @@ gh release download -R bytecodealliance/wasm-tools -p '*x86_64-linux.tar.gz' -D 
 WTOOLS=$(find dl -name wasm-tools -type f | head -1); $WTOOLS --version | tee -a versions.txt
 gh release download -R WebAssembly/binaryen -p 'binaryen-*-x86_64-linux.tar.gz' -D dl --clobber && (cd dl && for f in binaryen*.tar.gz; do tar xzf $f; done)
 WOPT=$(find dl -name wasm-opt -type f | head -1); $WOPT --version | tee -a versions.txt
+echo "== CLI options mentioning gc / collector / threads / exceptions"; $W compile -W help 2>&1 | grep -i "gc\|collector\|thread\|exception\|component" ; $W compile -O help 2>&1 | grep -i "collector\|gc"
 echo "wasi-sdk 34 clang: $($S/bin/clang --version | head -1)" | tee -a versions.txt
 G=$REPO/wasmtime-nostd/coverage/guest
 
