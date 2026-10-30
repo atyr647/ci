@@ -1,0 +1,187 @@
+diff -ru a/Cargo.toml b/Cargo.toml
+--- a/Cargo.toml	2026-10-30 12:54:43.511500051 +0000
++++ b/Cargo.toml	2026-10-30 12:54:43.653703234 +0000
+@@ -206,7 +206,7 @@
+     "component-model",
+     "component-model-async",
+ ]
+-threads = ["std"]
++threads = []
+ trace-log = ["wasmtime-cranelift?/trace-log"]
+ wave = [
+     "dep:wasm-wave",
+diff -ru a/src/runtime/vm/memory/shared_memory.rs b/src/runtime/vm/memory/shared_memory.rs
+--- a/src/runtime/vm/memory/shared_memory.rs	2026-10-30 12:54:43.528640303 +0000
++++ b/src/runtime/vm/memory/shared_memory.rs	2026-10-30 12:54:56.104784430 +0000
+@@ -1,16 +1,38 @@
+ use crate::Engine;
+ use crate::prelude::*;
+ use crate::runtime::vm::memory::{LocalMemory, MmapMemory, validate_atomic_addr};
+-use crate::runtime::vm::parking_spot::{ParkingSpot, Waiter};
+ use crate::runtime::vm::{self, Memory, VMMemoryDefinition, WaitResult};
+-use std::cell::RefCell;
+-use std::ops::Range;
+-use std::ptr::NonNull;
+-use std::sync::atomic::{AtomicU32, AtomicU64, Ordering};
+-use std::sync::{Arc, RwLock};
+-use std::time::{Duration, Instant};
++use crate::sync::RwLock;
++use alloc::sync::Arc;
++use core::ops::Range;
++use core::ptr::NonNull;
++use core::sync::atomic::Ordering;
++use core::time::Duration;
+ use wasmtime_environ::Trap;
+ 
++// Thread parking is provided by the embedder (C platform layer): the check of the value and the
++// blocking are atomic with respect to `wn_atomic_notify`. `size` is 4 or 8, `timeout_ns` < 0 means
++// no timeout. Returns 0 (woken by a notify), 1 (value mismatch), 2 (timed out).
++unsafe extern "C" {
++    fn wn_atomic_wait(addr: *const u8, size: u32, expected: u64, timeout_ns: i64) -> i32;
++    fn wn_atomic_notify(addr: *const u8, count: u32) -> u32;
++}
++
++fn wait_result(r: i32) -> WaitResult {
++    match r {
++        0 => WaitResult::Ok,
++        1 => WaitResult::Mismatch,
++        _ => WaitResult::TimedOut,
++    }
++}
++
++fn timeout_ns(timeout: Option<Duration>) -> i64 {
++    match timeout {
++        Some(d) => i64::try_from(d.as_nanos()).unwrap_or(i64::MAX),
++        None => -1,
++    }
++}
++
+ /// For shared memory (and only for shared memory), this lock-version restricts
+ /// access when growing the memory or checking its size. This is to conform with
+ /// the [thread proposal]: "When `IsSharedArrayBuffer(...)` is true, the return
+@@ -24,7 +46,6 @@
+ 
+ struct SharedMemoryInner {
+     memory: RwLock<LocalMemory>,
+-    spot: ParkingSpot,
+     ty: wasmtime_environ::Memory,
+     def: LongTermVMMemoryDefinition,
+ }
+@@ -66,7 +87,6 @@
+         }
+         Ok(Self(try_new::<Arc<_>>(SharedMemoryInner {
+             ty: *ty,
+-            spot: ParkingSpot::default(),
+             def: LongTermVMMemoryDefinition(memory.vmmemory()),
+             memory: RwLock::new(memory),
+         })?))
+@@ -89,7 +109,7 @@
+ 
+     /// Same as `RuntimeLinearMemory::grow`, except with `&self`.
+     pub fn grow(&self, delta_pages: u64) -> Result<Option<(usize, usize)>, Error> {
+-        let mut memory = self.0.memory.write().unwrap();
++        let mut memory = self.0.memory.write();
+         // Without a limiter being passed in this shouldn't have an await point,
+         // so it should be safe to assert that it's ready.
+         let result = vm::assert_ready(memory.grow(delta_pages, None))?;
+@@ -126,8 +146,7 @@
+     pub fn atomic_notify(&self, addr_index: u64, count: u32) -> Result<u32, Trap> {
+         let ptr = validate_atomic_addr(&self.0.def.0, addr_index, 4, 4)?;
+         log::trace!("memory.atomic.notify(addr={addr_index:#x}, count={count})");
+-        let ptr = unsafe { &*ptr };
+-        Ok(self.0.spot.notify(ptr, count))
++        Ok(unsafe { wn_atomic_notify(ptr.cast::<u8>() as *const u8, count) })
+     }
+ 
+     /// Implementation of `memory.atomic.wait32` for this shared memory.
+@@ -142,24 +161,12 @@
+             "memory.atomic.wait32(addr={addr_index:#x}, expected={expected}, timeout={timeout:?})"
+         );
+ 
+-        // SAFETY: `addr_index` was validated by `validate_atomic_addr` above.
+-        assert!(std::mem::size_of::<AtomicU32>() == 4);
+-        assert!(std::mem::align_of::<AtomicU32>() <= 4);
+-        let atomic = unsafe { AtomicU32::from_ptr(addr.cast()) };
+-        // Wasm linear memory is always little-endian, but `AtomicU32` uses the
+-        // host's native endianness.
++        // Wasm linear memory is always little-endian, but the comparison in the embedder
++        // uses the host's native endianness.
+         let expected = expected.to_le();
+-
+-        // Note that `checked_add` is used such that when `timeout` is too large
+-        // it'll cause there to be no timeout at all if we can't represent the
+-        // deadline. That effectively maps to the requested timeout since if we
+-        // can't represent the deadline we'll be here awhile.
+-        let deadline = timeout.and_then(|d| Instant::now().checked_add(d));
+-
+-        WAITER.with(|waiter| {
+-            let mut waiter = waiter.borrow_mut();
+-            Ok(self.0.spot.wait32(atomic, expected, deadline, &mut waiter))
+-        })
++        // SAFETY: `addr_index` was validated by `validate_atomic_addr` above.
++        let r = unsafe { wn_atomic_wait(addr.cast::<u8>() as *const u8, 4, expected as u64, timeout_ns(timeout)) };
++        Ok(wait_result(r))
+     }
+ 
+     /// Implementation of `memory.atomic.wait64` for this shared memory.
+@@ -174,42 +181,25 @@
+             "memory.atomic.wait64(addr={addr_index:#x}, expected={expected}, timeout={timeout:?})"
+         );
+ 
+-        // SAFETY: `addr_index` was validated by `validate_atomic_addr` above.
+-        assert!(std::mem::size_of::<AtomicU64>() == 8);
+-        assert!(std::mem::align_of::<AtomicU64>() <= 8);
+-        let atomic = unsafe { AtomicU64::from_ptr(addr.cast()) };
+-        // Wasm linear memory is always little-endian, but `AtomicU64` uses the
+-        // host's native endianness.
+         let expected = expected.to_le();
+-
+-        // See `atomic_wait32` for why this is using `checked_add`.
+-        let deadline = timeout.and_then(|d| Instant::now().checked_add(d));
+-
+-        WAITER.with(|waiter| {
+-            let mut waiter = waiter.borrow_mut();
+-            Ok(self.0.spot.wait64(atomic, expected, deadline, &mut waiter))
+-        })
++        // SAFETY: `addr_index` was validated by `validate_atomic_addr` above.
++        let r = unsafe { wn_atomic_wait(addr.cast::<u8>() as *const u8, 8, expected, timeout_ns(timeout)) };
++        Ok(wait_result(r))
+     }
+ 
+     pub(crate) fn byte_size(&self) -> usize {
+-        self.0.memory.read().unwrap().byte_size()
++        self.0.memory.read().byte_size()
+     }
+ 
+     pub(crate) fn needs_init(&self) -> bool {
+-        self.0.memory.read().unwrap().needs_init()
++        self.0.memory.read().needs_init()
+     }
+ 
+     pub(crate) fn wasm_accessible(&self) -> Range<usize> {
+-        self.0.memory.read().unwrap().wasm_accessible()
++        self.0.memory.read().wasm_accessible()
+     }
+ }
+ 
+-thread_local! {
+-    /// Structure used in conjunction with `ParkingSpot` to block the current
+-    /// thread if necessary. Note that this is lazily initialized.
+-    static WAITER: RefCell<Waiter> = const { RefCell::new(Waiter::new()) };
+-}
+-
+ /// Shared memory needs some representation of a `VMMemoryDefinition` for
+ /// JIT-generated code to access. This structure owns the base pointer and
+ /// length to the actual memory and we share this definition across threads by:
+diff -ru a/src/runtime/vm.rs b/src/runtime/vm.rs
+--- a/src/runtime/vm.rs	2026-10-30 12:54:43.516493489 +0000
++++ b/src/runtime/vm.rs	2026-10-30 12:54:43.654038831 +0000
+@@ -72,8 +72,6 @@
+ mod traphandlers;
+ mod vmcontext;
+ 
+-#[cfg(feature = "threads")]
+-mod parking_spot;
+ 
+ // Note that `debug_builtins` here is disabled with a feature or a lack of a
+ // native compilation backend because it's only here to assist in debugging

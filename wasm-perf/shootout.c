@@ -9,10 +9,26 @@
 #ifndef SIMD
 #define SIMD 0
 #endif
+/* VB: vector width in bytes used by the explicit-vector kernels (16 = wasm SIMD128 / SSE / NEON; 32 = 256-bit: AVX2 natively, two v128 ops in wasm, which has no wider type).
+ * UNROLL: independent vectors processed per loop iteration (hides latency, uses more registers). Results are bit-identical for every VB/UNROLL (lanes never change the summation order),
+ * except that a compiler is free to contract a*b+c into FMA on the host ISA unless built with -ffp-contract=off. */
+#ifndef VB
+#define VB 16
+#endif
+#ifndef UNROLL
+#define UNROLL 1
+#endif
 typedef float v4f __attribute__((vector_size(16)));
+typedef float vf __attribute__((vector_size(VB)));
+typedef float vfu __attribute__((vector_size(VB), aligned(4), may_alias));
+typedef double vd __attribute__((vector_size(VB)));
+#define LF (VB / 4)
+#define LD (VB / 8)
+static const char *g_filter;   /* argv[1]: comma-separated kernel names to run (default all) */
+static int want(const char *n) { if (!g_filter) return 1; const char *p = g_filter; size_t l = strlen(n); while (*p) { const char *e = strchr(p, ','); size_t pl = e ? (size_t)(e - p) : strlen(p); if (pl && pl <= l && !strncmp(n, p, pl)) return 1; if (!e) break; p = e + 1; } return 0; }
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
 static uint64_t sink;
-#define BEST(name, reps, body, sum) do { double best = 1e30; uint64_t cs = 0; for (int r = 0; r < (reps); r++) { double t0 = now_ms(); body; double t1 = now_ms(); if (t1 - t0 < best) best = t1 - t0; cs = (sum); } \
+#define BEST(name, reps, body, sum) do if (want(name)) { double best = 1e30; uint64_t cs = 0; for (int r = 0; r < (reps); r++) { double t0 = now_ms(); body; double t1 = now_ms(); if (t1 - t0 < best) best = t1 - t0; cs = (sum); } \
     printf("KERNEL %s %.3f %llu\n", name, best, (unsigned long long)cs); sink += cs; } while (0)
 
 /* 1. dense matrix multiply 256x256 floats (scalar triple loop, i-k-j order so the inner loop is contiguous) */
@@ -22,8 +38,11 @@ static void matmul(void) {
     memset(MC, 0, sizeof MC);
     for (int i = 0; i < MN; i++) for (int k = 0; k < MN; k++) { float a = MA[i * MN + k];
 #if SIMD
-        v4f av = {a, a, a, a};
-        for (int j = 0; j < MN; j += 4) { v4f c = *(v4f *)(MC + i * MN + j); c += av * *(const v4f *)(MB + k * MN + j); *(v4f *)(MC + i * MN + j) = c; }
+        vf av; for (int l = 0; l < LF; l++) av[l] = a;
+        for (int j = 0; j < MN; j += LF * UNROLL) { vf c[UNROLL];
+            _Pragma("GCC unroll 8") for (int u = 0; u < UNROLL; u++) c[u] = *(const vfu *)(MC + i * MN + j + u * LF);
+            _Pragma("GCC unroll 8") for (int u = 0; u < UNROLL; u++) c[u] += av * *(const vfu *)(MB + k * MN + j + u * LF);
+            _Pragma("GCC unroll 8") for (int u = 0; u < UNROLL; u++) *(vfu *)(MC + i * MN + j + u * LF) = c[u]; }
 #else
         for (int j = 0; j < MN; j++) MC[i * MN + j] += a * MB[k * MN + j];
 #endif
@@ -32,12 +51,25 @@ static void matmul(void) {
 /* 2. n-body, 1024 bodies, double precision, O(n^2) step */
 #define NB 1024
 static double px[NB], py[NB], pz[NB], vx[NB], vy[NB], vz[NB], mass[NB];
+#if SIMD
+static inline vd vsqrt(vd x) { vd r; for (int l = 0; l < LD; l++) r[l] = __builtin_sqrt(x[l]); return r; }   /* needs -fno-math-errno to become one vector sqrt */
+typedef double vdu __attribute__((vector_size(VB), aligned(8), may_alias));
+static void nbody(void) {   /* lanes = different bodies i, so each lane sums over j in the same order as the scalar code */
+    for (int i = 0; i < NB; i += LD * UNROLL) { vd xi[UNROLL], yi[UNROLL], zi[UNROLL], ax[UNROLL], ay[UNROLL], az[UNROLL];
+        for (int u = 0; u < UNROLL; u++) { xi[u] = *(const vdu *)(px + i + u * LD); yi[u] = *(const vdu *)(py + i + u * LD); zi[u] = *(const vdu *)(pz + i + u * LD); for (int l = 0; l < LD; l++) ax[u][l] = ay[u][l] = az[u][l] = 0; }
+        for (int j = 0; j < NB; j++) { vd xj, yj, zj, mj, eps; for (int l = 0; l < LD; l++) { xj[l] = px[j]; yj[l] = py[j]; zj[l] = pz[j]; mj[l] = mass[j]; eps[l] = 0.01; }
+            _Pragma("GCC unroll 8") for (int u = 0; u < UNROLL; u++) { vd dx = xj - xi[u], dy = yj - yi[u], dz = zj - zi[u], d2 = dx * dx + dy * dy + dz * dz + eps, inv = 1.0 / vsqrt(d2), f = mj * inv * inv * inv; ax[u] += dx * f; ay[u] += dy * f; az[u] += dz * f; } }
+        for (int u = 0; u < UNROLL; u++) for (int l = 0; l < LD; l++) { int b = i + u * LD + l; vx[b] += ax[u][l] * 0.01; vy[b] += ay[u][l] * 0.01; vz[b] += az[u][l] * 0.01; } }
+    for (int i = 0; i < NB; i++) { px[i] += vx[i] * 0.01; py[i] += vy[i] * 0.01; pz[i] += vz[i] * 0.01; }
+}
+#else
 static void nbody(void) {
     for (int i = 0; i < NB; i++) { double ax = 0, ay = 0, az = 0;
         for (int j = 0; j < NB; j++) { double dx = px[j] - px[i], dy = py[j] - py[i], dz = pz[j] - pz[i], d2 = dx * dx + dy * dy + dz * dz + 0.01, inv = 1.0 / sqrt(d2), f = mass[j] * inv * inv * inv; ax += dx * f; ay += dy * f; az += dz * f; }
         vx[i] += ax * 0.01; vy[i] += ay * 0.01; vz[i] += az * 0.01; }
     for (int i = 0; i < NB; i++) { px[i] += vx[i] * 0.01; py[i] += vy[i] * 0.01; pz[i] += vz[i] * 0.01; }
 }
+#endif
 /* 3. branchy integer code: a tiny bytecode interpreter loop (what a scripting VM written in C++ looks like) */
 static uint32_t prog[256];
 static uint64_t interp(uint32_t iters) {
@@ -78,7 +110,8 @@ static void transform(void) {
 }
 static uint64_t fchk(const float *p, int n) { double s = 0; for (int i = 0; i < n; i += 7) s += p[i]; return (uint64_t)(int64_t)(s * 16.0); }
 
-int main(void) {
+int main(int argc, char **argv) {
+    if (argc > 1 && argv[1][0]) g_filter = argv[1];
     for (int i = 0; i < MN * MN; i++) { MA[i] = (float)(i % 13) * 0.25f; MB[i] = (float)(i % 7) * 0.5f; }
     for (int i = 0; i < NB; i++) { px[i] = i * 0.37; py[i] = (i * 7 % 101) * 0.1; pz[i] = (i * 13 % 89) * 0.2; vx[i] = vy[i] = vz[i] = 0; mass[i] = 1.0 + (i % 5); }
     for (int i = 0; i < 256; i++) prog[i] = (uint32_t)(i * 2654435761u) >> 4;
@@ -87,8 +120,8 @@ int main(void) {
     for (int i = 0; i < (1 << 20); i++) ints0[i] = (int)((uint32_t)i * 2654435761u >> 3);
     for (int i = 0; i < 16; i++) M4[i] = 0.5f + 0.01f * i;
     for (int i = 0; i < NV * 4; i++) V4[i] = (float)(i % 97) * 0.25f;
-    BEST("matmul256", 5, matmul(), fchk(MC, MN * MN));
-    BEST("nbody1024", 5, nbody(), (uint64_t)(int64_t)(px[5] * 1e6) ^ (uint64_t)(int64_t)(vz[9] * 1e9));
+    BEST("matmul256", 21, matmul(), fchk(MC, MN * MN));
+    BEST("nbody1024", 21, nbody(), (uint64_t)(int64_t)(px[5] * 1e6) ^ (uint64_t)(int64_t)(vz[9] * 1e9));
     BEST("interp", 5, sink += interp(60000000), interp(1000));
     BEST("triad32MB", 7, triad(), fchk(SA, SN));
     BEST("hash16MB", 7, sink += hash(), hash());
