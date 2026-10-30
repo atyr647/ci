@@ -140,7 +140,7 @@ jobs:
           set +e
           curl -fsSL -o wt.${{ matrix.asset }} https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
           mkdir wt && if [[ "${{ matrix.asset }}" == *.zip ]]; then (cd wt && unzip -q ../wt.${{ matrix.asset }}); else tar xJf wt.${{ matrix.asset }} -C wt; fi
-          W=$PWD/$(find wt -name 'wasmtime' -o -name 'wasmtime.exe' | grep -v '\.dll\|\.lib\|\.h$' | head -1); "$W" --version
+          ROOT=$(pwd -W 2>/dev/null || pwd); W=$ROOT/$(find wt -name 'wasmtime' -o -name 'wasmtime.exe' | grep -v '\.dll\|\.lib\|\.h$' | head -1); "$W" --version
           PY=$(command -v python3 || command -v python)
           ARCH=x86_64; [ "$(uname -m)" = arm64 -o "$(uname -m)" = aarch64 ] && ARCH=aarch64
           F="-W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n"
