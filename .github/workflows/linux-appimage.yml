@@ -1,0 +1,55 @@
+name: linux-appimage
+# Linux packaging of the unmodified Cosmopolitan fat file as an AppImage: does it run (with and without FUSE), what does it cost, what does it add?
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2 }
+jobs:
+  appimage:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    arch: x86_64 }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - name: The game file (unmodified fat executable with an embedded zip) and appimagetool
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cosmo/bin/cosmocc -O2 platform-probes/app.c -o game.com && echo "hello from the zip" > asset.txt && zip -q game.com asset.txt && ls -la game.com
+          curl -fsSL -o appimagetool https://github.com/AppImage/appimagetool/releases/download/continuous/appimagetool-${{ matrix.arch }}.AppImage && chmod +x appimagetool
+          ./appimagetool --appimage-extract-and-run --version 2>&1 | head -2
+      - name: AppDir - AppRun starts the unmodified file through sh; variant B converts a copy to a native ELF first
+        run: |
+          for v in sh assimilated; do
+            D=AppDir-$v; mkdir -p $D/usr/bin; cp game.com $D/usr/bin/game.com; chmod +x $D/usr/bin/game.com
+            if [ $v = sh ]; then printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec sh "$HERE/usr/bin/game.com" "$@"\n' > $D/AppRun
+            else (cd $D/usr/bin && sh ./game.com --assimilate && file game.com | cut -c1-90); printf '#!/bin/sh\nHERE="$(dirname "$(readlink -f "$0")")"\nexec "$HERE/usr/bin/game.com" "$@"\n' > $D/AppRun; fi
+            chmod +x $D/AppRun
+            printf '[Desktop Entry]\nType=Application\nName=Probe Game\nExec=game.com\nIcon=probe\nCategories=Game;\nTerminal=true\n' > $D/probe.desktop
+            python3 - $D/probe.png <<'PY'
+          import sys, zlib, struct
+          w = h = 64; raw = b''.join(b'\x00' + b'\x30\x70\xd0' * w for _ in range(h))
+          def ch(t, d): c = struct.pack('>I', len(d)) + t + d; return c + struct.pack('>I', zlib.crc32(t + d) & 0xffffffff)
+          open(sys.argv[1], 'wb').write(b'\x89PNG\r\n\x1a\n' + ch(b'IHDR', struct.pack('>IIBBBBB', w, h, 8, 2, 0, 0, 0)) + ch(b'IDAT', zlib.compress(raw)) + ch(b'IEND', b''))
+          PY
+            ARCH=${{ matrix.arch }} ./appimagetool --appimage-extract-and-run $D probe-$v.AppImage 2>&1 | tail -3
+          done
+          ls -la game.com probe-*.AppImage
+      - name: Run - without FUSE (extract and run), with FUSE if it can be had, size
+        run: |
+          set +e
+          for v in sh assimilated; do
+            echo "=== $v: --appimage-extract-and-run"; ./probe-$v.AppImage --appimage-extract-and-run 2>&1 | head -4; echo "exit ${PIPESTATUS[0]}"
+            echo "=== $v: mounted (needs libfuse2 / fusermount)"; ./probe-$v.AppImage 2>&1 | head -4; echo "exit ${PIPESTATUS[0]}"
+          done
+          echo "fuse present: $(ls /usr/lib/*/libfuse.so.2 /lib/*/libfuse.so.2 2>/dev/null | head -1) fusermount: $(command -v fusermount fusermount3 | tr '\n' ' ')"
+          sudo apt-get install -y libfuse2 >/dev/null 2>&1 || sudo apt-get install -y libfuse2t64 >/dev/null 2>&1
+          echo "after installing libfuse2: $(ls /usr/lib/*/libfuse.so.2 2>/dev/null | head -1)"
+          for v in sh assimilated; do echo "=== $v: mounted, with libfuse2"; ./probe-$v.AppImage 2>&1 | head -4; echo "exit ${PIPESTATUS[0]}"; done
+          echo "=== the bare file for comparison"; sh ./game.com | head -2
+          echo "sizes: bare $(stat -c %s game.com), sh-AppImage $(stat -c %s probe-sh.AppImage), assimilated-AppImage $(stat -c %s probe-assimilated.AppImage); xz of bare $(xz -9 -c game.com | wc -c)"
+      - name: Result (last)
+        if: always()
+        run: ls -la game.com probe-*.AppImage 2>/dev/null
