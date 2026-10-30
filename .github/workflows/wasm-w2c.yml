@@ -55,7 +55,7 @@ jobs:
           ./b-wabt-p/wasm2c $F rt/relaxed_ops.wasm -n rt -o rt/rt.c && echo "patched wasm2c: translated ($(wc -c < rt/rt.c) bytes of C)"
           for cc in gcc clang; do
             command -v $cc >/dev/null || continue
-            $cc -O2 -ffp-contract=fast ${{ matrix.march }} -Wno-everything -Irt -Iwabt-p/wasm2c -Iwabt-p/third_party/simde rt/main.c rt/rt.c wabt-p/wasm2c/wasm-rt-impl.c wabt-p/wasm2c/wasm-rt-mem-impl.c -o rt/t-$cc -lm 2>rt/$cc.err || { echo "$cc build FAILED: $(grep -m3 error rt/$cc.err | cut -c1-200)"; continue; }
+            $cc -O2 -ffp-contract=fast ${{ matrix.march }} -Wno-everything -Irt -Iwabt-p/wasm2c -Iwabt-p/third_party/simde rt/main.c rt/rt.c wabt-p/wasm2c/wasm-rt-impl.c wabt-p/wasm2c/wasm-rt-mem-impl.c -o rt/t-$cc -lm 2>rt/$cc.err || { echo "$cc build FAILED: $(grep -m4 -E 'error|undefined' rt/$cc.err | cut -c1-220 | tr '\n' ' ')"; continue; }
             ./rt/t-$cc > rt/out-$cc.txt || echo "$cc run failed"
           done
           pass=0; fail=0
@@ -63,9 +63,9 @@ jobs:
             w=$($WASMTIME run --invoke $n rt/relaxed_ops.wasm 2>/dev/null | tail -1)
             line="$n wasmtime=$w"
             for cc in gcc clang; do [ -f rt/out-$cc.txt ] || continue; v=$(grep "^$n " rt/out-$cc.txt | cut -d' ' -f2); line="$line $cc=$v"; if [ "$v" = "$w" ]; then :; else line="$line(MISMATCH)"; fi; done
-            echo "$line"; case "$line" in *MISMATCH*) fail=$((fail+1));; *) pass=$((pass+1));; esac
+            echo "$line"; case "$line" in *MISMATCH*) fail=$((fail+1));; *gcc=*|*clang=*) pass=$((pass+1));; *) fail=$((fail+1));; esac
           done
-          echo "agree with Wasmtime: $pass, differ: $fail"
+          echo "agree with Wasmtime: $pass, differ or missing: $fail"
           } 2>&1 | tee -a results.md
       - name: Speed - kernels translated by the patched wasm2c
         run: |
