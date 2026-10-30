@@ -802,3 +802,11 @@ void** IID_PPV_ARGS_Helper(Microsoft::WRL::Details::ComPtrRef<T> pp) throw()
 {
     return pp;
 }
+
+// MSVC and clang-cl give __uuidof(ComPtr<IFoo>) the uuid of IFoo (they look through a class template's arguments); Dawn relies on it:
+// d3d12Resource->GetDevice(__uuidof(resourceDevice), &resourceDevice).
+#ifdef __WINE_UUID_ATTR
+extern "C++" {
+    template <typename T> struct __wine_uuidof_type<Microsoft::WRL::ComPtr<T> > { typedef __wine_uuidof<T> inst; };
+}
+#endif

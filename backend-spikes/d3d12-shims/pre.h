@@ -42,3 +42,7 @@
 #include "sal_shim.h"
 #include "uuid_decls.h"
 #include "win_extras.h"
+/* DirectX-Headers copies of the shared headers must win over Wine's older ones (identical include guards: first one parsed is the one used) */
+#include <d3dcommon.h>
+#include <dxgicommon.h>
+#include <dxgiformat.h>

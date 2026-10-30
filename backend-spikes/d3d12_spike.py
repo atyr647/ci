@@ -2,6 +2,7 @@
 """Spike: how far do Dawn's D3D12 backend sources get when compiled with the Cosmopolitan GCC against Wine's Windows/DXGI/D3D11 headers (LP64-safe, COM methods
 automatically ms_abi) and Microsoft's DirectX-Headers (newer d3d12*.h)? Compile only. The rest of Dawn is compiled as "Linux"; these TUs pretend to be Windows
 AFTER the C++ library headers have been parsed (stubs/pre.h), so libc++ keeps its POSIX code paths.
+OBJ_DIR=<dir> compiles to objects (code generation, assembler) instead of syntax-only; DXH_INCLUDE=<dir> uses newer DirectX-Headers than Dawn pins.
 usage: d3d12_spike.py <flag-template-command-file> <dawn-src> <build-dir> <wine-include-root> <stubs-dir> [limit]"""
 import re, shlex, subprocess, sys, os, glob, collections
 from concurrent.futures import ThreadPoolExecutor
@@ -15,15 +16,17 @@ for t in toks:
     if t in ('-c', '-MD'): continue
     if re.search(r'\.(cpp|cc|c)$', t): continue
     base.append(t)
-extra = ['-DDAWN_ENABLE_BACKEND_D3D12', '-DDAWN_ENABLE_BACKEND_D3D11', '-DDAWN_COSMO_AS_WINDOWS=1', '-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-fpermissive', '-w', '-fsyntax-only', '-fshort-wchar', '-DWINE_UNICODE_NATIVE',
+dxh = os.environ.get('DXH_INCLUDE') or os.path.join(dawn, 'third_party/directx-headers/src/include')   # newer than Dawn's pin if the backend needs Agility-SDK-level names
+extra = ['-DDAWN_ENABLE_BACKEND_D3D12', '-DDAWN_ENABLE_BACKEND_D3D11', '-DDAWN_COSMO_AS_WINDOWS=1', '-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-fpermissive', '-w'] + ([] if os.environ.get('OBJ_DIR') else ['-fsyntax-only']) + [ '-UTINT_BUILD_HLSL_WRITER', '-DTINT_BUILD_HLSL_WRITER=1', '-fshort-wchar', '-DWINE_UNICODE_NATIVE',
          '-include', os.path.join(stubs, 'pre.h'), '-I' + stubs,
-         '-I' + os.path.join(dawn, 'third_party/directx-headers/src/include/directx'), '-I' + os.path.join(dawn, 'third_party/directx-headers/src/include'),
+         '-I' + os.path.join(dxh, 'directx'), '-I' + dxh,
          '-I' + os.path.join(dawn, 'third_party/directx-shader-compiler/src/include/dxc'),
          '-I' + os.path.join(wine, 'windows'), '-I' + wine]
 files = sorted(glob.glob(os.path.join(dawn, 'src/dawn/native/d3d12/*.cpp')) + glob.glob(os.path.join(dawn, 'src/dawn/native/d3d/*.cpp')))[:limit]
 print(f'{len(files)} translation units (d3d + d3d12)', flush=True)
 def one(f):
-    p = subprocess.run(base + extra + ['-c', f], cwd=build, capture_output=True, text=True)
+    o = ['-o', os.path.join(os.environ['OBJ_DIR'], os.path.basename(os.path.dirname(f)) + '_' + os.path.basename(f) + '.o')] if os.environ.get('OBJ_DIR') else []
+    p = subprocess.run(base + extra + ['-c', f] + o, cwd=build, capture_output=True, text=True)
     errs = [l for l in p.stderr.splitlines() if ' error' in l or 'fatal error' in l]
     return f, errs
 cnt = collections.Counter(); ok = 0
