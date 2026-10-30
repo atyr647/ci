@@ -65,8 +65,9 @@ static void host_baselines() {
 
 // ---------------------------------------------------------------- WebGPU
 static WGPUInstance g_inst; static volatile int g_done; static int g_status; static WGPUAdapter g_adapter; static WGPUDevice g_device;
-static void on_adapter(WGPURequestAdapterStatus s, WGPUAdapter a, WGPUStringView, void *, void *) { g_status = s; g_adapter = a; g_done = 1; }
-static void on_device(WGPURequestDeviceStatus s, WGPUDevice d, WGPUStringView, void *, void *) { g_status = s; g_device = d; g_done = 1; }
+static std::string sv(WGPUStringView s);
+static void on_adapter(WGPURequestAdapterStatus s, WGPUAdapter a, WGPUStringView m, void *, void *) { g_status = s; g_adapter = a; if (!a) printf("adapter request failed (status %d): %s\n", (int)s, sv(m).c_str()); g_done = 1; }
+static void on_device(WGPURequestDeviceStatus s, WGPUDevice d, WGPUStringView m, void *, void *) { g_status = s; g_device = d; if (!d) printf("device request failed (status %d): %s\n", (int)s, sv(m).c_str()); g_done = 1; }
 static void on_map(WGPUMapAsyncStatus s, WGPUStringView, void *, void *) { g_status = s; g_done = 1; }
 static bool pump(double limit_ms = 30000) { auto t = Clock::now(); while (!g_done) { wgpuInstanceProcessEvents(g_inst); if (ms_since(t) > limit_ms) return false; std::this_thread::yield(); } return true; }
 static std::string sv(WGPUStringView s) { return s.data ? std::string(s.data, s.length == WGPU_STRLEN ? strlen(s.data) : s.length) : ""; }
