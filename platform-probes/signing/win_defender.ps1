@@ -15,7 +15,11 @@ $mp = Join-Path $env:ProgramFiles 'Windows Defender\MpCmdRun.exe'
 Prefs 'before'
 try { Set-MpPreference -MAPSReporting Advanced -SubmitSamplesConsent SendAllSamples -CloudBlockLevel High -CloudExtendedTimeout 50 -PUAProtection Enabled -DisableRealtimeMonitoring $false -DisableBehaviorMonitoring $false -DisableIOAVProtection $false -ErrorAction Stop; Note "RESULT Set-MpPreference: accepted" } catch { Note "RESULT Set-MpPreference: $($_.Exception.Message)" }
 Prefs 'after Set-MpPreference'
-$o = & $mp -ValidateMapsConnection 2>&1 | Out-String; Note "RESULT cloud (MAPS) connection check, exit $LASTEXITCODE : $((($o -split "`r?`n") | Where-Object { $_ -match 'MAPS|connection|error|0x' } | Select-Object -First 3) -join ' ')"
+foreach ($try in 1, 2) {
+  $o = & $mp -ValidateMapsConnection 2>&1 | Out-String; Note "RESULT cloud (MAPS) connection check #$try, exit $LASTEXITCODE : $((($o -split "`r?`n") | Where-Object { $_ -match 'MAPS|connection|error|0x' } | Select-Object -First 3) -join ' ')"
+  if ($try -eq 1) { Start-Sleep 25; Prefs 'after 25 s' }
+}
+try { $s = Get-MpComputerStatus; Note "RESULT cloud-related status: IsVirtualMachine=$($s.IsVirtualMachine) NISEnabled=$($s.NISEnabled) BehaviorMonitorEnabled=$($s.BehaviorMonitorEnabled) IoavProtectionEnabled=$($s.IoavProtectionEnabled)" } catch {}
 
 New-Item -ItemType Directory -Force scan | Out-Null
 $e1 = 'X5O!P%@AP[4\PZX54(P^)7CC)7}$EICAR-STANDARD-'; $e2 = 'ANTIVIRUS-TEST-FILE!$H+H*'; [IO.File]::WriteAllText("$PWD\scan\eicar-control.txt", $e1 + $e2)
@@ -29,7 +33,6 @@ $files = [ordered]@{
   'signed-app-timestamped'               = 'signed\app-ossl-ts.exe'
   'signed-dl (loads a library)'          = 'signed\dl-ossl.exe'
 }
-if (Test-Path dawn\*.com) { $i = 0; foreach ($d in Get-ChildItem dawn\*.com) { $files["dawn-fat-$($d.BaseName) (loads GPU libraries)"] = $d.FullName; $files["dawn-fat-$($d.BaseName)-prepared"] = $null } }
 $i = 0; $map = @{}
 foreach ($k in @($files.Keys)) { $src = $files[$k]; if (-not $src -or -not (Test-Path $src)) { continue }; $i++; $dst = "scan\f$i.exe"; Copy-Item $src $dst; $map[$k] = $dst }
 $map['EICAR control'] = 'scan\eicar-control.txt'
@@ -75,7 +78,10 @@ try {
   Copy-Item signed\app-st.exe scan\wdac-signed.exe -ErrorAction SilentlyContinue; if (-not (Test-Path scan\wdac-signed.exe)) { Copy-Item signed\app-ossl.exe scan\wdac-signed.exe }
   Copy-Item out\app.com scan\wdac-unsigned.exe; Copy-Item signed\app-ossl.exe scan\wdac-signed-ossl.exe
   $x = 'work-wdac.xml'; Copy-Item $base $x
-  $rules = New-CIPolicyRule -DriverFiles (Get-SystemDriver -ScanPath (Resolve-Path scan\wdac-signed-ossl.exe).Path -UserPEs) -Level Publisher -Fallback Hash
+  $drv = Get-SystemDriver -ScanPath (Resolve-Path scan\wdac-signed-ossl.exe).Path -UserPEs
+  Note "RESULT [WDAC] Get-SystemDriver on the signed file: $(@($drv).Count) item(s); SignatureStatus=$(($drv | ForEach-Object { $_.SignatureStatus }) -join ',')"
+  $rules = New-CIPolicyRule -DriverFiles $drv -Level Publisher -Fallback Hash
+  Note "RESULT [WDAC] rules generated: $(@($rules).Count) ($(($rules | ForEach-Object { $_.GetType().Name }) -join ','))"
   Merge-CIPolicy -PolicyPaths $x -OutputFilePath $x -Rules $rules | Out-Null
   Set-RuleOption -FilePath $x -Option 3
   Set-CIPolicyIdInfo -FilePath $x -ResetPolicyID | Out-Null
@@ -84,9 +90,10 @@ try {
   Start-Sleep 3
   $t0 = Get-Date
   foreach ($f in 'scan\wdac-unsigned.exe', 'scan\wdac-signed-ossl.exe') { $o = (& ".\$f" 2>&1 | Out-String).Trim() -replace "`r?`n", ' / '; Note "RESULT [WDAC audit] ran $f : exit $LASTEXITCODE | $o" }
+  $o = (& whoami.exe 2>&1 | Out-String).Trim(); Note "RESULT [WDAC audit] control, a Microsoft-signed binary (whoami.exe): $o"
   Start-Sleep 3
   $ev = Get-WinEvent -FilterHashtable @{ LogName = 'Microsoft-Windows-CodeIntegrity/Operational'; StartTime = $t0.AddSeconds(-5) } -ErrorAction SilentlyContinue
-  foreach ($e in $ev) { if ($e.Id -in 3076, 3077, 3033, 3034, 3089) { Note "RESULT [WDAC audit] event $($e.Id): $(($e.Message -split "`r?`n")[0].Substring(0, [Math]::Min(200, ($e.Message -split "`r?`n")[0].Length)))" } }
+  foreach ($e in $ev) { if ($e.Id -in 3076, 3077, 3033, 3034, 3089) { $x = ($e.ToXml() -replace '<[^>]*Name=.([A-Za-z0-9 ]+).[^>]*>', ' $1=' -replace '</Data>', ';' -replace '<[^>]+>', ' ' -replace '\s+', ' '); Note "RESULT [WDAC audit] event $($e.Id): $($x.Substring(0, [Math]::Min(900, $x.Length)))" } }
   Note "RESULT [WDAC audit] code-integrity events since the runs: $(@($ev).Count) (3076 = audit: would have been blocked, 3077 = blocked, 3089 = signature info)"
 } catch { Note "RESULT WDAC audit test not possible: $($_.Exception.Message)" }
 Note "=== SUMMARY ==="; $Res | Where-Object { $_ -like 'RESULT*' } | ForEach-Object { Write-Host $_ }

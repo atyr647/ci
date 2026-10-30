@@ -42,6 +42,10 @@ for v in plain none jit unsigned both noprot libval; do
   else codesign --force -s - --options runtime --entitlements e-$v.plist ape-$v 2>/dev/null; label="hardened runtime, entitlements: $v"; fi
   ./ape-$v ./fresh.com > lo.txt 2>&1; rc=$?; R "loader $label -> exit $rc: $(tr '\n' ' ' < lo.txt | cut -c1-160)"
 done
+cp ../out/jit.com jit.com; chmod +x jit.com
+for v in plain none jit unsigned both noprot; do
+  ./ape-$v ./jit.com > lo.txt 2>&1; R "executable-memory probe through the loader, $v: $(grep -v '^platform' lo.txt | sed -E 's/ +/ /g; s/called generated code, //' | cut -c1-70 | tr '\n' '|')"
+done
 R "loader flags check: $(codesign -dvvv ape-none 2>&1 | grep -E 'flags|Runtime' | tr '\n' '|')"
 
 echo "##### 4. test identity (self-signed code-signing certificate in a temporary keychain, trusted for code signing on this runner only)"
@@ -72,7 +76,7 @@ signit() { # path, extra args...
 }
 mkbundle() { # name loader-entitlements-file
   local b=$1.app; rm -rf $b; mkdir -p $b/Contents/MacOS $b/Contents/Resources
-  cc -O2 -o $b/Contents/MacOS/$1 launcher.c; cp ape-loader $b/Contents/MacOS/ape-loader; cp ../out/app.com $b/Contents/Resources/app.com
+  cc -O2 -o $b/Contents/MacOS/$1 launcher.c; cp ape-loader $b/Contents/MacOS/ape-loader; cp ../out/app.com $b/Contents/Resources/app.com; chmod +x $b/Contents/Resources/app.com
   cat > $b/Contents/Info.plist <<EOF
 <?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict>
 <key>CFBundleExecutable</key><string>$1</string><key>CFBundleIdentifier</key><string>ci.test.$1</string><key>CFBundleName</key><string>$1</string>
@@ -134,7 +138,8 @@ for v in none unsigned jit both; do
   report $name "B: Developer-ID-style, hardened runtime, loader entitlement=$v"
 done
 R "[B unsigned] nested sign order + entitlements of the loader: $(codesign -d --entitlements :- Bunsigned.app/Contents/MacOS/ape-loader 2>&1 | tr -d '\n' | cut -c1-300)"
-R "[B] syspolicy_check distribution: $(syspolicy_check distribution Bunsigned.app 2>&1 | head -12 | tr '\n' '|' | cut -c1-900)"
+syspolicy_check distribution Bunsigned.app > sp.txt 2>&1; R "[B] syspolicy_check distribution (exit $?): $(grep -E 'Severity|Full Error|^[A-Z][A-Za-z ]+$' sp.txt | tr -s ' ' | tr '\n' '|' | cut -c1-1200)"
+syspolicy_check notary-submission Bunsigned.app > sp2.txt 2>&1; R "[B] syspolicy_check notary-submission (exit $?): $(grep -E 'Severity|Full Error|^[A-Z][A-Za-z ]+$|passed|failed' sp2.txt | tr -s ' ' | tr '\n' '|' | cut -c1-1200)"
 
 echo "##### 7. quarantine"
 cp -R Bunsigned.app Q.app; xattr -w com.apple.quarantine "0083;$(printf '%x' $(date +%s));Safari;$(uuidgen)" Q.app; xattr -rw com.apple.quarantine "0083;$(printf '%x' $(date +%s));Safari;$(uuidgen)" Q.app 2>/dev/null

@@ -39,6 +39,8 @@ Copy-Item signed\app-prep.exe work\app-prep.exe; Check work\app-prep.exe 'prepar
 Note "--- signed on Linux with osslsigncode, verified here"
 foreach ($n in 'app-ossl','app-ossl-ts','app-ossl-plain-slot','app-ossl-ts-slot','dl-ossl','hello-ossl') { Copy-Item "signed\$n.exe" "work\$n.exe"; Check "work\$n.exe" "osslsigncode: $n" }
 
+Note "--- negative control: file signed on Linux, then a file added to its zip with zip -A (a post-signing modification)"
+Copy-Item signed\neg-zip-modified.exe work\neg.exe; Check work\neg.exe 'zip modified after signing'
 Note "--- signed here with Microsoft's tools"
 Copy-Item signed\app-prep.exe work\app-ps.exe
 $r = Set-AuthenticodeSignature -FilePath work\app-ps.exe -Certificate $cert -HashAlgorithm SHA256 -IncludeChain All

@@ -6,8 +6,31 @@ env: { COSMOCC: 4.0.2 }
 jobs:
   patch:
     runs-on: ubuntu-latest
+    timeout-minutes: 60
     steps:
       - uses: actions/checkout@v4
       - run: |
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
           bash platform-probes/signing/upstream_patch.sh 2>&1 | tee up.log
+      - uses: actions/upload-artifact@v4
+        with: { name: upstream-patched, path: "up-out", retention-days: 3 }
+  win:
+    needs: patch
+    runs-on: windows-latest
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: upstream-patched, path: . }
+      - name: Microsoft's tools on the build made with the patched ape.o (no pe_prepare_for_signing step)
+        shell: powershell
+        run: |
+          certutil -addstore -f Root pki\root.cer | Select-Object -Last 1
+          Copy-Item app.com ms.exe
+          $st = Get-ChildItem "${env:ProgramFiles(x86)}\Windows Kits\10\bin" -Recurse -Filter signtool.exe -ErrorAction SilentlyContinue | Where-Object { $_.FullName -match '\\x64\\' } | Sort-Object FullName | Select-Object -Last 1
+          & $st.FullName sign /fd SHA256 /f pki\leaf.pfx /p pw ms.exe 2>&1 | Select-Object -Last 2
+          "signtool sign exit $LASTEXITCODE"
+          & $st.FullName verify /pa ms.exe 2>&1 | Select-Object -Last 3
+          "signtool verify exit $LASTEXITCODE"
+          $v = Get-AuthenticodeSignature ms.exe; "RESULT patched build + signtool: Get-AuthenticodeSignature $($v.Status)"
+          ./ms.exe; "RESULT patched build + signtool, run: exit $LASTEXITCODE"
+          ./app-signed.exe; "RESULT patched build + osslsigncode, run: exit $LASTEXITCODE"
+          $v = Get-AuthenticodeSignature app-signed.exe; "RESULT patched build + osslsigncode: Get-AuthenticodeSignature $($v.Status)"

@@ -6,6 +6,7 @@ P=platform-probes; S=$P/signing
 mkdir -p out signed
 cosmo/bin/cosmocc -O2 $P/app.c -o out/app.com || exit 1
 cosmo/bin/cosmocc -O2 $P/hello.c -o out/hello.com || exit 1
+cosmo/bin/cosmocc -O2 $P/jit_probe.c -o out/jit.com || echo "jit_probe did not build"
 cosmo/bin/cosmocc -O2 $P/dl_probe.c -o out/dl.com || echo "dl_probe did not build"
 echo signed-test-asset > asset.txt
 for z in "-A" ""; do
@@ -49,4 +50,8 @@ for f in out/app.com signed/app-prep.exe signed/app-ossl.exe signed/app-ossl-ts.
   case $f in signed/*) osslsigncode verify -in $f -CAfile pki/root.pem -TSA-CAfile pki/root.pem 2>&1 | grep -i "signature verification\|timestamp\|number of verified\|error\|mismatch\|calculated\|current message" | head -6 | sed 's/^/  osslsigncode verify: /';; esac
 done
 echo "--- other signed files run"; for f in signed/dl-ossl.exe signed/hello-ossl.exe; do echo "$f: $(sh ./$f 2>&1 | tr '\n' ' ')"; done
+echo "--- negative control: adding a file to the zip AFTER signing invalidates the signature (assets must be added before signing)"
+cp signed/app-ossl.exe after.exe; echo late > late.txt; zip -q -A after.exe late.txt; sh ./after.exe | head -1
+osslsigncode verify -in after.exe -CAfile pki/root.pem 2>&1 | grep -i "signature verification\|message digest" | head -3 | sed 's/^/  osslsigncode verify after zip -A: /'
+cp after.exe signed/neg-zip-modified.exe
 rm -f t.com tmp-*.exe
