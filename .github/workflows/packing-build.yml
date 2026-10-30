@@ -1,12 +1,12 @@
 name: packing-build
-# Compile-level size/speed experiments on the x86-64 half of the Cosmopolitan Dawn file (the half that carries Vulkan AND D3D12): optimisation level, Tint at -Os, unwind tables,
-# build-flag feature trimming, LTO. Same recipe, patches and pinned sources as the dawn-cosmo run named below; each variant is linked next to a baseline built from that run's
-# library and the two are benchmarked interleaved on the same machine.
+# Compile-level size/speed experiments on the two halves of the Cosmopolitan Dawn file: optimisation level, Tint at -Os, unwind tables, build-flag feature trimming, one backend less.
+# Same recipe, patches and pinned sources as the dawn-cosmo run named below; every variant is linked next to a baseline built from that run's library, and all variants of one
+# architecture are benchmarked together, interleaved, on one machine (Linux: lavapipe software GPU; Windows: D3D12 on WARP).  LTO is not possible with cosmocc 4.0.2 (measured: GCC built without LTO).
 on:
   workflow_dispatch:
     inputs:
-      variants:   { description: 'comma list of variant names (o2, os, o2-tintos, o2-nounwind, o2-min, lto, win-novk)', required: false, default: 'o2,os,o2-tintos,o2-nounwind,o2-min,lto,win-novk' }
-      src_run:    { description: 'dawn-cosmo run id (baseline library lib-x86_64)', required: false, default: '41047548027' }
+      variants:   { description: 'comma list of variant names (see plan job)', required: false, default: 'o3-min,o3-min-nounwind,o2-min-nounwind,lnx-o3,win-o3,a64-o3-min,a64-o3-min-nounwind' }
+      src_run:    { description: 'dawn-cosmo run id (baseline libraries lib-x86_64, lib-aarch64, metal-objs)', required: false, default: '41047548027' }
       src_sha:    { description: 'commit of that run (patch.py, shims, test sources)', required: false, default: '21a8e25fd4f346729102b99e38d571d6b4d13aab' }
       rounds:     { description: 'interleaved benchmark rounds', required: false, default: '7' }
 env:
@@ -16,26 +16,39 @@ env:
 jobs:
   plan:
     runs-on: ubuntu-latest
-    outputs: { matrix: '${{ steps.m.outputs.matrix }}' }
+    outputs: { matrix: '${{ steps.m.outputs.matrix }}', x64: '${{ steps.m.outputs.x64 }}', arm: '${{ steps.m.outputs.arm }}', win: '${{ steps.m.outputs.win }}' }
     steps:
       - id: m
         env: { V: '${{ inputs.variants }}' }
         run: |
           python3 - <<'PY' >> "$GITHUB_OUTPUT"
           import json, os
-          O2 = '-O2 -DNDEBUG'
+          O3, O2, OS = '-O3 -DNDEBUG', '-O2 -DNDEBUG', '-Os -DNDEBUG'
+          NU = ' -fno-asynchronous-unwind-tables -fno-unwind-tables'
+          MIN = '-DTINT_BUILD_SPV_READER=OFF -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_NULL_WRITER=OFF -DDAWN_ENABLE_NULL=OFF'
+          def v(**k):
+              d = dict(arch='x86_64', d3d='1', rel=O3, extra='', tintos='0', novk='0'); d.update(k); return d
           allv = {
-            'o2':          dict(rel=O2, extra='', tintos='0', lto='0'),
-            'os':          dict(rel='-Os -DNDEBUG', extra='', tintos='0', lto='0'),
-            'o2-tintos':   dict(rel=O2, extra='', tintos='1', lto='0'),
-            'o2-nounwind': dict(rel=O2 + ' -fno-asynchronous-unwind-tables -fno-unwind-tables', extra='', tintos='0', lto='0'),
-            'o2-min':      dict(rel=O2, extra='-DTINT_BUILD_SPV_READER=OFF -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_NULL_WRITER=OFF -DDAWN_ENABLE_NULL=OFF', tintos='0', lto='0'),
-            'lto':         dict(rel=O2 + ' -flto=auto -ffat-lto-objects', extra='', tintos='0', lto='1'),
-            'win-novk':    dict(rel=O2, extra='-DDAWN_ENABLE_VULKAN=OFF', tintos='0', lto='0', novk='1'),
+            'o2':              v(rel=O2),
+            'os':              v(rel=OS),
+            'o2-tintos':       v(rel=O2, tintos='1'),
+            'o2-nounwind':     v(rel=O2 + NU),
+            'o2-min':          v(rel=O2, extra=MIN),
+            'win-novk':        v(rel=O2, extra='-DDAWN_ENABLE_VULKAN=OFF', novk='1'),
+            'o3-min':          v(extra=MIN),
+            'o3-min-nounwind': v(rel=O3 + NU, extra=MIN),
+            'o2-min-nounwind': v(rel=O2 + NU, extra=MIN),
+            'lnx-o3':          v(d3d='0', extra=MIN),                                              # Linux build: no D3D12 backend, no HLSL writer
+            'win-o3':          v(extra='-DDAWN_ENABLE_VULKAN=OFF -DDAWN_ENABLE_NULL=OFF', novk='1'),  # Windows build: D3D12 only
+            'a64-o3-min':      v(arch='aarch64', d3d='0', extra=MIN),
+            'a64-o3-min-nounwind': v(arch='aarch64', d3d='0', rel=O3 + NU, extra=MIN),
           }
-          sel = [v.strip() for v in os.environ['V'].split(',') if v.strip()]
-          for k, v in allv.items(): v.setdefault('novk', '0')
-          print('matrix=' + json.dumps({'include': [dict(name=n, **allv[n]) for n in sel]}))
+          sel = [x.strip() for x in os.environ['V'].split(',') if x.strip()]
+          inc = [dict(name=n, **allv[n]) for n in sel]
+          print('matrix=' + json.dumps({'include': inc}, separators=(',', ':')))
+          print('x64=' + json.dumps({'include': [{'a': 'x64'}] if any(i['arch'] == 'x86_64' and i['novk'] == '0' for i in inc) else []}, separators=(',', ':')))
+          print('arm=' + json.dumps({'include': [{'a': 'arm'}] if any(i['arch'] == 'aarch64' for i in inc) else []}, separators=(',', ':')))
+          print('win=' + json.dumps({'include': [i for i in inc if i['arch'] == 'x86_64' and i['d3d'] == '1']}, separators=(',', ':')))
           PY
   build:
     needs: plan
@@ -45,19 +58,21 @@ jobs:
     runs-on: ubuntu-latest
     timeout-minutes: 340
     env:
-      COSMO_ARCH: x86_64
+      COSMO_ARCH: ${{ matrix.arch }}
     steps:
       - uses: actions/checkout@v4
       - uses: actions/checkout@v4
         with: { ref: '${{ inputs.src_sha }}', path: pin }
       - name: Tools
         run: |
-          sudo apt-get update && sudo apt-get install -y ninja-build llvm unzip mesa-vulkan-drivers libvulkan1
+          sudo apt-get update && sudo apt-get install -y ninja-build llvm unzip
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
           mkdir -p $HOME/cosmo && unzip -q cosmocc.zip -d $HOME/cosmo
           cp $HOME/cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
-      - { uses: actions/download-artifact@v4, with: { name: lib-x86_64, path: lib-base, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
+      - { uses: actions/download-artifact@v4, with: { name: 'lib-${{ matrix.arch }}', path: lib-base, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
+      - { uses: actions/download-artifact@v4, if: "matrix.arch == 'aarch64'", with: { name: metal-objs, path: metal, run-id: '${{ inputs.src_run }}', github-token: '${{ github.token }}' } }
       - name: Inputs for the in-file D3D12 backend
+        if: matrix.d3d == '1'
         run: |
           sh pin/backend-spikes/setup-wine-headers.sh $PWD/wine
           mkdir dxh && git -C dxh init -q && git -C dxh fetch -q --depth 1 https://github.com/microsoft/DirectX-Headers $DXH_SHA && git -C dxh checkout -q FETCH_HEAD
@@ -66,30 +81,37 @@ jobs:
           python3 pin/backend-spikes/make_sal_shim.py pin/dawn-cosmo/d3d12-shims/sal_shim.h dxh/include/directx/*.h pin/dawn-cosmo/d3d12-shims/dxcapi.h
           python3 pin/backend-spikes/make_uuid_decls.py pin/dawn-cosmo/d3d12-shims/uuid_decls.h $W/windows dxh/include/directx pin/dawn-cosmo/d3d12-shims
       - name: Fetch and patch Dawn
-        env: { DAWN_COSMO_D3D12: '1', DAWN_COSMO_METAL: '0' }
+        env:
+          DAWN_COSMO_D3D12: ${{ matrix.d3d }}
+          DAWN_COSMO_METAL: ${{ matrix.arch == 'aarch64' && '1' || '0' }}
         run: |
           mkdir -p dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
           git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD && cd ..
           python3 pin/dawn-cosmo/patch.py dawn
       - name: Configure
         run: |
-          emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
-          DXH=$PWD/dxh/include; SH=$PWD/pin/dawn-cosmo/d3d12-shims; FILES=$PWD/pin/dawn-cosmo/files; WINE=$PWD/wine/x/usr/include/wine/wine
-          FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;-include$FILES/win32_rename.h;-include$SH/pre.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
-          d3d="-DDAWN_ENABLE_D3D12=ON -DTINT_BUILD_HLSL_WRITER=ON -DDAWN_COSMO_D3D12=ON -DDAWN_COSMO_FILES_DIR=$FILES"
+          emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
+          d3d=""; FLAGS=""
+          [ "$COSMO_ARCH" = aarch64 ] && d3d="-DTINT_BUILD_MSL_WRITER=ON"   # the Metal objects linked into the arm64 half use Tint's MSL writer
+          if [ "${{ matrix.d3d }}" = 1 ]; then
+            DXH=$PWD/dxh/include; SH=$PWD/pin/dawn-cosmo/d3d12-shims; FILES=$PWD/pin/dawn-cosmo/files; WINE=$PWD/wine/x/usr/include/wine/wine
+            FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;-include$FILES/win32_rename.h;-include$SH/pre.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
+            d3d="-DDAWN_ENABLE_D3D12=ON -DTINT_BUILD_HLSL_WRITER=ON -DDAWN_COSMO_D3D12=ON -DDAWN_COSMO_FILES_DIR=$FILES"
+          fi
           cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/pin/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release \
             "-DCMAKE_C_FLAGS_RELEASE=${{ matrix.rel }}" "-DCMAKE_CXX_FLAGS_RELEASE=${{ matrix.rel }}" \
             -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF \
             -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF \
             -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
-            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DDAWN_BUILD_PROTOBUF=OFF $emu $d3d ${{ matrix.extra }} "-DDAWN_COSMO_D3D12_FLAGS=$FLAGS" 2>&1 | tee configure.log | tail -40
-          cp -r dxh/include/directx/. dawn/third_party/directx-headers/src/include/directx/
-          cp pin/dawn-cosmo/d3d12-shims/dxcapi.h dawn/third_party/directx-shader-compiler/src/include/dxc/dxcapi.h
+            -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=OFF -DDAWN_BUILD_PROTOBUF=OFF $emu $d3d ${{ matrix.extra }} ${FLAGS:+"-DDAWN_COSMO_D3D12_FLAGS=$FLAGS"} 2>&1 | tee configure.log | tail -40
+          if [ "${{ matrix.d3d }}" = 1 ]; then
+            cp -r dxh/include/directx/. dawn/third_party/directx-headers/src/include/directx/
+            cp pin/dawn-cosmo/d3d12-shims/dxcapi.h dawn/third_party/directx-shader-compiler/src/include/dxc/dxcapi.h
+          fi
           grep -n 'Tint build\|Dawn build' configure.log | head -20
       - name: Tint at -Os (only for the o2-tintos variant)
         if: matrix.tintos == '1'
         run: |
-          grep -n 'function(tint_default_compile_options' dawn/src/tint/CMakeLists.txt
           python3 - <<'PY'
           p = 'dawn/src/tint/CMakeLists.txt'; s = open(p).read()
           k = 'function(tint_default_compile_options TARGET)\n'
@@ -105,50 +127,104 @@ jobs:
           tail -3 build.log
           find build -name 'libwebgpu_dawn.a' -exec ls -l {} \;
           ! grep -q '^FAILED:' build.log
-      - name: Link next to the baseline, sizes, correctness, interleaved benchmark
+      - name: Link the variant next to the baseline (single-architecture files), inventory of the variant
         run: |
-          B=$HOME/cosmo/bin; mkdir -p out
-          VL=$(dirname "$(find build -name libwebgpu_dawn.a | head -1)")
+          B=$HOME/cosmo/bin; A=${{ matrix.arch }}; mkdir -p out work
           cp "$(find build -name libwebgpu_dawn.a | head -1)" out/libvariant.a
-          # headers of the variant build (same API) are used for both
           INC="-Ilib-base/inc1 -Ilib-base/inc2 -Ipin/ci-webgpu-test"
-          LTOF=""; [ "${{ matrix.lto }}" = 1 ] && LTOF="-flto=auto"
-          $B/x86_64-unknown-cosmo-cc -O2 -c packing/cosmo_os_shim.c -o out/shim.o
+          $B/$A-unknown-cosmo-cc -O2 -c packing/cosmo_os_shim.c -o out/shim.o
           SHIM=""; [ "${{ matrix.novk }}" = 1 ] && SHIM="out/shim.o"
-          $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 -c pin/alloc-probe/tcache_new.cpp -o out/tcache.o
-          $B/x86_64-unknown-cosmo-cc -O2 $INC -c pin/ci-webgpu-test/wgt.c -o out/wgt.o
-          $B/x86_64-unknown-cosmo-c++ -O2 -std=c++17 $INC -Ici-webgpu-test -c ci-webgpu-test/dawn_bench.cpp -o out/bench.o
+          $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -c pin/alloc-probe/tcache_new.cpp -o out/tcache.o
+          $B/$A-unknown-cosmo-cc -O2 $INC -c pin/ci-webgpu-test/wgt.c -o out/wgt.o
+          $B/$A-unknown-cosmo-c++ -O2 -std=c++17 $INC -Ici-webgpu-test -c ci-webgpu-test/dawn_bench.cpp -o out/bench.o
+          MET=""; if [ $A = aarch64 ]; then $B/aarch64-unknown-cosmo-cc -O2 -c metal/objc_shim.c -o out/objc_shim.o; MET="$(ls $PWD/metal/objs/*.o) out/objc_shim.o"; fi
+          # unique member names so the map shows which object each byte came from
+          python3 -I packing/ar_unique.py out/libvariant.a work/o-var && $B/$A-linux-cosmo-ar crs out/libvariant-u.a work/o-var/*.o
+          python3 -I packing/ar_unique.py lib-base/libwebgpu_dawn.a work/o-base >/dev/null && $B/$A-linux-cosmo-ar crs out/libbase-u.a work/o-base/*.o
           for v in base variant; do
-            L=out/libvariant.a; F=$LTOF; [ $v = base ] && { L=lib-base/libwebgpu_dawn.a; F=""; }
-            X=""; [ $v = variant ] && X="$SHIM"
-            $B/x86_64-unknown-cosmo-c++ -O2 $F out/wgt.o out/tcache.o $X $L -Wl,--wrap=pthread_create -o out/wgt-$v.com
-            $B/x86_64-unknown-cosmo-c++ -O2 $F out/bench.o out/tcache.o $X $L -Wl,--wrap=pthread_create -o out/bench-$v.com
-            $B/apelink -V -1 -l $B/ape-x86_64.elf -o out/wgt-$v-x64.com out/wgt-$v.com.dbg
-            $B/apelink -V -1 -l $B/ape-x86_64.elf -o out/bench-$v-x64.com out/bench-$v.com.dbg
+            L=out/libvariant-u.a; X="$SHIM"; [ $v = base ] && { L=out/libbase-u.a; X=""; }
+            $B/$A-unknown-cosmo-c++ -O2 out/wgt.o out/tcache.o $MET $X $L -Wl,--wrap=pthread_create -Wl,-Map=out/wgt-$v.map -o out/wgt-$v.com
+            $B/$A-unknown-cosmo-c++ -O2 out/bench.o out/tcache.o $MET $X $L -Wl,--wrap=pthread_create -o out/bench-$v.com
+            if [ $A = x86_64 ]; then AL="-l $B/ape-x86_64.elf"; else AL="-l $B/ape-aarch64.elf -M $B/ape-m1.c"; fi
+            $B/apelink -V -1 -o out/wgt-$v-$A.com $AL out/wgt-$v.com.dbg
+            $B/apelink -V -1 -o out/bench-$v-$A.com $AL out/bench-$v.com.dbg
           done
           chmod +x out/*.com
-          echo "=== sizes (bytes)"; ls -l out/libvariant.a lib-base/libwebgpu_dawn.a out/wgt-base-x64.com out/wgt-variant-x64.com out/bench-base-x64.com out/bench-variant-x64.com | awk '{print $5, $9}'
-          { echo "### ${{ matrix.name }} (flags: ${{ matrix.rel }} ${{ matrix.extra }} tintos=${{ matrix.tintos }} lto=${{ matrix.lto }})"
-            echo "- x86-64 half, wgt: baseline $(stat -c %s out/wgt-base-x64.com) bytes, variant $(stat -c %s out/wgt-variant-x64.com) bytes"
-            echo "- libwebgpu_dawn.a: baseline $(stat -c %s lib-base/libwebgpu_dawn.a), variant $(stat -c %s out/libvariant.a)"; } | tee -a "$GITHUB_STEP_SUMMARY"
-          echo "=== correctness (Linux, Vulkan on lavapipe)"
-          chmod +x pin/ci-webgpu-test/run-one.sh
-          if [ "${{ matrix.novk }}" = 1 ]; then echo "(no Vulkan in this variant: tested on Windows)"; exit 0; fi
-          for v in base variant; do WGT_BACKEND=vulkan pin/ci-webgpu-test/run-one.sh "wgt $v" sh ./out/wgt-$v-x64.com | tail -3; done
-          echo "=== benchmark"
-          python3 ci-webgpu-test/bench_ab.py --rounds ${{ inputs.rounds }} --title "baseline (-O3 library of the dawn-cosmo run) vs ${{ matrix.name }}" --json bench-${{ matrix.name }}.json \
-            --variant "base|WGT_BACKEND=vulkan|sh ./out/bench-base-x64.com" --variant "${{ matrix.name }}|WGT_BACKEND=vulkan|sh ./out/bench-variant-x64.com" --variant "base-again|WGT_BACKEND=vulkan|sh ./out/bench-base-x64.com" 2>&1 | tee bench-out.txt
-          cat bench-out.txt >> "$GITHUB_STEP_SUMMARY"
+          ls -l out/libvariant.a lib-base/libwebgpu_dawn.a out/wgt-base-$A.com out/wgt-variant-$A.com | awk '{print $5, $9}'
+          { echo "### ${{ matrix.name }} ($A; flags: ${{ matrix.rel }} ${{ matrix.extra }} tintos=${{ matrix.tintos }} d3d12=${{ matrix.d3d }})"
+            echo "- half, wgt: baseline $(stat -c %s out/wgt-base-$A.com) bytes, variant $(stat -c %s out/wgt-variant-$A.com) bytes"
+            echo "- libwebgpu_dawn.a: baseline $(stat -c %s lib-base/libwebgpu_dawn.a), variant $(stat -c %s out/libvariant.a)"; } | tee out/size.txt
+          python3 -I packing/analyze.py "variant ${{ matrix.name }}" out/wgt-variant.map work/o-var > out/inventory-variant.md
+          python3 -I packing/analyze.py "baseline $A" out/wgt-base.map work/o-base > out/inventory-base.md
       - uses: actions/upload-artifact@v4
-        if: always()
-        with: { name: 'pb-${{ matrix.name }}', path: "out/wgt-variant-x64.com\nout/bench-variant-x64.com\nout/wgt-base-x64.com\nout/bench-base-x64.com\nbench-*.json\nbench-out.txt\nconfigure.log", compression-level: 1 }
+        with: { name: 'pb-${{ matrix.name }}', path: "out/wgt-variant-${{ matrix.arch }}.com\nout/bench-variant-${{ matrix.arch }}.com\nout/wgt-base-${{ matrix.arch }}.com\nout/bench-base-${{ matrix.arch }}.com\nout/size.txt\nout/inventory-*.md\nconfigure.log", compression-level: 1 }
+      - name: RESULTS (printed last)
+        run: |
+          cat out/size.txt; sed -n '1,40p' out/inventory-variant.md | cut -c1-170; echo ...; sed -n '1,40p' out/inventory-base.md | cut -c1-170
+
+  bench-x64:
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.outputs.x64 != '{"include":[]}' }}
+    runs-on: ubuntu-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - { uses: actions/download-artifact@v4, with: { pattern: 'pb-*', path: pb } }
+      - name: Correctness and interleaved benchmark of every x86-64 variant that still has Vulkan (software GPU)
+        run: |
+          sudo apt-get update >/dev/null && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 >/dev/null
+          python3 - <<'PY'
+          import json, os, glob, subprocess
+          plan = json.loads('''${{ needs.plan.outputs.matrix }}''')['include']
+          vs = [i for i in plan if i['arch'] == 'x86_64' and i['novk'] == '0']
+          args = ['python3', 'ci-webgpu-test/bench_ab.py', '--rounds', '${{ inputs.rounds }}', '--title', 'x86-64 half: baseline (-O3 library of the dawn-cosmo run) vs variants', '--json', 'bench-x64.json']
+          first = f"pb/pb-{vs[0]['name']}/out"
+          os.system('chmod +x pb/*/out/*.com ci-webgpu-test/run-one.sh')
+          args += ['--variant', f'base|WGT_BACKEND=vulkan|sh ./{first}/bench-base-x86_64.com']
+          for i in vs:
+              d = f"pb/pb-{i['name']}/out"
+              print('--- correctness', i['name'], flush=True)
+              os.system(f"WGT_BACKEND=vulkan ci-webgpu-test/run-one.sh 'wgt {i['name']}' sh ./{d}/wgt-variant-x86_64.com | tail -2")
+              args += ['--variant', f"{i['name']}|WGT_BACKEND=vulkan|sh ./{d}/bench-variant-x86_64.com"]
+          args += ['--variant', f'base-again|WGT_BACKEND=vulkan|sh ./{first}/bench-base-x86_64.com']
+          subprocess.run(args)
+          PY
+          ls -l pb/*/out/*.com | awk '{print $5, $9}'
+
+  bench-arm:
+    needs: [plan, build]
+    if: ${{ !cancelled() && needs.plan.outputs.arm != '{"include":[]}' }}
+    runs-on: ubuntu-24.04-arm
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - { uses: actions/download-artifact@v4, with: { pattern: 'pb-*', path: pb } }
+      - name: Correctness and interleaved benchmark of every arm64 variant (software GPU)
+        run: |
+          sudo apt-get update >/dev/null && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 >/dev/null
+          python3 - <<'PY'
+          import json, os, subprocess
+          plan = json.loads('''${{ needs.plan.outputs.matrix }}''')['include']
+          vs = [i for i in plan if i['arch'] == 'aarch64']
+          args = ['python3', 'ci-webgpu-test/bench_ab.py', '--rounds', '${{ inputs.rounds }}', '--title', 'arm64 half: baseline (-O3 library of the dawn-cosmo run) vs variants', '--json', 'bench-arm.json']
+          first = f"pb/pb-{vs[0]['name']}/out"
+          os.system('chmod +x pb/*/out/*.com ci-webgpu-test/run-one.sh')
+          args += ['--variant', f'base|WGT_BACKEND=vulkan|sh ./{first}/bench-base-aarch64.com']
+          for i in vs:
+              d = f"pb/pb-{i['name']}/out"
+              print('--- correctness', i['name'], flush=True)
+              os.system(f"WGT_BACKEND=vulkan ci-webgpu-test/run-one.sh 'wgt {i['name']}' sh ./{d}/wgt-variant-aarch64.com | tail -2")
+              args += ['--variant', f"{i['name']}|WGT_BACKEND=vulkan|sh ./{d}/bench-variant-aarch64.com"]
+          args += ['--variant', f'base-again|WGT_BACKEND=vulkan|sh ./{first}/bench-base-aarch64.com']
+          subprocess.run(args)
+          PY
 
   wintest:
     needs: [plan, build]
-    if: ${{ !cancelled() && needs.build.result != 'skipped' }}
+    if: ${{ !cancelled() && needs.plan.outputs.win != '{"include":[]}' }}
     strategy:
       fail-fast: false
-      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+      matrix: ${{ fromJSON(needs.plan.outputs.win) }}
     runs-on: windows-latest
     timeout-minutes: 90
     defaults: { run: { shell: bash } }
@@ -159,14 +235,12 @@ jobs:
       - name: D3D12 (WARP) - the variant must produce the same result as the baseline
         run: |
           ls -l pb/out | awk '{print $5, $9}'
-          for v in base variant; do cp pb/out/wgt-$v-x64.com pb/out/wgt-$v.exe; cp pb/out/bench-$v-x64.com pb/out/bench-$v.exe; done
+          for v in base variant; do cp pb/out/wgt-$v-x86_64.com pb/out/wgt-$v.exe; cp pb/out/bench-$v-x86_64.com pb/out/bench-$v.exe; done
           chmod +x ci-webgpu-test/run-one.sh
           for v in base variant; do ci-webgpu-test/run-one.sh "${{ matrix.name }} wgt $v (D3D12)" ./pb/out/wgt-$v.exe | tail -4; done
       - name: D3D12 benchmark, interleaved (CPU side; the runner has no GPU)
         continue-on-error: true
         run: |
-          [ "${{ matrix.novk }}" = 1 ] && R=3 || R=5
           PY=$(command -v python3 || command -v python)
-          "$PY" ci-webgpu-test/bench_ab.py --rounds $R --title "Windows D3D12: baseline vs ${{ matrix.name }}" --json bench-win.json \
+          "$PY" ci-webgpu-test/bench_ab.py --rounds 5 --title "Windows D3D12: baseline vs ${{ matrix.name }}" --json bench-win.json \
             --variant "base|WGT_BACKEND=d3d12|./pb/out/bench-base.exe" --variant "${{ matrix.name }}|WGT_BACKEND=d3d12|./pb/out/bench-variant.exe" --variant "base-again|WGT_BACKEND=d3d12|./pb/out/bench-base.exe" 2>&1 | tee bench-win.txt
-          cat bench-win.txt >> "$GITHUB_STEP_SUMMARY"
