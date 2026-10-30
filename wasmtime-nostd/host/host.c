@@ -219,10 +219,13 @@ int main(int argc, char **argv) {
     if (getenv("WN_X28") && !strcmp(getenv("WN_X28"), "save")) wn_x28_save = 1;
     int m = !strcmp(mode, "sig") ? 0 : !strcmp(mode, "nosig") ? 1 : 2;
     const char *arch = IsAarch64() ? "aarch64" : "x86_64";
-    char path[512], alt[512];
-    if (m == 2) snprintf(path, sizeof path, "/zip/%s.pulley.cwasm", base), snprintf(alt, sizeof alt, "%s.pulley.cwasm", base);
-    else snprintf(path, sizeof path, "/zip/%s.%s.%s.cwasm", base, mode, arch), snprintf(alt, sizeof alt, "%s.%s.%s.cwasm", base, mode, arch);
-    size_t len = 0; uint8_t *bytes = read_all(path, &len); if (!bytes) bytes = read_all(alt, &len);
+    char path[512], alt[512], envp[1024], name[256];
+    if (m == 2) snprintf(name, sizeof name, "%s.pulley.cwasm", base); else snprintf(name, sizeof name, "%s.%s.%s.cwasm", base, mode, arch);
+    snprintf(path, sizeof path, "/zip/%s", name); snprintf(alt, sizeof alt, "%s", name);
+    size_t len = 0; uint8_t *bytes = NULL;
+    if (getenv("WN_CWASM_DIR")) { snprintf(envp, sizeof envp, "%s/%s", getenv("WN_CWASM_DIR"), name); bytes = read_all(envp, &len); if (bytes) printf("host : using %s\n", envp); }   /* e.g. the baseline built by the stock compiler */
+    if (!bytes) bytes = read_all(path, &len);
+    if (!bytes) bytes = read_all(alt, &len);
     if (!bytes) { fprintf(stderr, "cannot read %s or %s\n", path, alt); return 65; }
     printf("host : platform=%s arch=%s mode=%s guest=%s (%zu bytes)\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", arch, mode, base, len); fflush(stdout);
     if (stress) return run_stress(m, bytes, len, nthreads, seconds, priv);

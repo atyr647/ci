@@ -1,0 +1,13 @@
+name: platform-signing-upstream
+# Does patching ape/ape.S in Cosmopolitan 4.0.2 (16 PE data directories) make the linked file signable without any post-processing?
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2 }
+jobs:
+  patch:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          bash platform-probes/signing/upstream_patch.sh 2>&1 | tee up.log
