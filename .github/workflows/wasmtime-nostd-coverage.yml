@@ -95,7 +95,7 @@ jobs:
             $B/$A-unknown-cosmo-cc -O2 -I$PWD/wasmtime-nostd/platform -DWASMTIME_VIRTUAL_MEMORY -DWASMTIME_NATIVE_SIGNALS -c $C/platform/platform.c -o parts/platform.$A.o
             $B/$A-unknown-cosmo-cc -O2 ${{ matrix.defs }} -c $C/host/host.c -o parts/host.$A.o
             $B/$A-unknown-cosmo-cc -O2 -c $C/host/wasi_p1.c -o parts/wasi.$A.o
-            $B/$A-unknown-cosmo-cc -O2 parts/host.$A.o parts/wasi.$A.o parts/platform.$A.o lib/$A/libwnc_embedding.a -Wl,--gc-sections -lm -pthread -o parts/wnc.$A.com 2>&1 | tail -30
+            $B/$A-unknown-cosmo-cc -O2 parts/host.$A.o parts/wasi.$A.o parts/platform.$A.o lib/$A/libwnc_embedding.a -Wl,--gc-sections -lm -o parts/wnc.$A.com 2>&1 | tail -30
           done
           ls -la parts lib/*
           $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wnc-${{ matrix.set }}.com parts/wnc.x86_64.com.dbg parts/wnc.aarch64.com.dbg

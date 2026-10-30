@@ -259,7 +259,7 @@ pub unsafe extern "C" fn wn_define_yield(module: *const c_char, name: *const c_c
             if self.0 == 0 { core::task::Poll::Ready(()) } else { self.0 -= 1; cx.waker().wake_by_ref(); core::task::Poll::Pending }
         }
     }
-    let r = s.linker.func_new_async(m, n, ty, |_c: Caller<'_, ()>, p: &[Val], _o: &mut [Val]| { let k = match p.first() { Some(Val::I32(x)) => *x as u32, _ => 0 }; Box::new(async move { YieldN(k).await; Ok(()) }) });
+    let r = s.linker.func_new_async(m, n, ty, |_c, p, _o| { let k = match p.first() { Some(Val::I32(x)) => *x as u32, _ => 0 }; Box::new(async move { YieldN(k).await; Ok(()) }) });
     match r { Ok(_) => 0, Err(e) => fail(e) }
 }
 #[cfg(not(feature = "async"))]
@@ -348,7 +348,7 @@ pub unsafe extern "C" fn wn_asyncify_run(entry: *const c_char, data: u32, size: 
     #[allow(static_mut_refs)] { ASY.data = data; ASY.unwinds = 0; }
     let nm = CStr::from_ptr(entry).to_str().unwrap_or("");
     let f = match inst.get_func(&mut *store, nm) { Some(f) => f, None => return fail(format!("no export {nm}")) };
-    let g = |store: &mut Store<()>, name: &str, args: &[Val]| -> Result<()> { let f = inst.get_func(&mut *store, name).ok_or_else(|| wasmtime::format_err!("guest lacks {name}"))?; f.call(&mut *store, args, &mut []) };
+    let g = |store: &mut Store<()>, name: &str, args: &[Val]| -> Result<()> { let f = match inst.get_func(&mut *store, name) { Some(f) => f, None => wasmtime::bail!("guest lacks {name}") }; f.call(&mut *store, args, &mut []) };
     let state_fn = match inst.get_func(&mut *store, "asyncify_get_state") { Some(f) => f, None => return fail("guest lacks asyncify_get_state") };
     let mine = x28_get(); wn_host_x28 = mine;
     let mut out = [Val::I32(0)];
