@@ -42,7 +42,7 @@ static void win_shield_describe(WinShieldPtrs *ep) {
   const char *w = win_shield_where(rip, b, sizeof b);
   fprintf(stderr, "[shield] access violation at %#lx = %s, rsp=%#lx\n", (unsigned long)rip, w ? w : "(not in a module)", (unsigned long)rsp);
   int shown = 0;
-  for (int i = 0; i < 96 && shown < 14; i++) { uintptr_t v = ((uintptr_t *)rsp)[i]; w = win_shield_where(v, b, sizeof b); if (w) { fprintf(stderr, "[shield]   stack[%d] %#lx = %s\n", i, (unsigned long)v, w); shown++; } }
+  for (int i = 0; i < 700 && shown < 60; i++) { uintptr_t v = ((uintptr_t *)rsp)[i]; w = win_shield_where(v, b, sizeof b); if (w) { fprintf(stderr, "[shield]   stack[%d] %#lx = %s\n", i, (unsigned long)v, w); shown++; } }
   fflush(stderr);
 }
 static __attribute__((ms_abi)) long win_shield_handler(WinShieldPtrs *ep) {
