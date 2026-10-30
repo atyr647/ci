@@ -197,7 +197,9 @@ jobs:
           cp d3d12min.com d3d12min.exe
           echo "--- the smallest D3D12 test (no Dawn), with the exception wrapper"
           ( ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
-          echo "--- and without it"
+          echo "--- with the exception wrapper AND the thread block's stack limits set to Cosmopolitan's stack"
+          ( FIX_TEB=1 ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
+          echo "--- and without the wrapper"
           ( NO_SHIELD=1 ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
           echo "--- D3D12, no DXC next to the executable"
           ci-webgpu-test/run-one.sh "dawn built by cosmocc (D3D12 WARP, FXC)" ./wgt-dawn.exe
