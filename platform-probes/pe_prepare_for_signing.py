@@ -22,6 +22,8 @@ at = None
 for cand in range(0x1000, 0x10000, 8):
     if not any(d[cand:cand + len(new)]): at = cand; break
 assert at, 'no free space'
+sizeofheaders = struct.unpack_from('<I', d, o + 60)[0]
+assert at + len(new) <= sizeofheaders, 'new header would end outside SizeOfHeaders (%#x)' % sizeofheaders
 d[at:at + len(new)] = new
 struct.pack_into('<I', d, 0x3c, at)
 open(sys.argv[2], 'wb').write(d)

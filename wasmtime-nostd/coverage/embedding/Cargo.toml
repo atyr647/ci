@@ -1,0 +1,27 @@
+[package]
+name = "wnc_embedding"
+version = "0.1.0"
+edition = "2021"
+
+[lib]
+crate-type = ["staticlib"]
+
+[features]
+# each set of proposals / host layers is one Cargo feature so the cost of each can be measured on its own
+gc = ["wasmtime/gc", "wasmtime/gc-drc", "wasmtime/gc-null", "wasmtime/gc-copying"]
+async = ["wasmtime/async"]
+component = ["wasmtime/component-model"]
+p2 = ["component", "async", "dep:wasmtime-wasi-io"]
+
+[dependencies]
+wasmtime = { version = "=50.0.0", default-features = false, features = ["runtime", "pulley", "custom-virtual-memory", "custom-native-signals"] }
+wasmtime-wasi-io = { version = "=50.0.0", default-features = false, optional = true }
+
+[profile.release]
+opt-level = 3
+panic = "abort"
+lto = true
+codegen-units = 1
+debug = false
+
+[workspace]

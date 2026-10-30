@@ -1,0 +1,56 @@
+name: platform-signing
+# Can the Cosmopolitan fat executable be properly Authenticode-signed (Microsoft's tools + osslsigncode), still run on Windows x64/arm64, Linux and macOS, and keep its embedded zip?
+# Test PKI only (throwaway root, leaf, local RFC 3161 time-stamp authority): real trust needs a purchased certificate.
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build-sign:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          bash platform-probes/signing/build_and_sign.sh 2>&1 | tee build-sign.log
+      - uses: actions/upload-artifact@v4
+        with: { name: signing-inputs, path: "out\nsigned\npki\nbuild-sign.log", retention-days: 3 }
+  win:
+    needs: build-sign
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: win-x64,   os: windows-latest }
+          - { label: win-arm64, os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: signing-inputs, path: . }
+      - name: Sign with Microsoft's tools and verify every variant (test root trusted in the runner's store)
+        continue-on-error: true
+        shell: powershell
+        run: ./platform-probes/signing/win_sign_verify.ps1
+      - uses: actions/upload-artifact@v4
+        if: matrix.label == 'win-x64'
+        with: { name: win-signed, path: "work/app-ps.exe\nwork/app-st.exe\nwork/app-st-slot.exe\nwork/app-dual.exe", retention-days: 3, if-no-files-found: warn }
+  unix:
+    needs: [build-sign, win]
+    if: ${{ !cancelled() && needs.build-sign.result == 'success' }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: signing-inputs, path: . }
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with: { name: win-signed, path: winsigned }
+      - name: Run every signed variant, check the zip asset, the hash and the signature after the runs
+        run: bash platform-probes/signing/unix_run.sh
