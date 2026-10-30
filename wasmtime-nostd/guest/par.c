@@ -13,7 +13,7 @@
 #include <time.h>
 
 #define CHUNKS 128
-#define ITERS 3000000u
+#define ITERS 2000000u
 
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
 

@@ -40,7 +40,7 @@ jobs:
           mkdir wasmer && curl -fsSL https://github.com/wasmerio/wasmer/releases/download/$WASMER/${{ matrix.wasmer }} | tar xz -C wasmer && echo "WASMER=$PWD/wasmer/bin/wasmer" >> "$GITHUB_ENV" || true
           mkdir wedge && curl -fsSL https://github.com/WasmEdge/WasmEdge/releases/download/$WEDGE/WasmEdge-$WEDGE-${{ matrix.wedge }} | tar xz -C wedge --strip-components=1 && echo "WASMEDGE=$PWD/wedge/bin/wasmedge" >> "$GITHUB_ENV" && echo "LD_LIBRARY_PATH=$PWD/wedge/lib:$PWD/wedge/lib64:$LD_LIBRARY_PATH" >> "$GITHUB_ENV" && echo "DYLD_LIBRARY_PATH=$PWD/wedge/lib" >> "$GITHUB_ENV" || true
           ls wasmer wedge 2>&1 | head -12 | tr '\n' ' '
-      - name: Install WAMR AOT compiler and runtime (x86-64 only: no prebuilt arm64 wamrc is published)
+      - name: "Install WAMR AOT compiler and runtime (x86-64 only, no prebuilt arm64 wamrc is published)"
         if: matrix.label == 'linux-x64'
         continue-on-error: true
         run: |
