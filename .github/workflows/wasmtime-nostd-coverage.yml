@@ -140,6 +140,7 @@ jobs:
       - name: Windows - does the exit status of the executable reach the shell?
         if: runner.os == 'Windows'
         run: |
+          set +e
           cp exe-full/wnc-full.com t.exe
           ./t.exe sig no-such-file; echo "bash: \$? = $? (expected 65)"
           cmd //c "t.exe sig no-such-file & echo cmd: errorlevel=%ERRORLEVEL%"
