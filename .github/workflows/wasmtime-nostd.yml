@@ -35,16 +35,16 @@ jobs:
           if d['arch'] == 'x86_64': d['disable-redzone'] = True
           else:
               fs = [x for x in d.get('features', '').split(',') if x and 'outline-atomics' not in x]; d['features'] = ','.join(fs + ['+reserve-x28'])   # Cosmopolitan keeps its thread pointer in x28
-          json.dump(d, open('nostd-${{ matrix.arch }}.json', 'w'), indent=1)
+          import os; os.makedirs('spec-${{ matrix.arch }}', exist_ok=True); json.dump(d, open('spec-${{ matrix.arch }}/${{ matrix.arch }}-unknown-linux-gnu.json', 'w'), indent=1)   # same NAME as the real triple: build scripts (target-lexicon) take the host triple from it, and .cwasm files are checked against it
           PY
       - name: Build the runtime as a static library (core and alloc rebuilt from source for that target)
         working-directory: wasmtime-nostd/embedding
         run: |
-          cargo +nightly build --release --target $PWD/nostd-${{ matrix.arch }}.json -Zbuild-std=core,alloc -Zjson-target-spec > build.log 2>&1 || { echo '=== FIRST ERRORS'; grep -n -m3 -A14 '^error' build.log; echo '=== LAST LINES'; tail -12 build.log; exit 1; }
+          cargo +nightly build --release --target $PWD/spec-${{ matrix.arch }}/${{ matrix.arch }}-unknown-linux-gnu.json -Zbuild-std=core,alloc -Zjson-target-spec > build.log 2>&1 || { echo '=== FIRST ERRORS'; grep -n -m3 -A14 '^error' build.log; echo '=== LAST LINES'; tail -12 build.log; exit 1; }
           tail -3 build.log
-          ls -la target/nostd-${{ matrix.arch }}/release/*.a
+          ls -la target/${{ matrix.arch }}-unknown-linux-gnu/release/*.a
       - uses: actions/upload-artifact@v4
-        with: { name: 'lib-${{ matrix.arch }}', path: 'wasmtime-nostd/embedding/target/nostd-${{ matrix.arch }}/release/libwn_embedding.a' }
+        with: { name: 'lib-${{ matrix.arch }}', path: 'wasmtime-nostd/embedding/target/${{ matrix.arch }}-unknown-linux-gnu/release/libwn_embedding.a' }
   guests:
     runs-on: ubuntu-latest
     steps:
