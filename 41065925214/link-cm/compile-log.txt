@@ -1,0 +1,7 @@
+COMPILE-FAIL atomics-thr pulley: Error: the wasm_threads feature is not supported on this compiler configuration 
+COMPILE-FAIL shared-thr pulley: Error: the wasm_threads feature is not supported on this compiler configuration 
+COMPILE-FAIL cm sig x86_64: Error: failed to parse WebAssembly module  Caused by:     func not valid to be used as export (at offset 0x3fc) 
+COMPILE-FAIL cm nosig x86_64: Error: failed to parse WebAssembly module  Caused by:     func not valid to be used as export (at offset 0x3fc) 
+COMPILE-FAIL cm sig aarch64: Error: failed to parse WebAssembly module  Caused by:     func not valid to be used as export (at offset 0x3fc) 
+COMPILE-FAIL cm nosig aarch64: Error: failed to parse WebAssembly module  Caused by:     func not valid to be used as export (at offset 0x3fc) 
+COMPILE-FAIL cm pulley: Error: failed to parse WebAssembly module  Caused by:     func not valid to be used as export (at offset 0x3fc) 
