@@ -1,0 +1,10 @@
+host : component finished in 12971.7 ms, exit code 0, suspensions 0
+80 bytes) features=0xf
+host : component loaded in 17.3 ms
+BENCH clock_gettime                 242 ns/op  (200000 ops)
+BENCH getentropy 16B                901 ns/op  (100000 ops)
+BENCH write 4 KiB                 14765 ns/op  (20000 ops)
+BENCH pread 4 KiB                 83923 ns/op  (20000 ops)
+BENCH fstat                       26659 ns/op  (50000 ops)
+BENCH stat (path)                346756 ns/op  (20000 ops)
+BENCH open+close                 335419 ns/op  (5000 ops)
