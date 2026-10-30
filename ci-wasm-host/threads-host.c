@@ -64,6 +64,7 @@ int main(int argc, char **argv) {
   wasmtime_error_t *err = wasmtime_module_new(G.engine, wasm, len, &G.module); if (err) die(err, NULL, "module_new");
   /* find the imported (shared) memory and create one with the same limits */
   wasm_importtype_vec_t imps; wasmtime_module_imports(G.module, &imps); int found = 0;
+  for (size_t i = 0; i < imps.size; i++) { const wasm_name_t *m = wasm_importtype_module(imps.data[i]), *n = wasm_importtype_name(imps.data[i]); wasm_externkind_t k = wasm_externtype_kind(wasm_importtype_type(imps.data[i])); printf("host : import %.*s.%.*s kind=%d\n", (int)m->size, m->data, (int)n->size, n->data, (int)k); }
   for (size_t i = 0; i < imps.size && !found; i++) {
     const wasm_externtype_t *et = wasm_importtype_type(imps.data[i]); const wasm_memorytype_t *mt = wasm_externtype_as_memorytype_const(et);
     if (!mt) continue;
