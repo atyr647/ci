@@ -60,10 +60,10 @@ jobs:
           W=$(find wt -name wasmtime -type f | head -1); $W --version
           for g in wire so-scalar so-simd; do
             for a in x86_64 aarch64; do
-              $W compile --target $a-unknown-linux-gnu -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -O signals-based-traps=y wasm/$g.wasm -o out/$g.sig.$a.cwasm
-              $W compile --target $a-unknown-linux-gnu -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -O signals-based-traps=n wasm/$g.wasm -o out/$g.nosig.$a.cwasm
+              $W compile --target $a-unknown-linux-gnu -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n -O signals-based-traps=y wasm/$g.wasm -o out/$g.sig.$a.cwasm
+              $W compile --target $a-unknown-linux-gnu -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n -O signals-based-traps=n wasm/$g.wasm -o out/$g.nosig.$a.cwasm
             done
-            $W compile --target pulley64 -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n wasm/$g.wasm -o out/$g.pulley.cwasm || echo "pulley compile failed for $g"
+            $W compile --target pulley64 -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n wasm/$g.wasm -o out/$g.pulley.cwasm || echo "pulley compile failed for $g"
           done
           ls -la out wasm
       - uses: actions/upload-artifact@v4
