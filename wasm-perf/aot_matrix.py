@@ -59,7 +59,7 @@ if E.get('W2C'):
     jobs = []
     for v in ('scalar', 'autovec', 'simd', 'simd-u2', 'simd-vb32', 'relaxed', 'relaxed-u2'):
         d = f'{WD}/w2c-{v}'; os.makedirs(d, exist_ok=True)
-        rc, out = sh(f'"{E["W2C"]}" {"--enable-relaxed-simd " if "relaxed" in v else ""}{D}/so-{v}.wasm -n so -o {d}/so.c')
+        rc, out = sh(f'"{E["W2C"]}" {D}/so-{v}.wasm -n so -o {d}/so.c')
         if rc != 0: note(f'wasm2c {v}: rc={rc} {out.strip()[-300:]}'); continue
         note(f'wasm2c {v}: ok, {os.path.getsize(d + "/so.c")} bytes of C')
         for cc in E.get('CCS', 'gcc,clang').split(','):

@@ -46,7 +46,7 @@ jobs:
           ls b-wabt/wasm2c b-wabt-p/wasm2c b-wabt/wat2wasm
       - name: Coverage - all 20 relaxed-simd instructions, wasm2c (plain, patched) against Wasmtime
         run: |
-          F="--enable-relaxed-simd"
+          F=""
           { python3 wasm-perf/wasm2c-relaxed/gen_test.py rt && ./b-wabt/wat2wasm $F rt/relaxed_ops.wat -o rt/relaxed_ops.wasm && echo "wat2wasm ok"; } 2>&1 | tee -a results.md | cut -c1-300
           [ -f rt/relaxed_ops.wasm ] || { head -c 1500 rt/relaxed_ops.wat | tee -a results.md; exit 1; }
           {
