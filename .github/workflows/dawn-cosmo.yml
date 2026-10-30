@@ -38,7 +38,7 @@ jobs:
             mkdir -p dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git
             git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD
           fi
-      - name: Patch Dawn (from clean sources: the restored checkout may carry an older, different patch)
+      - name: "Patch Dawn (from clean sources - a restored checkout may carry an older, different patch)"
         run: |
           git -C dawn checkout -q -- . 
           python3 dawn-cosmo/patch.py dawn
