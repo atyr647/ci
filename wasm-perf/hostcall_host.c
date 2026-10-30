@@ -97,6 +97,7 @@ static void pick_kernels(void) {
 #if defined(__x86_64__)
     __builtin_cpu_init();
     int a512 = __builtin_cpu_supports("avx512f"), a2 = __builtin_cpu_supports("avx2") && __builtin_cpu_supports("fma");
+    printf("CPUDETECT avx2=%d fma=%d avx512f=%d avx512vl=%d\n", __builtin_cpu_supports("avx2"), __builtin_cpu_supports("fma"), __builtin_cpu_supports("avx512f"), __builtin_cpu_supports("avx512vl"));
     if (force) { if (!strcmp(force, "portable")) a512 = a2 = 0; else if (!strcmp(force, "avx2")) a512 = 0; }
     if (a512) { k_saxpy = saxpy_avx512; k_sdot = sdot_avx512; k_matmul = matmul_avx512; g_kind = 2; }
     else if (a2) { k_saxpy = saxpy_avx2; k_sdot = sdot_avx2; k_matmul = matmul_avx2; g_kind = 1; }

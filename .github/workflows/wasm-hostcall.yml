@@ -40,7 +40,7 @@ jobs:
           (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true
       - name: Run (checked and unchecked calling conventions, best kernel; then forced AVX2 / portable)
         run: |
-          { echo "## ${{ matrix.label }}: wasm-hostcall run ${{ github.run_id }}, commit ${{ github.sha }}"; (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true; } | tee -a results.md
+          { echo "## ${{ matrix.label }}: wasm-hostcall run ${{ github.run_id }}, commit ${{ github.sha }}"; (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true; grep -m1 -o 'avx512[a-z_0-9]*' /proc/cpuinfo 2>/dev/null | head -3 | tr '\n' ' '; echo; } | tee -a results.md
           exec > >(tee -a results.md) 2>&1
           for conv in unchecked checked; do echo "=== $conv"; ./host g/guest.wasm $conv; done
           if [ "$(uname -m)" = x86_64 ]; then for k in avx2 portable; do echo "=== unchecked, HOSTKERNEL=$k"; HOSTKERNEL=$k ./host g/guest.wasm unchecked | grep -E '^(HOSTKERNEL|SAXPY|DOT|MATMUL)'; done; else echo "=== unchecked, HOSTKERNEL=portable"; HOSTKERNEL=portable ./host g/guest.wasm unchecked | grep -E '^(HOSTKERNEL|SAXPY|DOT|MATMUL)'; fi

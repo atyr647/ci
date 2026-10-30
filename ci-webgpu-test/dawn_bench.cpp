@@ -6,6 +6,8 @@
 #define _COSMO_SOURCE 1
 #endif
 #include <algorithm>
+#include <atomic>
+#include <condition_variable>
 #include <chrono>
 #include <cmath>
 #include <cstdint>
@@ -50,6 +52,20 @@ static void host_baselines() {
         std::mutex m; const int n = scaled(8000000); volatile int x = 0; auto t = Clock::now();
         for (int i = 0; i < n; i++) { m.lock(); x = x + 1; m.unlock(); }
         bench("host_mutex_ns", ms_since(t) * 1e6 / n, "ns/op");
+    }
+    {   // the same while a second thread exists: glibc's lock skips the atomic prefix while the process is single-threaded, so the line above flatters it; Dawn always runs threaded
+        std::atomic<bool> stop{false}; std::thread helper([&] { while (!stop.load()) std::this_thread::sleep_for(std::chrono::milliseconds(1)); });
+        std::mutex m; const int n = scaled(8000000); volatile int x = 0; auto t = Clock::now();
+        for (int i = 0; i < n; i++) { m.lock(); x = x + 1; m.unlock(); }
+        bench("host_mutex_mt_ns", ms_since(t) * 1e6 / n, "ns/op");
+        stop = true; helper.join();
+    }
+    {   // two threads handing a token back and forth through a mutex and a condition variable (wake-up path: futex or equivalent)
+        std::mutex m; std::condition_variable cv; int turn = 0; const int n = scaled(20000); auto t = Clock::now();
+        std::thread other([&] { for (int i = 0; i < n; i++) { std::unique_lock<std::mutex> l(m); cv.wait(l, [&] { return turn == 1; }); turn = 0; cv.notify_one(); } });
+        for (int i = 0; i < n; i++) { std::unique_lock<std::mutex> l(m); turn = 1; cv.notify_one(); cv.wait(l, [&] { return turn == 0; }); }
+        other.join();
+        bench("host_condvar_pingpong_us", ms_since(t) * 1e3 / n, "us/round trip");
     }
     {   // memcpy bandwidth
         const size_t sz = 64u << 20; std::vector<char> a(sz, 1), b(sz); double best = 1e30;
