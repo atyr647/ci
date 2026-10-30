@@ -23,7 +23,7 @@
 #include <netinet/in.h>
 #include <arpa/inet.h>
 #include <cosmo.h>
-#include <libc/nt/process.h>
+#include <libc/nt/runtime.h>
 #include "wasi_p1.h"
 
 int32_t wn_init_ex(int32_t mode, int32_t collector);
