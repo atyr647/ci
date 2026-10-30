@@ -37,10 +37,12 @@ for mode in sig nosig pulley; do
   note "wasi-p1 $mode rc=$rc $(sumline $R/p1-$mode.out) fails=$(grep -c '^FAIL' $R/p1-$mode.out)"
 done
 rm -rf sbx; mkdir sbx
-"${RUNF[@]}" sig wasitest --p1 --dir=/sandbox::sbx -- exit7 > $R/p1-exit.out 2> $R/p1-exit.err; note "wasi-p1 exit-code propagation rc=$? (expected 7)"
+"${RUNF[@]}" sig wasitest --p1 --dir=/sandbox::sbx -- exit7 > $R/p1-exit.out 2> $R/p1-exit.err; rc=$?; note "wasi-p1 exit-code propagation rc=$rc (expected 7)"
+"${RUNF[@]}" sig no-such-file > /dev/null 2>&1; rc=$?; note "host exit code for a missing file rc=$rc (expected 65)"
+"${RUNF[@]}" sig wasitest --p1 --dir=/sandbox::sbx -- exit7 > /dev/null 2>&1; rc=$?; note "same, output discarded rc=$rc (expected 7)"
 # the same program on the base runtime (no gc / async / component layers): same output?
 rm -rf sbx; mkdir sbx
-printf 'hello stdin\n' | "${RUNB[@]}" sig b-wasitest --p1 --dir=/sandbox::sbx '--env=WN_TEST_VAR=hello env' --tcplisten=127.0.0.1:0 --selfclient -- alpha 'two words' > $R/p1-base.out 2> $R/p1-base.err; rc=$?
+printf 'hello stdin\n' | "${RUNB[@]}" sig b-wasitest --argv0=wasitest --p1 --dir=/sandbox::sbx '--env=WN_TEST_VAR=hello env' --tcplisten=127.0.0.1:0 --selfclient -- alpha 'two words' > $R/p1-base.out 2> $R/p1-base.err; rc=$?
 grep -v '^host : \(platform\|engine\|listening\)' $R/p1-base.out > $R/p1-base.cmp
 note "wasi-p1 base-runtime rc=$rc $(sumline $R/p1-base.out) identical-to-full-sig=$(diff -q $R/p1-base.cmp $R/p1-sig.cmp >/dev/null && echo yes || echo NO)"
 rm -rf sbx

@@ -9,19 +9,21 @@ env:
   COSMOCC: 4.0.2
   # cwasm switches that must match the Cargo features of the runtime that loads the file (the loader reports every mismatch)
   FLAGS_BASE: "-W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n"
-  FLAGS_FULL: "-W concurrency-support=n -W threads=n -W shared-everything-threads=n -W component-model=n"
+  FLAGS_FULL: "-W concurrency-support=n -W threads=n -W shared-everything-threads=n"
+  COMPONENTS: "1"
 jobs:
   rust:
     strategy:
       fail-fast: false
       matrix:
         arch: [x86_64, aarch64]
-        set: [base, gc, async, full]
+        set: [base, gc, async, cm, full]
         include:
           - { set: base,  feats: "" }
           - { set: gc,    feats: "gc" }
           - { set: async, feats: "async" }
-          - { set: full,  feats: "gc,async" }
+          - { set: cm,    feats: "component" }
+          - { set: full,  feats: "gc,p2" }
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -68,15 +70,17 @@ jobs:
         with: { name: guests, path: "wasmtime-nostd/work/out\nwasmtime-nostd/work/wasm\nwasmtime-nostd/work/compile.log\nwasmtime-nostd/work/versions.txt" }
   link:
     needs: [rust, guests]
+    permissions: { contents: write }
     strategy:
       fail-fast: false
       matrix:
-        set: [base, gc, async, full]
+        set: [base, gc, async, cm, full]
         include:
           - { set: base,  defs: "" }
           - { set: gc,    defs: "" }
           - { set: async, defs: "" }
-          - { set: full,  defs: "" }
+          - { set: cm,    defs: "" }
+          - { set: full,  defs: "-DWN_P2" }
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -107,6 +111,11 @@ jobs:
             echo "| fat file, no guests | $(stat -c %s wnc-${{ matrix.set }}-bare.com) |"; echo "| fat file with all guests | $(stat -c %s wnc-${{ matrix.set }}.com) |"; } | tee -a "$GITHUB_STEP_SUMMARY" sizes-${{ matrix.set }}.md
       - uses: actions/upload-artifact@v4
         with: { name: 'exe-${{ matrix.set }}', path: "wnc-${{ matrix.set }}.com\nsizes-${{ matrix.set }}.md" }
+      - name: Publish the sizes to the results branch
+        env: { GITHUB_TOKEN: "${{ github.token }}" }
+        run: |
+          mkdir -p pub && cp sizes-${{ matrix.set }}.md pub/ && cp guests/compile.log pub/compile-log.txt 2>/dev/null; cp guests/versions.txt pub/ 2>/dev/null
+          bash wasmtime-nostd/coverage/tools/publish.sh pub "${{ github.run_id }}/link-${{ matrix.set }}"
   test:
     needs: link
     strategy:
@@ -119,6 +128,7 @@ jobs:
           - { label: win-x64,     os: windows-latest }
           - { label: win-arm64,   os: windows-11-arm }
     runs-on: ${{ matrix.os }}
+    permissions: { contents: write }
     defaults: { run: { shell: bash } }
     steps:
       - uses: actions/checkout@v4
@@ -127,7 +137,7 @@ jobs:
       - uses: actions/download-artifact@v4
         with: { name: exe-base, path: exe-base }
       - name: All suites
-        env: { LABEL: "${{ matrix.label }}" }
+        env: { LABEL: "${{ matrix.label }}", COMPONENTS: "1" }
         run: |
           export F=$PWD/exe-full/wnc-full.com B=$PWD/exe-base/wnc-base.com
           bash wasmtime-nostd/coverage/tools/run-tests.sh
@@ -135,6 +145,10 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'results-${{ matrix.label }}', path: "results/${{ matrix.label }}" }
+      - name: Publish the results to the results branch
+        if: always()
+        env: { GITHUB_TOKEN: "${{ github.token }}" }
+        run: bash wasmtime-nostd/coverage/tools/publish.sh results/${{ matrix.label }} "${{ github.run_id }}/${{ matrix.label }}"
   compare:
     needs: test
     if: always()
