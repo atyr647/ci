@@ -40,7 +40,7 @@ jobs:
             -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=ON -DTINT_BUILD_HLSL_WRITER=ON -DTINT_BUILD_MSL_WRITER=ON -DTINT_BUILD_SPV_WRITER=ON \
             -DTINT_BUILD_SPV_READER=OFF -DTINT_BUILD_GLSL_WRITER=OFF -DTINT_BUILD_GLSL_VALIDATOR=OFF -DTINT_BUILD_WGSL_READER=ON -DTINT_BUILD_WGSL_WRITER=ON \
             -DDAWN_WERROR=OFF -DCMAKE_CXX_FLAGS="-D_WASI_EMULATED_PROCESS_CLOCKS -D_WASI_EMULATED_SIGNAL -D_WASI_EMULATED_MMAN" \
-            -DCMAKE_EXE_LINKER_FLAGS="-lwasi-emulated-process-clocks -lwasi-emulated-signal -lwasi-emulated-mman" 2>&1 | tee configure.log | tail -30
+            -DCMAKE_EXE_LINKER_FLAGS="-lwasi-emulated-process-clocks -lwasi-emulated-signal -lwasi-emulated-mman -Wl,-z,stack-size=33554432" 2>&1 | tee configure.log | tail -30
       - name: Build tint.wasm (keep going to collect every error)
         run: |
           cmake --build build --target tint_cmd_tint_cmd -- -k 0 > build.log 2>&1 || true
@@ -63,7 +63,7 @@ jobs:
           sed -i 's/^          //' t.wgsl
           WT=$PWD/wasmtime-$WT-x86_64-linux/wasmtime
           for f in spirv hlsl msl wgsl; do
-            echo "=================== --format $f"; /usr/bin/time -f "%es %MKB" $WT run --dir=. "$w" --format $f -o out.$f t.wgsl 2>&1 | tail -5; head -c 700 out.$f 2>/dev/null | cat -v | head -20; echo; wc -c out.$f 2>/dev/null
+            echo "=================== --format $f"; /usr/bin/time -f "%es %MKB" $WT run --dir=. "$w" --format $f -o out.$f t.wgsl 2>&1 | tail -5; head -c 700 out.$f 2>/dev/null | cat -v | head -20; echo; wc -c out.$f 2>/dev/null || true
           done
       - uses: actions/upload-artifact@v4
         if: always()
