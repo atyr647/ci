@@ -375,10 +375,9 @@ if os.environ.get('DAWN_COSMO_METAL') == '1':
         vk = '            Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n'
         assert vk in s
         s = s.replace(vk, '            if (!DawnCosmoIsXnu() || getenv("DAWN_COSMO_ALLOW_VULKAN")) {\n                Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n            }\n', 1)
-        s = insert_after_last_include(s, 'extern "C" bool DawnCosmoIsXnu();   // COSMO-PATCH-METAL (defined in vulkan/VulkanFunctions.cpp)')
         fn = 'BackendConnection* InstanceBase::GetBackendConnection(wgpu::BackendType backendType) {\n'
         assert fn in s
-        s = s.replace(fn, '// COSMO-PATCH-METAL: defined by the Metal objects (dawn-cosmo/metal/MetalCosmo.mm) in the arm64 half only; null elsewhere\nextern "C" BackendConnection* DawnCosmoMetalConnect(InstanceBase* instance) __attribute__((weak));\n\n' + fn, 1)
-        if '#include <cstdio>' not in s:
-            s = insert_after_last_include(s, '#include <cstdio>\n#include <cstdlib>')
+        s = s.replace(fn, '// COSMO-PATCH-METAL: defined by the Metal objects (dawn-cosmo/metal/MetalCosmo.mm) in the arm64 half only; null elsewhere\nextern "C" BackendConnection* DawnCosmoMetalConnect(InstanceBase* instance) __attribute__((weak));\nextern "C" bool DawnCosmoIsXnu();   // defined in vulkan/VulkanFunctions.cpp\n\n' + fn, 1)
+        # the last #include of Instance.cpp sits inside a conditional (perfetto), so the C library headers go before the namespace instead
+        s = s.replace('namespace dawn::native {\n', '#include <cstdio>\n#include <cstdlib>\n\nnamespace dawn::native {\n', 1)
         open(p, 'w').write(s); print('patched: Instance.cpp COSMO-PATCH-METAL')
