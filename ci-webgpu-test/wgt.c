@@ -68,6 +68,7 @@ int main(int argc,char**argv){
   { const char *be = getenv("WGT_BACKEND");   /* vulkan | d3d12 | d3d11 | metal | (unset = Dawn's default for this OS) */
     if (be) ao.backendType = !strcmp(be,"vulkan") ? WGPUBackendType_Vulkan : !strcmp(be,"d3d12") ? WGPUBackendType_D3D12 :
                              !strcmp(be,"d3d11") ? WGPUBackendType_D3D11 : !strcmp(be,"metal") ? WGPUBackendType_Metal : WGPUBackendType_Undefined; }
+  if (getenv("WGT_FALLBACK")) ao.forceFallbackAdapter = 1;   /* ask for the software adapter (D3D12: WARP) - the CI runners have no GPU */
   WGPURequestAdapterCallbackInfo ci = WGPU_REQUEST_ADAPTER_CALLBACK_INFO_INIT;
   ci.mode = WGPUCallbackMode_AllowProcessEvents; ci.callback = CB(on_adapter,WGPURequestAdapterCallback);
   done=0; wgpuInstanceRequestAdapter(inst,&ao,ci); pump();
