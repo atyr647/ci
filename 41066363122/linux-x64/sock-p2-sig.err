@@ -1,0 +1,10 @@
+run failed: error while executing at wasm backtrace:
+    0:  0x70e22 - <unknown>!<wasm function 45>
+    1:   0xb2dc - socktest.p2.wasm!ip_name_lookup_resolve_addresses
+    2:   0x90e4 - socktest.p2.wasm!getaddrinfo
+    3:   0x30b4 - socktest.p2.wasm!__original_main
+    4:   0x2e64 - socktest.p2.wasm!_start
+
+Caused by:
+    borrow handles still remain at the end of the call
+

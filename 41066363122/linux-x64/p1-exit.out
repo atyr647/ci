@@ -1,0 +1,7 @@
+host : platform=linux arch=x86_64 mode=sig name=wasitest (184816 bytes) features=0xf
+host : engine+load 0.3 ms, instantiate 0.0 ms, linear memory 0 MiB
+== args
+argc=2 argv0=wasitest
+argv[1]=exit7
+exiting with 7
+atexit handler ran

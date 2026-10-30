@@ -1,0 +1,4 @@
+host : platform=linux arch=x86_64 mode=pulley name=coro (141112 bytes) features=0xf
+host : engine+load 0.2 ms, instantiate 0.1 ms, linear memory 0 MiB
+CALL s_coro(3000000) -> 13499998500000 in 116.768 ms, suspensions 0
+CALL s_plain(3000000) -> 13499998500000 in 37.756 ms, suspensions 0
