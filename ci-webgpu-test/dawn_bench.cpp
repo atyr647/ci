@@ -22,6 +22,13 @@
 #define WIN_SHIELD_WRAP_THREADS 1
 #include "win_shield.h"
 #endif
+#if defined(__COSMOPOLITAN__) && defined(__aarch64__)
+#define RUNNING_AS "  [the aarch64 half of the file]"
+#elif defined(__COSMOPOLITAN__)
+#define RUNNING_AS "  [the x86-64 half of the file]"
+#else
+#define RUNNING_AS ""
+#endif
 
 using Clock = std::chrono::steady_clock;
 static double ms_since(Clock::time_point t) { return std::chrono::duration<double, std::milli>(Clock::now() - t).count(); }
@@ -119,7 +126,7 @@ int main(int argc, char **argv) {
     bench("start_adapter_ms", ms_since(t), "ms");
     WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT; wgpuAdapterGetInfo(g_adapter, &info);
     bool software = info.adapterType == WGPUAdapterType_CPU;
-    printf("adapter: backend=%d type=%d device=%s\n", (int)info.backendType, (int)info.adapterType, sv(info.device).c_str());
+    printf("adapter: backend=%d type=%d device=%s%s\n", (int)info.backendType, (int)info.adapterType, sv(info.device).c_str(), RUNNING_AS);
     t = Clock::now();
     WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT; WGPURequestDeviceCallbackInfo dci = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
     dci.mode = WGPUCallbackMode_AllowProcessEvents; dci.callback = on_device; g_done = 0; wgpuAdapterRequestDevice(g_adapter, &dd, dci); pump();
