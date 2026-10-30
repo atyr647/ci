@@ -88,7 +88,7 @@ jobs:
       - name: The Cosmopolitan build (artifact of the dawn-cosmo run)
         run: |
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D cosmo
-          chmod +x cosmo/dawn-bench.com; [ "$RUNNER_OS" = Windows ] && cp cosmo/dawn-bench.com cosmo/dawn-bench.exe; ls -la cosmo
+          chmod +x cosmo/dawn-bench.com cosmo/dawn-bench-mf.com; if [ "$RUNNER_OS" = Windows ]; then cp cosmo/dawn-bench.com cosmo/dawn-bench.exe; cp cosmo/dawn-bench-mf.com cosmo/dawn-bench-mf.exe; fi; ls -la cosmo
       - name: Vulkan loader + MoltenVK (macOS, for the extra Cosmopolitan-on-Vulkan row)
         if: runner.os == 'macOS'
         run: |
@@ -98,16 +98,19 @@ jobs:
       - name: Run (interleaved; the repeated native row is the noise floor)
         run: |
           B=${{ matrix.backend }}; R=${{ inputs.rounds }}
-          if [ "$RUNNER_OS" = Windows ]; then NATIVE=./native/dawn-bench.exe; COSMO=./cosmo/dawn-bench.exe
-          else NATIVE=./native/dawn-bench; COSMO="sh ./cosmo/dawn-bench.com"; fi
+          if [ "$RUNNER_OS" = Windows ]; then NATIVE=./native/dawn-bench.exe; COSMO=./cosmo/dawn-bench.exe; COSMO_MF=./cosmo/dawn-bench-mf.exe
+          else NATIVE=./native/dawn-bench; COSMO="sh ./cosmo/dawn-bench.com"; COSMO_MF="sh ./cosmo/dawn-bench-mf.com"; fi
           NATIVE_TC=${NATIVE/dawn-bench/dawn-bench-tcache}
           args=(--rounds "$R" --title "${{ matrix.label }}: native Dawn vs Dawn compiled by Cosmopolitan ($B)" --json "bench-${{ matrix.label }}.json"
                 --variant "native|WGT_BACKEND=$B|$NATIVE" --variant "cosmo|WGT_BACKEND=$B|$COSMO" --variant "native-again|WGT_BACKEND=$B|$NATIVE"
-                --variant "native-tcache|WGT_BACKEND=$B|$NATIVE_TC")
+                --variant "native-tcache|WGT_BACKEND=$B|$NATIVE_TC" --variant "cosmo-mutexfast|WGT_BACKEND=$B|$COSMO_MF")
           if [ "$RUNNER_OS" = macOS ]; then
             args+=(--variant "cosmo-moltenvk|WGT_BACKEND=vulkan,DAWN_COSMO_ALLOW_VULKAN=1,VK_ICD_FILENAMES=$MVK_ICD,DYLD_LIBRARY_PATH=$VKLIB|$COSMO")
           fi
-          PY=$(command -v python3 || command -v python); echo "python: $PY"; "$PY" ci-webgpu-test/bench_ab.py "${args[@]}" 2>&1 | tee bench-out.txt; exit ${PIPESTATUS[0]}
+          PY=$(command -v python3 || command -v python); echo "python: $PY"; "$PY" ci-webgpu-test/bench_ab.py "${args[@]}" 2>&1 | tee bench-out.txt; rc=${PIPESTATUS[0]}
+          # the GPU kernel check lines (groups, time, error against the CPU reference) are not metrics, so show them separately
+          for v in "$NATIVE" "$COSMO"; do echo "--- $v"; WGT_BACKEND=$B $v 2>&1 | grep -E "^gpu_alu" | tee -a bench-out.txt; done
+          exit $rc
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'bench-${{ matrix.label }}', path: 'bench-*.json' }

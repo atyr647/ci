@@ -174,18 +174,21 @@ jobs:
             $B/$A-unknown-cosmo-c++ -O2 gpu_probe.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/gpu-probe.$A.com
             $B/$A-unknown-cosmo-c++ -O2 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.$A.o
             $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/dawn-bench.$A.com
+            # the same benchmark with the shortened default-mutex path (alloc-probe/mutex_fast.c), to measure what it buys
+            $B/$A-unknown-cosmo-cc -O2 -c alloc-probe/mutex_fast.c -o mutex_fast.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra mutex_fast.$A.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -o parts/dawn-bench-mf.$A.com
           done
           ls -la parts
       - name: One fat file
         run: |
           B=$PWD/cosmo/bin
-          for n in wgt gpu-probe dawn-bench; do
+          for n in wgt gpu-probe dawn-bench dawn-bench-mf; do
             $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o $( [ $n = wgt ] && echo wgt-dawn || echo $n ).com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg
           done
           $B/cosmocc -O1 -Ici-webgpu-test ci-webgpu-test/d3d12min.c -o d3d12min.com
           ls -la wgt-dawn.com gpu-probe.com dawn-bench.com d3d12min.com
       - uses: actions/upload-artifact@v4
-        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com\ndawn-bench.com\nd3d12min.com" }
+        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com\ndawn-bench.com\ndawn-bench-mf.com\nd3d12min.com" }
       - uses: actions/upload-artifact@v4
         with: { name: dbg-dawn-bench, path: "parts/dawn-bench.x86_64.com.dbg\nparts/dawn-bench.aarch64.com.dbg", compression-level: 6 }
 
