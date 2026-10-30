@@ -95,3 +95,33 @@ Status after the second run (commit 3edfd84): ONE file with Dawn compiled by Cos
 - D3D12 + shared D3D code: about 23k lines; about 12 distinct Win32 functions used; 27 ID3D12 interfaces, 11 IDXGI interfaces. Microsoft's DirectX-Headers compile under cosmocc with correct sizes; mingw-w64 headers do not (LLP64 vs LP64).
 - Sizes: native Dawn Windows DLL 10.9 MB, macOS dylib 18 MB, Cosmopolitan Vulkan-only x86-64 half 23 MB.
 - Verified locally after the fix: the compiled wrapper now contains BOTH branches (`test %al` / `jne`; the Windows branch reserves the 32-byte shadow space and moves the arguments into RCX/RDX/R8/R9 before `call *(%r15)`; the other branch tail-jumps with System V registers), and the x86-64 Linux run still passes. CI check on Windows still to come.
+
+## Wasmtime INSIDE the Cosmopolitan file, wasm threads, wasm SIMD, Tint as wasm (measured 2026-10-30, Wasmtime v50.0.0, cosmocc 4.0.2)
+
+**Wasmtime linked into the executable (workflow `wasmtime-bundle`, job `static-link`).** `libwasmtime.a` is built from source for the Rust musl target (C parts with the Cosmopolitan compiler) and linked with the host into one Cosmopolitan executable: no dlopen, no extraction.
+- Needed: stubs for the Linux calls Cosmopolitan lacks (`epoll_*`, `eventfd`, `mkfifo`, `waitid`; `ci-wasm-host/static-stubs.c`); Rust's I/O reactor (mio) built with `--cfg mio_unsupported_force_poll_poll --cfg mio_unsupported_force_waker_pipe` so it uses poll(2) and a pipe instead of epoll/eventfd (the eventfd stub's ENOSYS reached Rust's error formatting and crashed - found with gdb on the CI artifact: `mio::Selector::new -> eventfd`). Cosmopolitan's own `strerror_r` already has the POSIX (XSI) form (measured: returns 0 and fills the buffer), so nothing is replaced there; two earlier attempts at "fixing" it (a redefinition, then `--wrap`) only added crashes (infinite recursion through Cosmopolitan's `strerror`).
+- Result on Linux x86-64: **PASS** - the host loads the wasm guest, the guest calls the host import, the host answers, exit code 0 (run 8, commit 6d9b73e). The fat file (x86-64 + arm64) and the other four targets are the next job (`static-fat`, `static-test`) - result recorded below when it has run.
+- aarch64: links (Rust std rebuilt with x28 reserved, Cosmopolitan keeps its thread pointer there); not yet run (the runner is x86-64; the fat-file test on linux-arm64 and macOS covers it).
+
+**Wasm threads (workflow `wasm-perf`, job `threads-host`).** Wasmtime removed `wasi-threads` in v47 (`-Sthreads` is gone from the CLI). A host can still provide `wasi:thread-spawn` itself through the C API (shared memory object + one store/instance per thread: `ci-wasm-host/threads-host.c`, ~100 lines). The module must be linked with `--import-memory` (wasi-sdk's `wasm32-wasip1-threads` alone produced a module that defines its own memory, which cannot be shared with the extra instances). Fixed work split over N threads, wall time in ms (the guest measures itself):
+| runner | wasm 1 / 2 / 4 threads | native (Cosmopolitan) 1 / 4 threads |
+|---|---|---|
+| linux x64 (4 vCPU) | 189 / 126 / 96 | 182 / 95 |
+| linux arm64 (4 vCPU) | 140 / 71 / 54 | 139 / 35 |
+| macOS arm64 (5 cores) | 68 / 33 / 20 | 81 / 21 |
+Scaling is real and the 1-thread time equals native. On linux arm64 the 4-thread wasm time is 54 ms against 35 ms native; the difference is plausibly thread start-up (each thread instantiates the module; not measured separately) - a thread pool created once avoids it. One run per cell on shared runners: treat differences under ~20% as noise.
+
+**SIMD (workflow `wasm-perf`, job `run`).** One C source, wasm built by wasi-sdk 34 clang (scalar, auto-vectorised, explicit `v4f` vector extensions = wasm SIMD128, and lowered vectors), run by Wasmtime's Cranelift JIT; native built by Cosmopolitan GCC at baseline ISA (SSE2 / NEON, no AVX). Fastest of 9 trials, ns per item (lower is better):
+| runner | wasm scalar | wasm autovec | **wasm SIMD128** | native scalar | native SIMD |
+|---|---|---|---|---|---|
+| linux x64 vertex transform | 3.12 | 2.75 | **1.12** | 1.18 | 1.26 |
+| linux x64 dot product | 1.645 | 1.644 | **0.248** | 0.938 | 0.150 |
+| windows x64 transform | 3.11 | 2.76 | **1.07** | 1.18 | 1.26 |
+| windows x64 dot | 1.642 | 1.637 | **0.237** | 0.937 | 0.144 |
+| linux arm64 transform | 7.61 | 4.22 | **2.27** | 1.62 | 1.01 |
+| linux arm64 dot | 0.964 | 0.963 | **0.213** | 0.593 | 0.169 |
+| macOS arm64 transform | 5.49 | 1.69 | **1.65** | 0.69 | 0.54 |
+| macOS arm64 dot | 1.650 | 1.667 | **0.248** | 1.025 | 0.111 |
+Reading: with explicit SIMD128, wasm is within about 1.0x (x86-64 transform) to 3x (macOS arm64) of native 128-bit SIMD, and 1.6x-2.2x on the dot product. Scalar/auto-vectorised wasm is 2.5x-11x slower than native. So SIMD-heavy kernels can live in wasm if written with SIMD128 (clang vector extensions or `wasm_simd128.h`); anything that needs AVX2/AVX-512 or NEON-specific instructions is not expressible and stays native. Not measured: AVX2 native (the baseline was used on purpose to compare like with like), memory-bound vs cache-resident variants separately.
+
+**Tint (WGSL compiler) as wasm (workflow `tint-wasm`).** Dawn's Tint command-line tool compiles to `wasm32-wasip1` with wasi-sdk 34: 665/665 objects, 14 MB module, 0 errors. It needs a bigger shadow stack than wasi-sdk's 1 MB default (`-Wl,-z,stack-size=33554432`; with 1 MB it died with a wasm memory fault at address 0xfffff544 = stack overflow below address 0). Run under Wasmtime on one compute shader: WGSL -> HLSL (421 bytes), MSL (1219 bytes), WGSL (241 bytes) in 0.07 s and ~70 MB each; WGSL -> SPIR-V (1048 bytes) takes 3.3 s and 245 MB (the SPIR-V path is much heavier; not investigated). So the shader compiler can be a wasm module (14 MB) next to the game's wasm instead of native code in the host.
