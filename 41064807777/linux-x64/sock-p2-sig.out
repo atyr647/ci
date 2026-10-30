@@ -1,0 +1,2 @@
+host : platform=linux arch=x86_64 mode=sig name=socktest.p2 (337424 bytes) features=0xf
+host : component loaded in 0.5 ms

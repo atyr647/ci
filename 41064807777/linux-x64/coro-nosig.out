@@ -1,0 +1,5 @@
+host : platform=linux arch=x86_64 mode=nosig name=coro (133128 bytes) features=0xf
+host : engine+load 0.2 ms, instantiate 0.0 ms, linear memory 0 MiB
+PASS t_generator
+PASS t_scheduler
+SUMMARY tests=2 pass=2 fail=0

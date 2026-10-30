@@ -1,0 +1,9 @@
+host : platform=linux arch=x86_64 mode=sig name=wasibench (94096 bytes) features=0xf
+host : engine+load 0.3 ms, instantiate 0.1 ms, linear memory 0 MiB
+BENCH clock_gettime                 119 ns/op  (200000 ops)
+BENCH getentropy 16B                715 ns/op  (100000 ops)
+BENCH write 4 KiB                  3044 ns/op  (20000 ops)
+BENCH pread 4 KiB                   924 ns/op  (20000 ops)
+BENCH fstat                         875 ns/op  (50000 ops)
+BENCH stat (path)                  8528 ns/op  (20000 ops)
+BENCH open+close                  11508 ns/op  (5000 ops)

@@ -1,0 +1,4 @@
+host : platform=linux arch=x86_64 mode=pulley name=yield (68152 bytes) features=0xf
+host : engine+load 0.1 ms, instantiate 0.0 ms, linear memory 0 MiB
+CALL s_async_loop(100000) -> 100000 in 20.542 ms, suspensions 100000
+CALL s_sync_loop(100000) -> 100000 in 10.862 ms, suspensions 0
