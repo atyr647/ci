@@ -1,0 +1,6 @@
+cmake_minimum_required(VERSION 3.20)
+project(dawn_bench CXX)
+find_package(Dawn REQUIRED)
+add_executable(dawn-bench ../dawn_bench.cpp)
+target_compile_features(dawn-bench PRIVATE cxx_std_17)
+target_link_libraries(dawn-bench PRIVATE dawn::webgpu_dawn)

@@ -169,18 +169,20 @@ jobs:
             $B/$A-unknown-cosmo-c++ -O2 wgt.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/wgt.$A.com
             $B/$A-unknown-cosmo-c++ -O2 -std=c++20 $INC -c ci-webgpu-test/gpu_probe.cpp -o gpu_probe.$A.o
             $B/$A-unknown-cosmo-c++ -O2 gpu_probe.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/gpu-probe.$A.com
+            $B/$A-unknown-cosmo-c++ -O2 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/dawn-bench.$A.com
           done
           ls -la parts
       - name: One fat file
         run: |
           B=$PWD/cosmo/bin
-          for n in wgt gpu-probe; do
-            $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o $( [ $n = wgt ] && echo wgt-dawn || echo gpu-probe ).com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg
+          for n in wgt gpu-probe dawn-bench; do
+            $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o $( [ $n = wgt ] && echo wgt-dawn || echo $n ).com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg
           done
           $B/cosmocc -O1 -Ici-webgpu-test ci-webgpu-test/d3d12min.c -o d3d12min.com
-          ls -la wgt-dawn.com gpu-probe.com d3d12min.com
+          ls -la wgt-dawn.com gpu-probe.com dawn-bench.com d3d12min.com
       - uses: actions/upload-artifact@v4
-        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com\nd3d12min.com" }
+        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com\ndawn-bench.com\nd3d12min.com" }
 
   test:
     needs: link
@@ -198,7 +200,7 @@ jobs:
     env:
       RUNNER_LABEL: ${{ matrix.label }}
       GH_TOKEN: ${{ github.token }}
-      WGT_BACKEND: vulkan
+      WGT_BACKEND: ${{ startsWith(matrix.label, 'win') && 'd3d12' || 'vulkan' }}   # Windows: D3D12 only, Vulkan is not started there
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -206,15 +208,6 @@ jobs:
       - name: Vulkan software driver (Linux)
         if: runner.os == 'Linux'
         run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
-      - name: Vulkan software driver (Windows - Mesa lavapipe)
-        if: runner.os == 'Windows'
-        run: |
-          mkdir mesa && cd mesa && gh release download -R pal1000/mesa-dist-win -p '*release-msvc.7z' --clobber && 7z x -y *.7z -ox >/dev/null && cd ..
-          icd=$(find mesa/x -iname 'lvp_icd*.json' | grep -i x64 | head -1); echo "ICD: $icd"
-          icdw=$(cygpath -w "$(pwd)/$icd"); echo "ICD: $icdw"
-          # the loader ignores VK_ICD_FILENAMES / VK_DRIVER_FILES when the process is elevated (GitHub's Windows runners are), so register the driver
-          powershell -NoProfile -Command "New-Item -Path 'HKLM:\\SOFTWARE\\Khronos\\Vulkan\\Drivers' -Force | Out-Null; New-ItemProperty -Path 'HKLM:\\SOFTWARE\\Khronos\\Vulkan\\Drivers' -Name '$icdw' -Value 0 -PropertyType DWord -Force | Out-Null"
-          ls -la /c/Windows/System32/vulkan-1.dll || true
       - name: Vulkan loader + MoltenVK (macOS)
         if: runner.os == 'macOS'
         run: |
@@ -225,8 +218,8 @@ jobs:
         continue-on-error: true
         run: |
           chmod +x ci-webgpu-test/run-one.sh
-          if [ "$RUNNER_OS" = Windows ]; then cp wgt-dawn.com wgt-dawn.exe; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" ./wgt-dawn.exe
-          else chmod +x wgt-dawn.com; ci-webgpu-test/run-one.sh "dawn built by cosmocc (Vulkan)" sh ./wgt-dawn.com; fi
+          if [ "$RUNNER_OS" = Windows ]; then cp wgt-dawn.com wgt-dawn.exe; ci-webgpu-test/run-one.sh "dawn built by cosmocc ($WGT_BACKEND)" ./wgt-dawn.exe
+          else chmod +x wgt-dawn.com; ci-webgpu-test/run-one.sh "dawn built by cosmocc ($WGT_BACKEND)" sh ./wgt-dawn.com; fi
       - name: Which GPU would the game use (policy self-test + every adapter Dawn sees)
         continue-on-error: true
         run: |
@@ -269,23 +262,3 @@ jobs:
           gh release download -R microsoft/DirectXShaderCompiler -p 'dxc_*.zip' -D dxc --clobber && (cd dxc && cmake -E tar xf dxc_*.zip)
           d=$(dirname "$(find dxc -ipath '*x64*' -name dxcompiler.dll | head -1)"); cp "$d/dxcompiler.dll" "$d/dxil.dll" . && ls -la dxcompiler.dll dxil.dll
           ci-webgpu-test/run-one.sh "dawn built by cosmocc (D3D12 WARP, DXC)" ./wgt-dawn.exe
-      - name: Windows only - last Vulkan calls before a crash (DAWN_COSMO_TRACE) and the syscall tail
-        if: runner.os == 'Windows'
-        continue-on-error: true
-        run: |
-          cp wgt-dawn.com wgt-dawn.exe
-          echo "=== Vulkan call trace, last 45 lines"
-          ( DAWN_COSMO_TRACE=1 ./wgt-dawn.exe 2>&1 | cat ) > vktrace.txt || true
-          tr '\r' '\n' < vktrace.txt | grep -E "^\[vk\]|stage:|Segmentation|compute N" | tail -45
-          echo "=== shield report (access violation: module, offset, stack scan) from the same run"
-          tr '\r' '\n' < vktrace.txt | grep -a -E "shield|error:|RIP|RSP" | head -80 | cut -c1-220
-          echo "=== same run without the shield (Cosmopolitan's own crash report)"
-          ( NO_SHIELD=1 ./wgt-dawn.exe 2>&1 | cat ) | tr '\r' '\n' | grep -a -v "^\[vk\]" | tail -40 | cut -c1-200
-          echo "=== Cosmopolitan --strace (system calls) last 40 lines"
-          ( ./wgt-dawn.exe --strace 2>&1 | cat ) > strace.txt || true
-          tr '\r' '\n' < strace.txt | tail -40 | cut -c1-200
-          echo "=== Cosmopolitan --ftrace (every function entered) last 120 lines"
-          ( ./wgt-dawn.exe --ftrace 2>&1 | cat ) > ftrace.txt || true
-          tr '\r' '\n' < ftrace.txt | tail -120 | cut -c1-160
-          echo "=== lavapipe with its worker threads off (LP_NUM_THREADS=0)"
-          ( LP_NUM_THREADS=0 ./wgt-dawn.exe 2>&1 | cat ) | tr '\r' '\n' | grep -E "stage: map|compute N|RESULT|Segmentation" | head

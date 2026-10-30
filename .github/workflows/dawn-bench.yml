@@ -1,0 +1,108 @@
+name: dawn-bench
+# Dawn compiled by Cosmopolitan (ONE fat file) against native Dawn (platform toolchain) on the same machine: same source (ci-webgpu-test/dawn_bench.cpp), same backend,
+# same adapter, runs interleaved. The CI runners have no GPU, so this measures the CPU side (Dawn, Tint, allocator, mutexes, C library, call overhead) and the software
+# adapter's kernel; on a machine with a real GPU the same job measures the GPU path.
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'run id of a dawn-cosmo run whose artifact wgt-dawn contains dawn-bench.com', required: true }
+      only: { description: 'one label (linux-x64, linux-arm64, win-x64, win-arm64, mac-arm64); empty = all', required: false, default: '' }
+      rounds: { description: 'interleaved rounds', required: false, default: '7' }
+env:
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+jobs:
+  plan:
+    runs-on: ubuntu-latest
+    outputs: { matrix: '${{ steps.m.outputs.matrix }}' }
+    steps:
+      - id: m
+        env: { ONLY: '${{ inputs.only }}' }
+        run: |
+          python3 - <<'PY' >> "$GITHUB_OUTPUT"
+          import json, os
+          all_ = [
+            dict(label='linux-x64',   os='ubuntu-latest',    msvc='',      backend='vulkan'),
+            dict(label='linux-arm64', os='ubuntu-24.04-arm', msvc='',      backend='vulkan'),
+            dict(label='win-x64',     os='windows-latest',   msvc='x64',   backend='d3d12'),
+            dict(label='win-arm64',   os='windows-11-arm',   msvc='arm64', backend='d3d12'),
+            dict(label='mac-arm64',   os='macos-latest',     msvc='',      backend='metal'),
+          ]
+          only = os.environ.get('ONLY', '')
+          print('matrix=' + json.dumps({'include': [x for x in all_ if not only or x['label'] == only]}))
+          PY
+  bench:
+    needs: plan
+    strategy:
+      fail-fast: false
+      matrix: ${{ fromJSON(needs.plan.outputs.matrix) }}
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    defaults: { run: { shell: bash } }
+    env:
+      GH_TOKEN: ${{ github.token }}
+      RUNNER_LABEL: ${{ matrix.label }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: matrix.msvc != ''
+        with: { arch: '${{ matrix.msvc }}' }
+      - name: Dependencies
+        run: |
+          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get update && sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1; fi
+          command -v ninja >/dev/null || { brew install ninja || pip install --break-system-packages ninja || pip install ninja; }
+      - name: Restore native Dawn (static library, headers, CMake package)
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: dawn-native-static-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+      - name: Fetch, configure and build native Dawn (only when not cached)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git && git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD && cd ..
+          case "${{ matrix.label }}" in
+            win-*) BACKENDS="-DDAWN_ENABLE_D3D12=ON -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_VULKAN=OFF -DDAWN_ENABLE_METAL=OFF" ;;
+            mac-*) BACKENDS="-DDAWN_ENABLE_METAL=ON -DDAWN_ENABLE_VULKAN=OFF" ;;
+            *)     BACKENDS="-DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF -DCMAKE_C_COMPILER=clang -DCMAKE_CXX_COMPILER=clang++" ;;
+          esac
+          cmake -S dawn -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=ON \
+            -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF \
+            -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF -DDAWN_ENABLE_NULL=ON -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DDAWN_SUPPORTS_CXX_MODULES=OFF $BACKENDS
+          cmake --build out
+          cmake --install out --prefix "$PWD/dist"
+          find dist -name '*webgpu_dawn*' -exec ls -la {} \;
+      - name: Save native Dawn
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: dist
+          key: dawn-native-static-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+      - name: Build the benchmark against native Dawn
+        run: |
+          cmake -S ci-webgpu-test/bench -B benchout -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist" $( [ "$RUNNER_OS" = Linux ] && echo -DCMAKE_CXX_COMPILER=clang++ )
+          cmake --build benchout
+          mkdir native && cp benchout/dawn-bench* native/ && ls -la native
+      - name: The Cosmopolitan build (artifact of the dawn-cosmo run)
+        run: |
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D cosmo
+          chmod +x cosmo/dawn-bench.com; [ "$RUNNER_OS" = Windows ] && cp cosmo/dawn-bench.com cosmo/dawn-bench.exe; ls -la cosmo
+      - name: Vulkan loader + MoltenVK (macOS, for the extra Cosmopolitan-on-Vulkan row)
+        if: runner.os == 'macOS'
+        run: |
+          brew install molten-vk vulkan-loader >/dev/null 2>&1 || true
+          echo "MVK_ICD=$(brew --prefix molten-vk)/etc/vulkan/icd.d/MoltenVK_icd.json" >> "$GITHUB_ENV"
+          echo "VKLIB=$(brew --prefix vulkan-loader)/lib" >> "$GITHUB_ENV"
+      - name: Run (interleaved; the repeated native row is the noise floor)
+        run: |
+          B=${{ matrix.backend }}; R=${{ inputs.rounds }}
+          if [ "$RUNNER_OS" = Windows ]; then NATIVE=./native/dawn-bench.exe; COSMO=./cosmo/dawn-bench.exe
+          else NATIVE=./native/dawn-bench; COSMO="sh ./cosmo/dawn-bench.com"; fi
+          args=(--rounds "$R" --title "${{ matrix.label }}: native Dawn vs Dawn compiled by Cosmopolitan ($B)" --json "bench-${{ matrix.label }}.json"
+                --variant "native|WGT_BACKEND=$B|$NATIVE" --variant "cosmo|WGT_BACKEND=$B|$COSMO" --variant "native-again|WGT_BACKEND=$B|$NATIVE")
+          if [ "$RUNNER_OS" = macOS ]; then
+            args+=(--variant "cosmo-moltenvk|WGT_BACKEND=vulkan,VK_ICD_FILENAMES=$MVK_ICD,DYLD_LIBRARY_PATH=$VKLIB|$COSMO")
+          fi
+          python3 ci-webgpu-test/bench_ab.py "${args[@]}"
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'bench-${{ matrix.label }}', path: 'bench-*.json' }

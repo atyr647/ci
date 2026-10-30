@@ -293,6 +293,8 @@ if os.environ.get('DAWN_COSMO_D3D12') == '1':
                 fprintf(stderr, "[dawn-cosmo] D3D12 skipped: not running on Windows\\n");
             }
 ''', 1)
+        # Windows uses D3D12 only: the Vulkan backend is not started there (decided 2026-10-30; the Vulkan-on-Windows run crashed after "map readback" and is not worth fixing)
+        s = s.replace('            Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n', '            if (!DawnCosmoIsWindows()) {\n                Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n            }\n', 1)
         s = s.replace('namespace dawn::native {\n', '#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows();  // COSMO-PATCH-D3D12 (defined in vulkan/VulkanFunctions.cpp)\n\nnamespace dawn::native {\n', 1)
         return s
     edit2('src/dawn/native/Instance.cpp', 'COSMO-PATCH-D3D12', instance_cpp)
