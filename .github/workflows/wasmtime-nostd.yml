@@ -125,7 +125,7 @@ jobs:
         continue-on-error: true
         run: |
           set +e
-          for mode in sig nosig pulley; do echo "=== trap guest, mode $mode"; $RUN $mode trap --invoke=ok,oob,ok,div0,ok,unreach,ok; echo "exit: $?"; done
+          for mode in sig nosig pulley; do echo "=== trap guest, mode $mode"; WN_TRACE=1 $RUN $mode trap --invoke=ok,oob,ok,div0,ok,unreach,ok; echo "exit: $?"; done
       - name: Kernels (mode sig / nosig / pulley)
         continue-on-error: true
         run: |

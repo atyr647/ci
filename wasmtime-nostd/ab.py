@@ -5,7 +5,7 @@ rounds = int(sys.argv[1]); variants = [v.split('|', 1) for v in sys.argv[2:]]
 best = {}; sums = {}; failed = {}
 for r in range(rounds):
     for name, cmd in (variants if r % 2 == 0 else list(reversed(variants))):
-        try: out = subprocess.run(cmd, shell=True, capture_output=True, text=True, timeout=900).stdout
+        try: out = subprocess.run(['bash', '-c', cmd], capture_output=True, text=True, timeout=900).stdout
         except Exception as e: out = ''
         got = 0
         for m in re.finditer(r'^KERNEL (\S+) (\S+) (\d+)', out, re.M):

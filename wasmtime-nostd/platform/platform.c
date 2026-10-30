@@ -7,6 +7,7 @@
 #include <stdio.h>
 #include <string.h>
 #include <sys/mman.h>
+#include <stdlib.h>
 #include <unistd.h>
 #include <libc/calls/ucontext.h>
 #include "wasmtime-platform.h"
@@ -53,6 +54,7 @@ static void on_signal(int signo, siginfo_t *info, void *context) {
     ip = cx->uc_mcontext.rip; fp = cx->uc_mcontext.rbp;
 #endif
     bool has_addr = signo == SIGSEGV || signo == SIGBUS;
+    if (getenv("WN_TRACE")) fprintf(stderr, "[wn] signal %d code %d ip %p fp %p si_addr %p\n", signo, info->si_code, (void *)ip, (void *)fp, info->si_addr);
     g_handler(ip, fp, has_addr, has_addr ? (uintptr_t)info->si_addr : 0);
     /* not a trap of ours: fall back to the default action (crash with the original signal) */
     signal(signo, SIG_DFL);
