@@ -13,7 +13,7 @@ def note(s): print(s, flush=True); log.append(s)
 def smoke(name, cmd):
     rc, out = sh(cmd + ' zzz', 300)
     if rc == 0: rows.append({'name': name, 'cmd': cmd}); return True
-    note(f'SMOKE FAIL {name}: rc={rc} {out.strip().splitlines()[-1][:150] if out.strip() else ""}'); return False
+    note(f'SMOKE FAIL {name}: rc={rc} {" / ".join(l.strip() for l in out.strip().splitlines()[:5])[:500] if out.strip() else ""}'); return False
 W = E['WASMTIME']
 for v in ('scalar', 'autovec', 'simd', 'simd-u2', 'simd-vb32', 'relaxed', 'relaxed-u2'):
     smoke(f'wasmtime {v}', f'"{W}" run {D}/so-{v}.wasm')
