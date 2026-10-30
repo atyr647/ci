@@ -146,7 +146,7 @@ jobs:
           if [ -f xze/linux/lib/xz/xz_dec_stream.c ] || [ -f xze/userspace/xz_config.h ]; then
             XD=xze/linux/lib/xz; XU=xze/userspace
             XINC="-Ixze/linux/include/linux -Ixze/userspace -Ixze/linux/lib/xz"
-            XZ="$XD/xz_crc32.c $XD/xz_dec_stream.c $XD/xz_dec_lzma2.c $XD/xz_dec_bcj.c"; XDEF="-DHAVE_XZ"
+            XZ="$XD/xz_crc32.c $XD/xz_dec_stream.c $XD/xz_dec_lzma2.c $XD/xz_dec_bcj.c"; XDEF="-DHAVE_XZ -DXZ_DEC_X86 -DXZ_DEC_ARM64"
             echo "xz-embedded sources: $XZ"
           fi
           $B/cosmocc -O2 -DZSTD_DISABLE_ASM -DZSTD_LEGACY_SUPPORT=0 -I$Z -I$L -I$ZL -I../packing $XINC $XDEF \
