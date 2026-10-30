@@ -230,10 +230,12 @@ jobs:
         continue-on-error: true
         run: |
           chmod +x wgt-dawn.com gpu-probe.com
-          export WGT_BACKEND=metal DAWN_COSMO_TRACE=1
-          ci-webgpu-test/run-one.sh "dawn built by cosmocc (Metal)" sh ./wgt-dawn.com
+          export WGT_BACKEND=metal
+          ci-webgpu-test/run-one.sh "dawn built by cosmocc (Metal)" sh ./wgt-dawn.com 2>&1 | grep -v '^ *\[vk\]' | tail -40
+          echo "--- with Dawn-cosmo trace (backend connect lines only)"
+          DAWN_COSMO_TRACE=1 sh ./wgt-dawn.com 2>&1 | grep -E 'dawn-cosmo|adapter:|RESULT|stage:|error|Error|FAIL' | head -20
           echo "--- every adapter, all backends"
-          unset WGT_BACKEND; sh ./gpu-probe.com --bench 2>&1 | grep -v Warning
+          unset WGT_BACKEND; sh ./gpu-probe.com --bench 2>&1 | grep -v Warning | tail -30
       - name: "Windows only - the D3D12 backend compiled into the file (WARP, Windows' software adapter, shows up as a CPU adapter: the runner has no GPU)"
         if: runner.os == 'Windows'
         continue-on-error: true
