@@ -43,7 +43,7 @@ if E.get('WASMEDGE'):
     rc, out = sh(f'"{E["WASMEDGE"]}" compile --help 2>&1 | head -30'); note('wasmedge compile: ' + out.strip().replace('\n', ' | ')[:700])
     for tag, extra in (('O3', '--optimize 3'),):
         for v in VARS:
-            art = f'{WD}/wedge-{tag}-{v}.so'
+            art = f'{WD}/wedge-{tag}-{v}.wasm'
             rc, out = sh(f'"{E["WASMEDGE"]}" compile {extra} {D}/so-{v}.wasm {art}')
             if rc != 0: note(f'wasmedge compile {tag} {v}: rc={rc} {out.strip()[-200:]}'); continue
             smoke(f'wasmedge-aot-{tag} {v}', f'"{E["WASMEDGE"]}" {art}')
