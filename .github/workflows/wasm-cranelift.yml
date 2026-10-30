@@ -43,10 +43,10 @@ jobs:
       - name: Wasmtime CLI
         run: |
           curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
-          mkdir wt && tar xJf wt.tar.xz -C wt; echo "WASMTIME=$PWD/$(find wt -name wasmtime -type f | head -1)" >> "$GITHUB_ENV"
+          mkdir wt && tar xJf wt.tar.xz -C wt; WASMTIME=$PWD/$(find wt -name wasmtime -type f | head -1); echo "WASMTIME=$WASMTIME" >> "$GITHUB_ENV"
           cc --version | head -1
-          (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null
-          (grep -m1 -o 'flags.*\|Features.*' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx|avx2|fma|bmi2|avx512f|asimd|sve|sve2|asimddp|bf16|i8mm|fphp)$' | tr '\n' ' ') 2>/dev/null; echo
+          (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true
+          (grep -m1 -o 'flags.*\|Features.*' /proc/cpuinfo | tr ' ' '\n' | grep -E '^(avx|avx2|fma|bmi2|avx512f|asimd|sve|sve2|asimddp|bf16|i8mm|fphp)$' | tr '\n' ' ') 2>/dev/null || true; echo
           $WASMTIME settings 2>&1 | sed -n '/Settings inferred/,$p' | tr '\n' ' '; echo
       - name: Phase A, Wasmtime settings on the SIMD128 build
         run: |

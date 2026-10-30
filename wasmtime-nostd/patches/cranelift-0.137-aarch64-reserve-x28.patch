@@ -1,0 +1,15 @@
+--- a/src/isa/aarch64/abi.rs	2026-10-30 12:55:06.605434297 +0000
++++ b/src/isa/aarch64/abi.rs	2026-10-30 12:55:06.694133373 +0000
+@@ -1718,8 +1718,10 @@
+                 .with(preg(xreg(24)))
+                 .with(preg(xreg(25)))
+                 .with(preg(xreg(26)))
+-                .with(preg(xreg(27)))
+-                .with(preg(xreg(28))),
++                // x28 is deliberately NOT allocatable: Cosmopolitan (and other runtimes) keep their
++                // thread pointer in x28, and wasm code that clobbers it breaks every runtime call
++                // made from wasm (libcalls, host calls, signal handlers) on that thread.
++                .with(preg(xreg(27))),
+             PRegSet::empty()
+                 .with(preg(vreg(8)))
+                 .with(preg(vreg(9)))
