@@ -1,0 +1,42 @@
+name: wasm-hostcall
+# Host-provided native kernels called from wasm through imports (Wasmtime C API, zero-copy access to linear memory, run-time CPU dispatch AVX-512 / AVX2+FMA / NEON):
+# cost of one import call, and the work size at which the native kernel beats wasm SIMD128 code.
+on:
+  workflow_dispatch:
+env: { WT: v50.0.0 }
+jobs:
+  guest:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          mkdir out; wasi-sdk-34*/bin/clang --target=wasm32-wasip1 -O3 -msimd128 wasm-perf/hostcall_guest.c -o out/guest.wasm
+      - uses: actions/upload-artifact@v4
+        with: { name: guest, path: out }
+  run:
+    needs: guest
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    asset: x86_64-linux-c-api.tar.xz,  lib: libwasmtime.so }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux-c-api.tar.xz, lib: libwasmtime.so }
+          - { label: mac-arm64,   os: macos-latest,     asset: aarch64-macos-c-api.tar.xz, lib: libwasmtime.dylib }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: guest, path: g }
+      - name: Build the embedder
+        run: |
+          curl -fsSL -o c.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
+          mkdir c && tar xJf c.tar.xz -C c; D=$(ls -d $PWD/c/*/); ls $D $D/lib | tr '\n' ' '; echo
+          cc -O2 -I$D/include wasm-perf/hostcall_host.c -o host -L$D/lib -lwasmtime -Wl,-rpath,$D/lib -lm 2>&1 | grep -E 'error|warning: impl' | head -20
+          ls -la host
+          (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string) 2>/dev/null || true
+      - name: Run (checked and unchecked calling conventions, best kernel; then forced AVX2 / portable)
+        run: |
+          for conv in unchecked checked; do echo "=== $conv"; ./host g/guest.wasm $conv; done
+          if [ "$(uname -m)" = x86_64 ]; then for k in avx2 portable; do echo "=== unchecked, HOSTKERNEL=$k"; HOSTKERNEL=$k ./host g/guest.wasm unchecked | grep -E '^(HOSTKERNEL|SAXPY|DOT|MATMUL)'; done; else echo "=== unchecked, HOSTKERNEL=portable"; HOSTKERNEL=portable ./host g/guest.wasm unchecked | grep -E '^(HOSTKERNEL|SAXPY|DOT|MATMUL)'; fi
