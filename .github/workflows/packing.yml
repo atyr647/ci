@@ -193,21 +193,26 @@ jobs:
           sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 zstd lz4 xz-utils
           chmod +x pp/out/*.com; A=$(uname -m); if [ "$A" = x86_64 ]; then H=x64only; HL=x86; else H=arm64only; HL=arm; fi
           sh pp/out/hello.com; mkdir -p cache
+          N="env WGT_BACKEND=d3d12"   # asks Dawn for a backend that does not exist on Linux: Dawn starts, no GPU driver / lavapipe / LLVM is loaded, so what is measured is the file itself
           echo "##### floor: a 0.4 MB fat hello (shell + APE loader + exec)"; python3 -I packing/startup.py hello 15 -- sh pp/out/hello.com
-          echo "##### current fat file, all backends linked (47.9 MB)";        python3 -I packing/startup.py fat-all 12 -- sh pp/out/all.com
-          echo "##### Linux-only link (D3D12/Null/Metal stubbed out)";        python3 -I packing/startup.py fat-lnx 12 -- sh pp/out/lnx.com
-          echo "##### the same without the two symbol tables in the zip";    python3 -I packing/startup.py fat-lnx-nosym 12 -- sh pp/out/lnx-nosym.com
-          echo "##### all-backends file without the symbol tables";          python3 -I packing/startup.py fat-all-nosym 12 -- sh pp/out/all-nosym.com
-          echo "##### this architecture's half alone (self-contained file)";  python3 -I packing/startup.py half-plain 12 -- sh pp/out/$H.com
-          for c in zstd-3 zstd-19 lz4-1; do
+          echo "##### [dawn only, no driver] current fat file, all backends linked"; python3 -I packing/startup.py fat-all 15 -- $N sh pp/out/all.com
+          echo "##### [dawn only] Linux-only link (D3D12/Null/Metal stubbed out)";   python3 -I packing/startup.py fat-lnx 15 -- $N sh pp/out/lnx.com
+          echo "##### [dawn only] the same without the two symbol tables in the zip"; python3 -I packing/startup.py fat-lnx-nosym 15 -- $N sh pp/out/lnx-nosym.com
+          echo "##### [dawn only] all-backends file without the symbol tables";      python3 -I packing/startup.py fat-all-nosym 15 -- $N sh pp/out/all-nosym.com
+          echo "##### [dawn only] this architecture's half alone (self-contained file)"; python3 -I packing/startup.py half-plain 15 -- $N sh pp/out/$H.com
+          for c in zstd-3 lz4-1; do
             case $c in zstd*) D="zstd -dc -q";; lz4*) D="lz4 -dc -q";; esac
-            echo "##### decompress-on-every-start: $c payload -> cache file -> run (what a stage-2 loader that writes the half to disk each time would cost)"
-            python3 -I packing/startup.py "half-$c" 12 -- sh -c "$D data/half-$HL.$c > cache/app.com && chmod +x cache/app.com && sh cache/app.com"
+            echo "##### [dawn only] decompress-on-every-start: $c payload -> cache file -> run (a stage-2 loader that writes the half to disk each time)"
+            python3 -I packing/startup.py "half-$c" 15 -- sh -c "$D data/half-$HL.$c > cache/app.com && chmod +x cache/app.com && WGT_BACKEND=d3d12 sh cache/app.com"
           done
+          echo "##### [dawn only] extracted once, then run from the cache (what every start after the first costs)"
+          zstd -dc -q data/half-$HL.zstd-3 > cache/once.com && chmod +x cache/once.com && python3 -I packing/startup.py half-cached 15 -- $N sh cache/once.com
+          echo "##### [with the software GPU driver: lavapipe + LLVM] current fat file"; python3 -I packing/startup.py fat-all-vulkan 8 -- sh pp/out/all.com
           ls -l data/half-$HL.* | awk '{print $5, $9}'
           echo "##### one WebGPU run result, to see the program really works (file without symbol tables)"; sh pp/out/lnx-nosym.com 2>&1 | tail -4
       - name: RESULTS (${{ matrix.label }}; printed last)
         if: always()
         run: |
-          echo "machine: $(uname -sm) $(nproc) cpus"
-          for f in res-decode.txt res-slice.txt res-startup.txt; do echo "##### $f"; cat $f 2>/dev/null | cut -c1-200; done
+          echo "machine: $(uname -sm)"
+          for f in res-decode.txt res-slice.txt res-startup.txt; do echo "##### $f"; { grep -v '^Get:\|^Reading\|^Selecting\|^Preparing\|^Unpacking\|^Setting\|^(Reading\|^Building\|^Processing\|^Fetched' $f 2>/dev/null || true; } | cut -c1-260; done
+          true

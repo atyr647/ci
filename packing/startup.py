@@ -32,7 +32,7 @@ for _ in range(3):
         except Exception:
             time.sleep(0.002); continue
         tot = {'Rss': 0, 'Pss': 0, 'Private_Dirty': 0, 'Private_Clean': 0, 'Shared_Clean': 0, 'Anonymous': 0, 'file_Rss': 0, 'exe_Rss': 0, 'exe_size': 0}
-        cur = None
+        cur = None; per = {}
         for l in txt.split('\n'):
             m = re.match(r'^[0-9a-f]+-[0-9a-f]+ \S+ \S+ \S+ \S+\s*(.*)$', l)
             if m: cur = m.group(1); continue
@@ -40,9 +40,12 @@ for _ in range(3):
             if not m: continue
             k, v = m.group(1), int(m.group(2))
             if k in tot: tot[k] += v
+            if k in ('Rss', 'Size') and cur is not None:
+                per.setdefault(cur or '[anon]', {'Rss': 0, 'Size': 0})[k] += v
             if k == 'Rss' and cur and cur.startswith('/'): tot['file_Rss'] += v
             if k == 'Rss' and cur and exe and os.path.basename(cur) == os.path.basename(exe): tot['exe_Rss'] += v
             if k == 'Size' and cur and exe and os.path.basename(cur) == os.path.basename(exe): tot['exe_size'] += v
+        tot['top'] = sorted(((n, d['Rss'], d['Size']) for n, d in per.items()), key=lambda x: -x[1])[:6]
         if snap is None or tot['Rss'] >= snap['Rss']: snap = tot
         time.sleep(0.003)
     if snap and (best is None or snap['Rss'] > best['Rss']): best = snap

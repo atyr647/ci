@@ -40,11 +40,12 @@ int main(int argc, char **argv) {
     } else {
         const char *exe = GetProgramExecutableName(); unsigned char *b; size_t n; long off = find_in_file(exe, &b, &n);
         if (off < 0) { printf("marker not found in %s\n", exe); return 5; }
-        off += MARK; long base = off & ~(pg - 1);
+        off += MARK; long gran = IsWindows() ? 65536 : pg;   /* Windows maps file views at 64 KiB granularity */
+        long base = off & ~(gran - 1); long maplen = ((off - base) + 64 + pg - 1) & ~(pg - 1);
         int fd = open(exe, O_RDONLY); if (fd < 0) { perror("open"); return 6; }
         void *p;
-        if (!strcmp(t, "map-rx")) p = mmap(NULL, pg, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, base);
-        else { p = mmap(NULL, pg, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, base); if (p != MAP_FAILED && mprotect(p, pg, PROT_READ | PROT_EXEC)) { perror("mprotect"); return 4; } }
+        if (!strcmp(t, "map-rx")) p = mmap(NULL, maplen, PROT_READ | PROT_EXEC, MAP_PRIVATE, fd, base);
+        else { p = mmap(NULL, maplen, PROT_READ | PROT_WRITE, MAP_PRIVATE, fd, base); if (p != MAP_FAILED && mprotect(p, maplen, PROT_READ | PROT_EXEC)) { perror("mprotect"); return 4; } }
         if (p == MAP_FAILED) { perror("mmap"); return 3; }
         fn = (int (*)(void))((char *)p + (off - base));
     }

@@ -42,7 +42,7 @@ static int dec(const char *codec, const unsigned char *in, size_t inn, unsigned 
     if (!strncmp(codec, "xz", 2)) {
         struct xz_dec *d = xz_dec_init(XZ_DYNALLOC, 1u << 27); if (!d) return 0;
         struct xz_buf b = { in, 0, inn, out, 0, outn };
-        enum xz_ret r = xz_dec_run(d, &b); xz_dec_end(d); return r == XZ_STREAM_END && b.out_pos == outn;
+        enum xz_ret r = xz_dec_run(d, &b); xz_dec_end(d); if (r != XZ_STREAM_END || b.out_pos != outn) fprintf(stderr, "xz: ret=%d out_pos=%zu of %zu in_pos=%zu\n", (int)r, (size_t)b.out_pos, outn, (size_t)b.in_pos); return r == XZ_STREAM_END && b.out_pos == outn;
     }
 #endif
     return 0;
