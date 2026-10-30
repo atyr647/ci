@@ -61,10 +61,10 @@ nm = os.path.join(os.path.dirname(cosmocc), 'x86_64-linux-cosmo-nm'); readelf = 
 objs = sorted(_glob.glob(os.path.join(OBJ, '*.o')))
 und = collections.Counter(); secs = collections.Counter()
 for o in objs:
-    for l in subprocess.run([nm, '-u', o], capture_output=True, text=True).stdout.splitlines():
+    for l in subprocess.run(['sh', nm, '-u', o], capture_output=True, text=True).stdout.splitlines():
         sym = l.split()[-1] if l.split() else ''
         if sym and not sym.startswith(('_Z', '__cxa', '__gxx', '_Unwind')): und[sym] += 1
-    for l in subprocess.run([readelf, '-S', '-W', o], capture_output=True, text=True).stdout.splitlines():
+    for l in subprocess.run(['sh', readelf, '-S', '-W', o], capture_output=True, text=True).stdout.splitlines():
         m = re.search(r'\]\s+(__objc\S*|__DATA\S*|\.objc\S*|\.data\.rel\.ro)\s', l)
         if m: secs[m.group(1)] += 1
 print(f'\n{len(objs)} objects; undefined symbols that are not C++ library internals ({len(und)}):')
