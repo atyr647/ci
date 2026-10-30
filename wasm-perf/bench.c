@@ -45,10 +45,10 @@ int main(void) {
   for (int i = 0; i < ND; i++) { A[i] = (float)(i % 31) * 0.5f; B[i] = (float)(i % 17) * 0.25f; }
   const int reps = 40;
   double t0 = now_ns();
-  for (int r = 0; r < reps; r++) { if (KERNEL) transform_vec(); else transform_scalar(); }
+  for (int r = 0; r < reps; r++) { M[0] += 1e-6f; V[1] += 1e-3f; __asm__ volatile("" ::: "memory"); if (KERNEL) transform_vec(); else transform_scalar(); __asm__ volatile("" ::: "memory"); }
   double t1 = now_ns(); float cs = 0; for (int i = 0; i < NV * 4; i += 4099) cs += O[i];
   float d = 0; double t2 = now_ns();
-  for (int r = 0; r < reps; r++) d += KERNEL ? dot_vec() : dot_scalar();
+  for (int r = 0; r < reps; r++) { A[3] += 1.0f; __asm__ volatile("" ::: "memory"); d += KERNEL ? dot_vec() : dot_scalar(); __asm__ volatile("" ::: "memory"); }
   double t3 = now_ns();
   printf("transform: %.2f ns/vertex (checksum %.3f)\n", (t1 - t0) / ((double)reps * NV), cs);
   printf("dot:       %.3f ns/element (result %.1f)\n", (t3 - t2) / ((double)reps * ND), d);

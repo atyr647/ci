@@ -53,9 +53,27 @@ jobs:
           cd out
           for v in scalar autovec simd vec-lowered; do echo "--- wasm $v"; "$WASMTIME" run bench-wasm-$v.wasm; done
           for v in scalar simd; do echo "--- native (Cosmopolitan) $v"; if [ "$RUNNER_OS" = Windows ]; then cp bench-native-$v.com bench-native-$v.exe; ./bench-native-$v.exe; else chmod +x bench-native-$v.com; sh ./bench-native-$v.com; fi; done
-      - name: Threads - wasm (wasi-threads) scaling
-        continue-on-error: true
+  threads-host:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    asset: x86_64-linux }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, asset: aarch64-linux }
+          - { label: mac-arm64,   os: macos-latest,     asset: aarch64-macos }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: perf-bins, path: out }
+      - name: "Wasmtime 50 removed wasi-threads, so the host provides thread-spawn itself (C API: shared memory + one store per thread)"
         run: |
-          cd out
-          for n in 1 2 4; do echo "--- wasm threads=$n"; "$WASMTIME" run -W threads=y -S threads=y threads.wasm $n; done
-          for n in 1 4; do echo "--- native threads=$n"; if [ "$RUNNER_OS" = Windows ]; then cp threads-native.com threads-native.exe; ./threads-native.exe $n; else chmod +x threads-native.com; sh ./threads-native.com $n; fi; done
+          echo "stock CLI:"; curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}.tar.xz | tar xJ; ./wasmtime-$WT-${{ matrix.asset }}/wasmtime run -W threads=y -S threads=y out/threads.wasm 2 2>&1 | head -2 || true
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}-c-api.tar.xz | tar xJ
+          d=$PWD/wasmtime-$WT-${{ matrix.asset }}-c-api; lib=$(find $d -not -path '*/min/*' \( -name libwasmtime.so -o -name libwasmtime.dylib \) | head -1)
+          cc -O2 -I$d/include ci-wasm-host/threads-host.c "$lib" -o threads-host -lpthread -Wl,-rpath,$(dirname "$lib")
+          nproc 2>/dev/null || sysctl -n hw.ncpu
+          for n in 1 2 4; do echo "--- wasm threads=$n"; ./threads-host out/threads.wasm $n 2>&1 | tail -4; done
+          for n in 1 4; do echo "--- native threads=$n"; chmod +x out/threads-native.com; sh out/threads-native.com $n; done
