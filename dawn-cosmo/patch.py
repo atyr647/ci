@@ -347,3 +347,31 @@ endif()
         s = s.replace('    info.isUMA = arch.UMA;\n', '    DAWN_COSMO_T("architecture query ok");\n    info.isUMA = arch.UMA;\n', 1)
         return s
     edit2('src/dawn/native/d3d12/D3D12Info.cpp', 'DAWN_COSMO_T', info_trace)
+
+# 11. Metal backend, linked in from objects built on macOS (dawn-cosmo/metal/): Dawn's own Instance.cpp reaches it through a weak symbol, so the x86-64 half
+#     (which has no Metal objects) and every non-macOS host simply find no Metal backend. DAWN_ENABLE_BACKEND_METAL stays undefined in the Cosmopolitan build.
+if os.environ.get('DAWN_COSMO_METAL') == '1':
+    p = os.path.join(root, 'src/dawn/native/Instance.cpp'); s = open(p).read()
+    if 'COSMO-PATCH-METAL' in s:
+        print('already patched: Instance.cpp COSMO-PATCH-METAL')
+    else:
+        old = '#if defined(DAWN_ENABLE_BACKEND_VULKAN)\n        case wgpu::BackendType::Vulkan:\n'
+        new = '''#if !defined(DAWN_ENABLE_BACKEND_METAL)   // COSMO-PATCH-METAL
+        case wgpu::BackendType::Metal:
+            if (DawnCosmoMetalConnect != nullptr) {
+                Register(DawnCosmoMetalConnect(this), wgpu::BackendType::Metal);
+            } else if (getenv("DAWN_COSMO_TRACE")) {
+                fprintf(stderr, "[dawn-cosmo] Metal skipped: not linked into this half of the file\\n");
+            }
+            break;
+#endif
+
+''' + old
+        assert old in s
+        s = s.replace(old, new, 1)
+        fn = 'BackendConnection* InstanceBase::GetBackendConnection(wgpu::BackendType backendType) {\n'
+        assert fn in s
+        s = s.replace(fn, '// COSMO-PATCH-METAL: defined by the Metal objects (dawn-cosmo/metal/MetalCosmo.mm) in the arm64 half only; null elsewhere\nextern "C" BackendConnection* DawnCosmoMetalConnect(InstanceBase* instance) __attribute__((weak));\n\n' + fn, 1)
+        if '#include <cstdio>' not in s:
+            s = insert_after_last_include(s, '#include <cstdio>\n#include <cstdlib>')
+        open(p, 'w').write(s); print('patched: Instance.cpp COSMO-PATCH-METAL')

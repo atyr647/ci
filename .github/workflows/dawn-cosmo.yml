@@ -51,6 +51,7 @@ jobs:
       - name: "Patch Dawn (from clean sources - a restored checkout may carry an older, different patch)"
         env:
           DAWN_COSMO_D3D12: ${{ matrix.arch == 'x86_64' && '1' || '0' }}
+          DAWN_COSMO_METAL: ${{ matrix.arch == 'aarch64' && '1' || '0' }}
         run: |
           git -C dawn checkout -q -- . 
           python3 dawn-cosmo/patch.py dawn
@@ -58,6 +59,7 @@ jobs:
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
           d3d=""
+          [ "$COSMO_ARCH" = aarch64 ] && d3d="-DTINT_BUILD_MSL_WRITER=ON"   # the Metal objects (built on macOS, linked into the arm64 half) use Tint's MSL writer
           if [ "$COSMO_ARCH" = x86_64 ]; then
             DXH=$PWD/dxh/include; SH=$PWD/dawn-cosmo/d3d12-shims; FILES=$PWD/dawn-cosmo/files; WINE=$PWD/wine/x/usr/include/wine/wine
             FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;-include$FILES/win32_rename.h;-include$SH/pre.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
@@ -90,23 +92,51 @@ jobs:
             dawn
             build
           key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3-${{ github.run_id }}
-      - name: Link the WebGPU test and the GPU probe against it (one architecture)
+      - name: Package the library and headers (linked in the link job, together with the Metal objects for arm64)
         run: |
-          B=$HOME/cosmo/bin; lib=$(find $PWD/build -name libwebgpu_dawn.a | head -1)
-          INC="-I$PWD/dawn/include -I$PWD/build/gen/include -I$PWD/ci-webgpu-test"
-          $B/$COSMO_ARCH-unknown-cosmo-cc -O2 $INC -c ci-webgpu-test/wgt.c -o wgt.o
-          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 wgt.o "$lib" -Wl,--wrap=pthread_create -o wgt.$COSMO_ARCH.com
-          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 -std=c++20 $INC -c ci-webgpu-test/gpu_probe.cpp -o gpu_probe.o
-          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 gpu_probe.o "$lib" -Wl,--wrap=pthread_create -o gpu-probe.$COSMO_ARCH.com
-          ls -la wgt.$COSMO_ARCH.com* gpu-probe.$COSMO_ARCH.com*
+          mkdir -p dist/inc1 dist/inc2
+          cp "$(find build -name libwebgpu_dawn.a | head -1)" dist/
+          cp -r dawn/include/. dist/inc1/ && cp -r build/gen/include/. dist/inc2/
+          ls -la dist
+      - name: Inputs for the macOS job - the exact flags of this build and the headers (arm64 only)
+        if: matrix.arch == 'aarch64'
+        run: python3 dawn-cosmo/metal/export_inputs.py "$PWD" "$PWD/build" metal-inputs && ls -la metal-inputs
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'logs-${{ matrix.arch }}', path: "*.log" }
       - uses: actions/upload-artifact@v4
-        with: { name: 'wgt-${{ matrix.arch }}', path: "wgt.${{ matrix.arch }}.com.dbg\ngpu-probe.${{ matrix.arch }}.com.dbg" }
+        with: { name: 'lib-${{ matrix.arch }}', path: dist, compression-level: 1 }
+      - uses: actions/upload-artifact@v4
+        if: matrix.arch == 'aarch64'
+        with: { name: metal-inputs, path: metal-inputs, compression-level: 1 }
+
+  metal:
+    needs: build
+    runs-on: macos-latest
+    timeout-minutes: 120
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: metal-inputs, path: dl }
+      - name: Tools
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip
+          mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          xcrun --show-sdk-path
+      - name: Compile Dawn's Metal backend with the Cosmopolitan clang against the Apple SDK (same flags as the rest of Dawn), generate the Objective-C runtime shim
+        run: |
+          mkdir inputs && tar xzf dl/inputs.tar.gz -C inputs && cp dl/flags.json inputs/
+          python3 dawn-cosmo/metal/build_objs.py "$PWD/inputs" "$PWD/cosmo/bin" "$(xcrun --show-sdk-path)" "$PWD/out" 2>&1 | tee metal-build.log | tail -150
+          ls -la out out/objs
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: metal-log, path: metal-build.log }
+      - uses: actions/upload-artifact@v4
+        with: { name: metal-objs, path: "out/objs\nout/objc_shim.c\nout/undefined.txt" }
 
   link:
-    needs: build
+    needs: [build, metal]
+    if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -116,9 +146,29 @@ jobs:
           mkdir -p cosmo && unzip -q cosmocc.zip -d cosmo
           cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
       - uses: actions/download-artifact@v4
-        with: { name: wgt-x86_64, path: parts }
+        with: { name: lib-x86_64, path: lib-x86_64 }
       - uses: actions/download-artifact@v4
-        with: { name: wgt-aarch64, path: parts }
+        with: { name: lib-aarch64, path: lib-aarch64 }
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with: { name: metal-objs, path: metal }
+      - name: Link the WebGPU test and the GPU probe for each architecture (arm64 also gets the Metal objects and the Objective-C shim)
+        run: |
+          B=$PWD/cosmo/bin
+          mkdir parts
+          for A in x86_64 aarch64; do
+            L=$PWD/lib-$A; INC="-I$L/inc1 -I$L/inc2 -I$PWD/ci-webgpu-test"; extra=""
+            if [ $A = aarch64 ] && [ -f metal/objc_shim.c ]; then
+              $B/aarch64-unknown-cosmo-cc -O2 -c metal/objc_shim.c -o objc_shim.o
+              extra="$(ls $PWD/metal/objs/*.o) objc_shim.o"
+              echo "arm64: linking $(ls metal/objs/*.o | wc -l) Metal objects"
+            fi
+            $B/$A-unknown-cosmo-cc -O2 $INC -c ci-webgpu-test/wgt.c -o wgt.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 wgt.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/wgt.$A.com
+            $B/$A-unknown-cosmo-c++ -O2 -std=c++20 $INC -c ci-webgpu-test/gpu_probe.cpp -o gpu_probe.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 gpu_probe.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/gpu-probe.$A.com
+          done
+          ls -la parts
       - name: One fat file
         run: |
           B=$PWD/cosmo/bin
@@ -180,6 +230,15 @@ jobs:
         run: |
           if [ "$RUNNER_OS" = Windows ]; then cp gpu-probe.com gpu-probe.exe; ( ./gpu-probe.exe --bench 2>&1 | cat ) | tr '\r' '\n' | grep -v Warning
           else chmod +x gpu-probe.com; sh ./gpu-probe.com --bench 2>&1 | grep -v Warning; fi
+      - name: macOS only - the Metal backend compiled into the file (Apple GPU of the runner, reached without MoltenVK)
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          chmod +x wgt-dawn.com gpu-probe.com
+          export WGT_BACKEND=metal DAWN_COSMO_TRACE=1
+          ci-webgpu-test/run-one.sh "dawn built by cosmocc (Metal)" sh ./wgt-dawn.com
+          echo "--- every adapter, all backends"
+          unset WGT_BACKEND; sh ./gpu-probe.com --bench 2>&1 | grep -v Warning
       - name: "Windows only - the D3D12 backend compiled into the file (WARP, Windows' software adapter, shows up as a CPU adapter: the runner has no GPU)"
         if: runner.os == 'Windows'
         continue-on-error: true

@@ -12,3 +12,22 @@ for f in sorted(glob.glob(os.path.join(root, 'src/dawn/native/metal/*.mm')) + gl
     if t != s:
         open(f, 'w', errors='surrogateescape').write(t); n += 1; print('patched:', os.path.relpath(f, root))
 print(n, 'files changed')
+
+# Command buffer handlers: Metal would run them on its own threads, which have none of Cosmopolitan's per-thread state. Hand the committed buffer to a thread
+# created by Cosmopolitan instead (MetalCosmo.mm), which waits for it and runs the very same handler bodies. The shader-print log handler is also a callback
+# from Metal's threads; it only exists for the EnableShaderPrint toggle (off by default) and is disabled.
+def edit(rel, pairs):
+    global n
+    f = os.path.join(root, rel); s = open(f, errors='surrogateescape').read()
+    if 'DawnCosmoMetalWatch' in s:
+        print('already patched:', rel); return
+    for old, new in pairs:
+        assert old in s, (rel, old[:60])
+        s = s.replace(old, new, 1)
+    open(f, 'w', errors='surrogateescape').write(s); n += 1; print('patched:', rel)
+edit('src/dawn/native/metal/QueueMTL.mm', [
+    ('namespace dawn::native::metal {\n', '#include <functional>\nvoid DawnCosmoMetalWatch(id<MTLCommandBuffer> commandBuffer, std::function<void(id<MTLCommandBuffer>)> scheduled,\n                         std::function<void(id<MTLCommandBuffer>)> completed);   // MetalCosmo.mm\n\nnamespace dawn::native::metal {\n'),
+    ('    [*pendingCommands addScheduledHandler:std::move(ScheduledHandler)];\n    [*pendingCommands addCompletedHandler:std::move(CompletedHandler)];\n', ''),
+    ('    [*pendingCommands commit];\n', '    [*pendingCommands commit];\n    DawnCosmoMetalWatch(*pendingCommands, std::move(ScheduledHandler), std::move(CompletedHandler));\n'),
+    ('            [mtlLogState addLogHandler:[deviceRef', '            if (false) [mtlLogState addLogHandler:[deviceRef'),
+])

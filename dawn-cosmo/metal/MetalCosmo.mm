@@ -60,3 +60,21 @@ void DawnCosmoMetalWatch(id<MTLCommandBuffer> commandBuffer,
     }
     gWake.notify_one();
 }
+
+// Entry point for Dawn's Instance (patched, weak reference): connects the Metal backend once the Objective-C runtime has been reached.
+// dawn_cosmo_objc_init (generated, objc_shim.c) loads the system frameworks and resolves the objects' selector and class references; it is false anywhere but macOS.
+extern "C" bool dawn_cosmo_objc_init(void);
+namespace dawn::native {
+class BackendConnection;
+class InstanceBase;
+namespace metal {
+BackendConnection* Connect(InstanceBase* instance);
+}
+}  // namespace dawn::native
+
+extern "C" dawn::native::BackendConnection* DawnCosmoMetalConnect(dawn::native::InstanceBase* instance) {
+    if (!dawn_cosmo_objc_init()) {
+        return nullptr;
+    }
+    return dawn::native::metal::Connect(instance);
+}
