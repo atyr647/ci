@@ -20,8 +20,8 @@ for e in metal[:limit]:
         if t in ('-c', '-MD', '-MMD') or t.startswith('-mmacosx-version-min') or t.startswith('-fcolor') or t.startswith('-Werror') or t.startswith('-Wno-') and False: continue
         if t == e['file'] or t.endswith(('.mm', '.cpp')) and t.startswith('/') and os.path.basename(t) == os.path.basename(e['file']): continue
         keep.append(t)
-    cmd = [cosmocc, '-mclang', '-x', 'objective-c++', '-fobjc-arc', '-fblocks', '-fobjc-runtime=macosx', '-fsyntax-only', '-Wno-everything'] + APPLE_DEFS + \
-          ['-F' + sdk + '/System/Library/Frameworks', '-idirafter', sdk + '/usr/include'] + keep + [e['file']]
+    cmd = [cosmocc, '-mclang', '-c', '-x', 'objective-c++', '-fobjc-arc', '-fblocks', '-fobjc-runtime=macosx', '-fsyntax-only', '-Wno-everything'] + APPLE_DEFS + \
+          ['-F' + sdk + '/System/Library/Frameworks', '-idirafter' + sdk + '/usr/include'] + keep + [e['file']]
     p = subprocess.run(cmd, capture_output=True, text=True)
     errs = [l for l in p.stderr.splitlines() if ' error:' in l or 'fatal error' in l]
     for l in errs:
