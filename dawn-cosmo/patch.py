@@ -151,7 +151,7 @@ F AsVkFn(void(VKAPI_PTR* addr)()) {''' % MARK
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name));', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name)), "vk" #name);', 1)
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName))', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName)), "vk" #procName)', 1)
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetDeviceProcAddr(device, "vk" #name));', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetDeviceProcAddr(device, "vk" #name)), "vk" #name);', 1)
-    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows() { return IsWindows(); }\nextern "C" bool DawnCosmoTrace() { static const bool on = getenv("DAWN_COSMO_TRACE") != nullptr; return on; }\nextern "C" void DawnCosmoTraceCall(const char* name, void* addr) { (void)addr; fprintf(stderr, "[vk] %s\\n", name); fflush(stderr); }\n#undef IsWindows\n#endif')
+    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows() { return IsWindows(); }\nextern "C" bool DawnCosmoIsXnu() { return IsXnu(); }\nextern "C" bool DawnCosmoTrace() { static const bool on = getenv("DAWN_COSMO_TRACE") != nullptr; return on; }\nextern "C" void DawnCosmoTraceCall(const char* name, void* addr) { (void)addr; fprintf(stderr, "[vk] %s\\n", name); fflush(stderr); }\n#undef IsWindows\n#endif')
 edit('src/dawn/native/vulkan/VulkanFunctions.cpp', vkfns_cpp)
 
 # 6. Cosmopolitan's own headers #undef __linux__, so code that tests it directly needs the extra clause
@@ -374,8 +374,8 @@ if os.environ.get('DAWN_COSMO_METAL') == '1':
         # macOS uses Metal only (no MoltenVK); the Vulkan backend can still be asked for with DAWN_COSMO_ALLOW_VULKAN=1 (used for comparisons)
         vk = '            Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n'
         assert vk in s
-        s = s.replace(vk, '            if (!IsXnu() || getenv("DAWN_COSMO_ALLOW_VULKAN")) {\n                Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n            }\n', 1)
-        s = insert_after_last_include(s, '#include <cosmo.h>')
+        s = s.replace(vk, '            if (!DawnCosmoIsXnu() || getenv("DAWN_COSMO_ALLOW_VULKAN")) {\n                Register(vulkan::Connect(this), wgpu::BackendType::Vulkan);\n            }\n', 1)
+        s = insert_after_last_include(s, 'extern "C" bool DawnCosmoIsXnu();   // COSMO-PATCH-METAL (defined in vulkan/VulkanFunctions.cpp)')
         fn = 'BackendConnection* InstanceBase::GetBackendConnection(wgpu::BackendType backendType) {\n'
         assert fn in s
         s = s.replace(fn, '// COSMO-PATCH-METAL: defined by the Metal objects (dawn-cosmo/metal/MetalCosmo.mm) in the arm64 half only; null elsewhere\nextern "C" BackendConnection* DawnCosmoMetalConnect(InstanceBase* instance) __attribute__((weak));\n\n' + fn, 1)
