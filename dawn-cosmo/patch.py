@@ -91,13 +91,12 @@ struct DualAbiFn {
     bool operator!=(std::nullptr_t) const { return addr != nullptr; }
     explicit operator bool() const { return addr != nullptr; }
 };
-#ifdef __COSMOPOLITAN__
 template <typename R, typename... Args>
 DualAbiFn<R, Args...> DawnCosmoNamed(DualAbiFn<R, Args...> f, const char* n) {
     f.name = n;
     return f;
 }
-#endif
+#endif  // __COSMOPOLITAN__ (outer)
 
 template <typename R, typename... Args>
 struct VkFnImpl<R(VKAPI_PTR*)(Args...)> {
