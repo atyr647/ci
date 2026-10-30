@@ -30,12 +30,14 @@ __attribute__((target("avx2,fma"))) static float sdot_avx2(const float *x, const
     s0 = _mm256_add_ps(_mm256_add_ps(s0, s1), _mm256_add_ps(s2, s3)); float t[8]; _mm256_storeu_ps(t, s0); float r = t[0] + t[1] + t[2] + t[3] + t[4] + t[5] + t[6] + t[7];
     for (; i < n; i++) r += x[i] * y[i]; return r;
 }
-__attribute__((target("avx2,fma"))) static void matmul_avx2(const float *A, const float *B, float *C, int n) {
-    for (int i = 0; i < n; i++) { int j = 0;
-        for (; j + 32 <= n; j += 32) { __m256 c0 = _mm256_setzero_ps(), c1 = c0, c2 = c0, c3 = c0;
-            for (int k = 0; k < n; k++) { __m256 a = _mm256_set1_ps(A[i * n + k]); const float *b = B + k * n + j; c0 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b), c0); c1 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b + 8), c1); c2 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b + 16), c2); c3 = _mm256_fmadd_ps(a, _mm256_loadu_ps(b + 24), c3); }
-            _mm256_storeu_ps(C + i * n + j, c0); _mm256_storeu_ps(C + i * n + j + 8, c1); _mm256_storeu_ps(C + i * n + j + 16, c2); _mm256_storeu_ps(C + i * n + j + 24, c3); }
-        for (; j + 8 <= n; j += 8) { __m256 c0 = _mm256_setzero_ps(); for (int k = 0; k < n; k++) c0 = _mm256_fmadd_ps(_mm256_set1_ps(A[i * n + k]), _mm256_loadu_ps(B + k * n + j), c0); _mm256_storeu_ps(C + i * n + j, c0); } }
+__attribute__((target("avx2,fma"))) static void matmul_avx2(const float *A, const float *B, float *C, int n) {   /* 2 rows x 32 columns (8 ymm accumulators) */
+    for (int i = 0; i < n; i += 2) { int j = 0;
+        for (; j + 32 <= n; j += 32) { __m256 c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = _mm256_setzero_ps();
+            for (int k = 0; k < n; k++) { __m256 b[4]; for (int u = 0; u < 4; u++) b[u] = _mm256_loadu_ps(B + k * n + j + 8 * u);
+                for (int r = 0; r < 2; r++) { __m256 a = _mm256_set1_ps(A[(i + r) * n + k]); for (int u = 0; u < 4; u++) c[r][u] = _mm256_fmadd_ps(a, b[u], c[r][u]); } }
+            for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) _mm256_storeu_ps(C + (i + r) * n + j + 8 * u, c[r][u]); }
+        for (; j + 8 <= n; j += 8) { __m256 c0 = _mm256_setzero_ps(), c1 = c0; for (int k = 0; k < n; k++) { __m256 b = _mm256_loadu_ps(B + k * n + j); c0 = _mm256_fmadd_ps(_mm256_set1_ps(A[i * n + k]), b, c0); c1 = _mm256_fmadd_ps(_mm256_set1_ps(A[(i + 1) * n + k]), b, c1); }
+            _mm256_storeu_ps(C + i * n + j, c0); _mm256_storeu_ps(C + (i + 1) * n + j, c1); } }
 }
 __attribute__((target("avx512f"))) static void saxpy_avx512(float a, const float *x, float *y, int n) {
     __m512 av = _mm512_set1_ps(a); int i = 0;
@@ -48,13 +50,16 @@ __attribute__((target("avx512f"))) static float sdot_avx512(const float *x, cons
     for (; i + 64 <= n; i += 64) { s0 = _mm512_fmadd_ps(_mm512_loadu_ps(x + i), _mm512_loadu_ps(y + i), s0); s1 = _mm512_fmadd_ps(_mm512_loadu_ps(x + i + 16), _mm512_loadu_ps(y + i + 16), s1); s2 = _mm512_fmadd_ps(_mm512_loadu_ps(x + i + 32), _mm512_loadu_ps(y + i + 32), s2); s3 = _mm512_fmadd_ps(_mm512_loadu_ps(x + i + 48), _mm512_loadu_ps(y + i + 48), s3); }
     float r = _mm512_reduce_add_ps(_mm512_add_ps(_mm512_add_ps(s0, s1), _mm512_add_ps(s2, s3))); for (; i < n; i++) r += x[i] * y[i]; return r;
 }
-__attribute__((target("avx512f"))) static void matmul_avx512(const float *A, const float *B, float *C, int n) {
-    for (int i = 0; i < n; i++) { int j = 0;
-        for (; j + 64 <= n; j += 64) { __m512 c0 = _mm512_setzero_ps(), c1 = c0, c2 = c0, c3 = c0;
-            for (int k = 0; k < n; k++) { __m512 a = _mm512_set1_ps(A[i * n + k]); const float *b = B + k * n + j; c0 = _mm512_fmadd_ps(a, _mm512_loadu_ps(b), c0); c1 = _mm512_fmadd_ps(a, _mm512_loadu_ps(b + 16), c1); c2 = _mm512_fmadd_ps(a, _mm512_loadu_ps(b + 32), c2); c3 = _mm512_fmadd_ps(a, _mm512_loadu_ps(b + 48), c3); }
-            _mm512_storeu_ps(C + i * n + j, c0); _mm512_storeu_ps(C + i * n + j + 16, c1); _mm512_storeu_ps(C + i * n + j + 32, c2); _mm512_storeu_ps(C + i * n + j + 48, c3); }
-        for (; j + 16 <= n; j += 16) { __m512 c0 = _mm512_setzero_ps(); for (int k = 0; k < n; k++) c0 = _mm512_fmadd_ps(_mm512_set1_ps(A[i * n + k]), _mm512_loadu_ps(B + k * n + j), c0); _mm512_storeu_ps(C + i * n + j, c0); }
-        for (; j + 8 <= n; j += 8) { __m256 c0 = _mm256_setzero_ps(); for (int k = 0; k < n; k++) c0 = _mm256_add_ps(c0, _mm256_mul_ps(_mm256_set1_ps(A[i * n + k]), _mm256_loadu_ps(B + k * n + j))); _mm256_storeu_ps(C + i * n + j, c0); } }
+__attribute__((target("avx512f"))) static void matmul_avx512(const float *A, const float *B, float *C, int n) {   /* 2 rows x 64 columns (8 zmm accumulators) */
+    for (int i = 0; i < n; i += 2) { int j = 0;
+        for (; j + 64 <= n; j += 64) { __m512 c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = _mm512_setzero_ps();
+            for (int k = 0; k < n; k++) { __m512 b[4]; for (int u = 0; u < 4; u++) b[u] = _mm512_loadu_ps(B + k * n + j + 16 * u);
+                for (int r = 0; r < 2; r++) { __m512 a = _mm512_set1_ps(A[(i + r) * n + k]); for (int u = 0; u < 4; u++) c[r][u] = _mm512_fmadd_ps(a, b[u], c[r][u]); } }
+            for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) _mm512_storeu_ps(C + (i + r) * n + j + 16 * u, c[r][u]); }
+        for (; j + 16 <= n; j += 16) { __m512 c0 = _mm512_setzero_ps(), c1 = c0; for (int k = 0; k < n; k++) { __m512 b = _mm512_loadu_ps(B + k * n + j); c0 = _mm512_fmadd_ps(_mm512_set1_ps(A[i * n + k]), b, c0); c1 = _mm512_fmadd_ps(_mm512_set1_ps(A[(i + 1) * n + k]), b, c1); }
+            _mm512_storeu_ps(C + i * n + j, c0); _mm512_storeu_ps(C + (i + 1) * n + j, c1); }
+        for (; j + 8 <= n; j += 8) { __m256 c0 = _mm256_setzero_ps(), c1 = c0; for (int k = 0; k < n; k++) { __m256 b = _mm256_loadu_ps(B + k * n + j); c0 = _mm256_add_ps(c0, _mm256_mul_ps(_mm256_set1_ps(A[i * n + k]), b)); c1 = _mm256_add_ps(c1, _mm256_mul_ps(_mm256_set1_ps(A[(i + 1) * n + k]), b)); }
+            _mm256_storeu_ps(C + i * n + j, c0); _mm256_storeu_ps(C + (i + 1) * n + j, c1); } }
 }
 #elif defined(__aarch64__)
 static void saxpy_neon(float a, const float *x, float *y, int n) {
@@ -66,12 +71,14 @@ static float sdot_neon(const float *x, const float *y, int n) {
     for (; i + 16 <= n; i += 16) { s0 = vfmaq_f32(s0, vld1q_f32(x + i), vld1q_f32(y + i)); s1 = vfmaq_f32(s1, vld1q_f32(x + i + 4), vld1q_f32(y + i + 4)); s2 = vfmaq_f32(s2, vld1q_f32(x + i + 8), vld1q_f32(y + i + 8)); s3 = vfmaq_f32(s3, vld1q_f32(x + i + 12), vld1q_f32(y + i + 12)); }
     float r = vaddvq_f32(vaddq_f32(vaddq_f32(s0, s1), vaddq_f32(s2, s3))); for (; i < n; i++) r += x[i] * y[i]; return r;
 }
-static void matmul_neon(const float *A, const float *B, float *C, int n) {
-    for (int i = 0; i < n; i++) { int j = 0;
-        for (; j + 16 <= n; j += 16) { float32x4_t c0 = vdupq_n_f32(0), c1 = c0, c2 = c0, c3 = c0;
-            for (int k = 0; k < n; k++) { float a = A[i * n + k]; const float *b = B + k * n + j; c0 = vfmaq_n_f32(c0, vld1q_f32(b), a); c1 = vfmaq_n_f32(c1, vld1q_f32(b + 4), a); c2 = vfmaq_n_f32(c2, vld1q_f32(b + 8), a); c3 = vfmaq_n_f32(c3, vld1q_f32(b + 12), a); }
-            vst1q_f32(C + i * n + j, c0); vst1q_f32(C + i * n + j + 4, c1); vst1q_f32(C + i * n + j + 8, c2); vst1q_f32(C + i * n + j + 12, c3); }
-        for (; j + 4 <= n; j += 4) { float32x4_t c0 = vdupq_n_f32(0); for (int k = 0; k < n; k++) c0 = vfmaq_n_f32(c0, vld1q_f32(B + k * n + j), A[i * n + k]); vst1q_f32(C + i * n + j, c0); } }
+static void matmul_neon(const float *A, const float *B, float *C, int n) {   /* 2 rows x 16 columns (8 q accumulators) */
+    for (int i = 0; i < n; i += 2) { int j = 0;
+        for (; j + 16 <= n; j += 16) { float32x4_t c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = vdupq_n_f32(0);
+            for (int k = 0; k < n; k++) { float32x4_t b[4]; for (int u = 0; u < 4; u++) b[u] = vld1q_f32(B + k * n + j + 4 * u);
+                for (int r = 0; r < 2; r++) { float a = A[(i + r) * n + k]; for (int u = 0; u < 4; u++) c[r][u] = vfmaq_n_f32(c[r][u], b[u], a); } }
+            for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) vst1q_f32(C + (i + r) * n + j + 4 * u, c[r][u]); }
+        for (; j + 4 <= n; j += 4) { float32x4_t c0 = vdupq_n_f32(0), c1 = c0; for (int k = 0; k < n; k++) { float32x4_t b = vld1q_f32(B + k * n + j); c0 = vfmaq_n_f32(c0, b, A[i * n + k]); c1 = vfmaq_n_f32(c1, b, A[(i + 1) * n + k]); }
+            vst1q_f32(C + i * n + j, c0); vst1q_f32(C + (i + 1) * n + j, c1); } }
 }
 #endif
 static void (*k_saxpy)(float, const float *, float *, int) = saxpy_c; static float (*k_sdot)(const float *, const float *, int) = sdot_c; static void (*k_matmul)(const float *, const float *, float *, int) = matmul_c;
@@ -140,7 +147,15 @@ int main(int argc, char **argv) {
     if (argc < 3) { fprintf(stderr, "usage: host guest.wasm checked|unchecked\n"); return 2; }
     int unchecked = !strcmp(argv[2], "unchecked"); pick_kernels();
     FILE *f = fopen(argv[1], "rb"); if (!f) { perror("open"); return 1; } fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET); uint8_t *buf = malloc(len); if (fread(buf, 1, len, f) != (size_t)len) return 1; fclose(f);
-    wasm_engine_t *eng = wasm_engine_new(); wasmtime_store_t *st = wasmtime_store_new(eng, NULL, NULL); g_ctx = wasmtime_store_context(st);
+    const char *cfgenv = getenv("HOSTCFG");   /* epoch | fuel | explicit : engine settings whose cost is being measured (default: none) */
+    wasm_config_t *cfg = wasm_config_new();
+    if (cfgenv && !strcmp(cfgenv, "epoch")) wasmtime_config_epoch_interruption_set(cfg, true);
+    if (cfgenv && !strcmp(cfgenv, "fuel")) wasmtime_config_consume_fuel_set(cfg, true);
+    if (cfgenv && !strcmp(cfgenv, "explicit")) wasmtime_config_signals_based_traps_set(cfg, false);
+    printf("ENGINE %s\n", cfgenv ? cfgenv : "default");
+    wasm_engine_t *eng = wasm_engine_new_with_config(cfg); wasmtime_store_t *st = wasmtime_store_new(eng, NULL, NULL); g_ctx = wasmtime_store_context(st);
+    if (cfgenv && !strcmp(cfgenv, "epoch")) wasmtime_context_set_epoch_deadline(g_ctx, 1ull << 60);
+    if (cfgenv && !strcmp(cfgenv, "fuel")) { wasmtime_error_t *fe = wasmtime_context_set_fuel(g_ctx, 1ull << 62); if (fe) die("fuel", fe, NULL); }
     wasi_config_t *wc = wasi_config_new(); wasi_config_inherit_stdout(wc); wasi_config_inherit_stderr(wc); wasmtime_error_t *e = wasmtime_context_set_wasi(g_ctx, wc); if (e) die("wasi", e, NULL);
     wasmtime_linker_t *lk = wasmtime_linker_new(eng); e = wasmtime_linker_define_wasi(lk); if (e) die("define_wasi", e, NULL);
 #define DEF(nm, p, r) do { wasm_functype_t *t = ty(p, r); e = unchecked ? wasmtime_linker_define_func_unchecked(lk, "h", 1, #nm, strlen(#nm), t, u_##nm, NULL, NULL) : wasmtime_linker_define_func(lk, "h", 1, #nm, strlen(#nm), t, c_##nm, NULL, NULL); if (e) die("define " #nm, e, NULL); wasm_functype_delete(t); } while (0)

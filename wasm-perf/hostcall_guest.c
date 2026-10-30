@@ -30,11 +30,14 @@ static float w_sdot(const float *x, const float *y, int n) {   /* 4 independent 
     for (; i + 16 <= n; i += 16) { s0 += *(const v4fu *)(x + i) * *(const v4fu *)(y + i); s1 += *(const v4fu *)(x + i + 4) * *(const v4fu *)(y + i + 4); s2 += *(const v4fu *)(x + i + 8) * *(const v4fu *)(y + i + 8); s3 += *(const v4fu *)(x + i + 12) * *(const v4fu *)(y + i + 12); }
     v4f s = (s0 + s1) + (s2 + s3); float r = s[0] + s[1] + s[2] + s[3]; for (; i < n; i++) r += x[i] * y[i]; return r;
 }
-static void w_matmul(const float *A, const float *B, float *C, int n) {   /* i-k-j, 4 vectors of C per step */
-    memset(C, 0, (size_t)n * n * 4);
-    for (int i = 0; i < n; i++) for (int k = 0; k < n; k++) { float a = A[i * n + k]; v4f av = {a, a, a, a}; int j = 0;
-        for (; j + 16 <= n; j += 16) for (int u = 0; u < 4; u++) *(v4fu *)(C + i * n + j + 4 * u) += av * *(const v4fu *)(B + k * n + j + 4 * u);
-        for (; j + 4 <= n; j += 4) *(v4fu *)(C + i * n + j) += av * *(const v4fu *)(B + k * n + j); }
+static void w_matmul(const float *A, const float *B, float *C, int n) {   /* register-blocked: 2 rows x 16 columns of C (8 v128 accumulators) stay in registers over k; n even, >= 8 */
+    for (int i = 0; i < n; i += 2) { int j = 0;
+        for (; j + 16 <= n; j += 16) { v4f c[2][4]; for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) c[r][u] = (v4f){0, 0, 0, 0};
+            for (int k = 0; k < n; k++) { v4f b[4]; for (int u = 0; u < 4; u++) b[u] = *(const v4fu *)(B + k * n + j + 4 * u);
+                for (int r = 0; r < 2; r++) { float a = A[(i + r) * n + k]; v4f av = {a, a, a, a}; for (int u = 0; u < 4; u++) c[r][u] += av * b[u]; } }
+            for (int r = 0; r < 2; r++) for (int u = 0; u < 4; u++) *(v4fu *)(C + (i + r) * n + j + 4 * u) = c[r][u]; }
+        for (; j + 4 <= n; j += 4) { v4f c0 = {0, 0, 0, 0}, c1 = c0; for (int k = 0; k < n; k++) { v4f b = *(const v4fu *)(B + k * n + j); float a0 = A[i * n + k], a1 = A[(i + 1) * n + k]; c0 += (v4f){a0, a0, a0, a0} * b; c1 += (v4f){a1, a1, a1, a1} * b; }
+            *(v4fu *)(C + i * n + j) = c0; *(v4fu *)(C + (i + 1) * n + j) = c1; } }
 }
 /* time fn(): calibrate the repeat count to >= 4 ms, then best of 7 */
 #define TIME_NS(fn_stmt, out) do { long it = 1; for (;;) { double t0 = now_ns(); for (long q = 0; q < it; q++) { fn_stmt; } double dt = now_ns() - t0; if (dt > 4e6 || it > (1L << 28)) break; it *= (dt < 1e5 ? 16 : 2); } \

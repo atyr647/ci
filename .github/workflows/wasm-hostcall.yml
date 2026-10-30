@@ -40,3 +40,4 @@ jobs:
         run: |
           for conv in unchecked checked; do echo "=== $conv"; ./host g/guest.wasm $conv; done
           if [ "$(uname -m)" = x86_64 ]; then for k in avx2 portable; do echo "=== unchecked, HOSTKERNEL=$k"; HOSTKERNEL=$k ./host g/guest.wasm unchecked | grep -E '^(HOSTKERNEL|SAXPY|DOT|MATMUL)'; done; else echo "=== unchecked, HOSTKERNEL=portable"; HOSTKERNEL=portable ./host g/guest.wasm unchecked | grep -E '^(HOSTKERNEL|SAXPY|DOT|MATMUL)'; fi
+          for cfg in epoch fuel explicit; do echo "=== unchecked, HOSTCFG=$cfg"; HOSTCFG=$cfg ./host g/guest.wasm unchecked | grep -E '^(ENGINE|CALL import-nop|SAXPY (64|4096) |DOT 1024|MATMUL (32|256))'; done

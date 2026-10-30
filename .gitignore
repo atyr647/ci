@@ -6,3 +6,4 @@ wt-host.com.dbg
 all.h
 wt_shim.h
 dl_shim.h
+wasmtime-nostd/embedding/vendor/
