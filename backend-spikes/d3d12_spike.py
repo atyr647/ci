@@ -15,7 +15,7 @@ for t in toks:
     if t in ('-c', '-MD'): continue
     if re.search(r'\.(cpp|cc|c)$', t): continue
     base.append(t)
-extra = ['-DDAWN_ENABLE_BACKEND_D3D12', '-DDAWN_ENABLE_BACKEND_D3D11', '-DDAWN_COSMO_AS_WINDOWS=1', '-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-fpermissive', '-w', '-fsyntax-only',
+extra = ['-DDAWN_ENABLE_BACKEND_D3D12', '-DDAWN_ENABLE_BACKEND_D3D11', '-DDAWN_COSMO_AS_WINDOWS=1', '-DNOMINMAX', '-DWIN32_LEAN_AND_MEAN', '-fpermissive', '-w', '-fsyntax-only', '-fshort-wchar', '-DWINE_UNICODE_NATIVE',
          '-include', os.path.join(stubs, 'pre.h'), '-I' + stubs,
          '-I' + os.path.join(dawn, 'third_party/directx-headers/src/include/directx'), '-I' + os.path.join(dawn, 'third_party/directx-headers/src/include'),
          '-I' + os.path.join(dawn, 'third_party/directx-shader-compiler/src/include/dxc'),

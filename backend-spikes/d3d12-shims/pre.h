@@ -40,3 +40,5 @@
 #include <malloc.h>
 #include <stdarg.h>
 #include "sal_shim.h"
+#include "uuid_decls.h"
+#include "win_extras.h"
