@@ -1,0 +1,2 @@
+host : platform=macos arch=aarch64 mode=sig name=wasitest.p2 (454264 bytes) features=0xf
+host : component loaded in 0.3 ms
