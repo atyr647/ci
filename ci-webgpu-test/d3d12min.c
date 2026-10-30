@@ -23,6 +23,7 @@ static void **vt(void *o) { return *(void ***)o; }
 int main(int argc, char **argv) {
   ShowCrashReports();
   if (!getenv("NO_SHIELD")) { STEP("installing the exception wrapper: %d", win_shield_install()); }
+#if defined(__x86_64__)
   {   /* Windows validates the stack pointer against the thread block (TEB) whenever it dispatches an exception: outside StackLimit..StackBase it gives up */
     uintptr_t base, limit, dealloc, rsp; __asm__ volatile("mov %%gs:8, %0" : "=r"(base)); __asm__ volatile("mov %%gs:16, %0" : "=r"(limit)); __asm__ volatile("mov %%gs:0x1478, %0" : "=r"(dealloc)); __asm__ volatile("mov %%rsp, %0" : "=r"(rsp));
     void *saddr = 0; size_t ssize = 0; pthread_attr_t at; if (!pthread_getattr_np(pthread_self(), &at)) { pthread_attr_getstack(&at, &saddr, &ssize); }
@@ -33,6 +34,7 @@ int main(int argc, char **argv) {
       STEP("TEB stack fields set to %#lx..%#lx", (unsigned long)lo, (unsigned long)hi);
     }
   }
+#endif
   void *dxgi = cosmo_dlopen("dxgi.dll", RTLD_NOW), *d3d12 = cosmo_dlopen("d3d12.dll", RTLD_NOW);
   STEP("dxgi=%p d3d12=%p", dxgi, d3d12); if (!dxgi || !d3d12) return 2;
   create_factory_t cf = (create_factory_t)cosmo_dlsym(dxgi, "CreateDXGIFactory1");
