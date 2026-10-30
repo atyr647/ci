@@ -1,7 +1,7 @@
 #!/usr/bin/env python3
 """Spike: how far do Dawn's Metal backend sources get when compiled with the Cosmopolitan toolchain's clang (cosmocc -mclang) as Objective-C++ against the Apple SDK headers?
 usage: metal_spike.py <build-dir-with-compile_commands.json> <cosmocc> <sdk-path> [limit]
-Prints, per file, OK or the number of errors, then the most common distinct errors. Compile only (-fsyntax-only), x86-64 and arm64 slices are both checked by cosmocc."""
+Prints, per file, OK or the number of errors, then the most common distinct errors. Compiles to a throw-away object; cosmocc builds the x86-64 and arm64 slices."""
 import json, re, shlex, subprocess, sys, os, collections
 build, cosmocc, sdk = sys.argv[1], sys.argv[2], sys.argv[3]
 limit = int(sys.argv[4]) if len(sys.argv) > 4 else 10**9
@@ -20,8 +20,8 @@ for e in metal[:limit]:
         if t in ('-c', '-MD', '-MMD') or t.startswith('-mmacosx-version-min') or t.startswith('-fcolor') or t.startswith('-Werror') or t.startswith('-Wno-') and False: continue
         if t == e['file'] or t.endswith(('.mm', '.cpp')) and t.startswith('/') and os.path.basename(t) == os.path.basename(e['file']): continue
         keep.append(t)
-    cmd = [cosmocc, '-mclang', '-c', '-x', 'objective-c++', '-fobjc-arc', '-fblocks', '-fobjc-runtime=macosx', '-fsyntax-only', '-Wno-everything'] + APPLE_DEFS + \
-          ['-F' + sdk + '/System/Library/Frameworks', '-idirafter' + sdk + '/usr/include'] + keep + [e['file']]
+    cmd = [cosmocc, '-mclang', '-c', '-x', 'objective-c++', '-fobjc-arc', '-fblocks', '-fobjc-runtime=macosx', '-Wno-everything'] + APPLE_DEFS + \
+          ['-F' + sdk + '/System/Library/Frameworks', '-idirafter' + sdk + '/usr/include'] + keep + [e['file'], '-o', '/tmp/metal_spike.o']
     p = subprocess.run(cmd, capture_output=True, text=True)
     errs = [l for l in p.stderr.splitlines() if ' error:' in l or 'fatal error' in l]
     for l in errs:
