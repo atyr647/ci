@@ -23,6 +23,8 @@ for t in gc eh mem relaxed atomics shared yield cm; do $WTOOLS parse $G/$t.wat -
 # ---- C / C++ guests ----
 $S/bin/clang --target=wasm32-wasip1 -O2 $G/wasitest.c -o wasm/wasitest.wasm 2>&1 | tail -20
 $S/bin/clang --target=wasm32-wasip2 -O2 $G/wasitest.c -o wasm/wasitest.p2.wasm 2>&1 | tail -20
+$S/bin/clang --target=wasm32-wasip1 -O2 $G/wasibench.c -o wasm/wasibench.wasm 2>&1 | tail -20
+$S/bin/clang --target=wasm32-wasip2 -O2 $G/wasibench.c -o wasm/wasibench.p2.wasm 2>&1 | tail -20
 $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DSIMD=0 $REPO/wasm-perf/shootout.c -o wasm/so-scalar.wasm -lm 2>&1 | tail -5
 $S/bin/clang++ --target=wasm32-wasip1 -std=c++20 -O2 -fno-exceptions -fno-rtti -mexec-model=reactor -Wl,--no-entry $G/coro.cpp -o wasm/coro.wasm 2>&1 | tail -20
 for d in 0 50; do
@@ -41,7 +43,7 @@ compile() {   # <wasm> <outname> <flags...>
   e=$($W compile --target pulley64 "$@" $in -o out/$out.pulley.cwasm 2>&1) || echo "COMPILE-FAIL $out pulley: $(echo "$e" | tr '\n' ' ' | cut -c1-300)" >> compile.log
 }
 FULL="$FLAGS_FULL"; BASE="$FLAGS_BASE"
-for t in gc eh mem relaxed yield wasitest so-scalar coro asy-d0 asy-d0-opt asy-d50 asy-d50-opt; do compile wasm/$t.wasm $t $FULL; done
+for t in gc eh mem relaxed yield wasitest wasibench so-scalar coro asy-d0 asy-d0-opt asy-d50 asy-d50-opt; do compile wasm/$t.wasm $t $FULL; done
 compile wasm/wasitest.wasm b-wasitest $BASE
 compile wasm/so-scalar.wasm b-so-scalar $BASE
 # GC collectors and the threads proposal: compiled with the switch that the runtime does or does not have; the host reports what the loader says
@@ -54,6 +56,7 @@ compile wasm/shared.wasm shared-thr $THR
 # components (compiled when the full runtime has the component model)
 if [ -n "$COMPONENTS" ]; then
   compile wasm/wasitest.p2.wasm wasitest.p2 $FULL
+  compile wasm/wasibench.p2.wasm wasibench.p2 $FULL
   compile wasm/cm.wasm cm $FULL
 fi
 echo "== compile.log"; cat compile.log 2>/dev/null

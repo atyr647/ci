@@ -47,6 +47,11 @@ grep -v '^host : \(platform\|engine\|listening\)' $R/p1-base.out > $R/p1-base.cm
 note "wasi-p1 base-runtime rc=$rc $(sumline $R/p1-base.out) identical-to-full-sig=$(diff -q $R/p1-base.cmp $R/p1-sig.cmp >/dev/null && echo yes || echo NO)"
 rm -rf sbx
 
+# WASI call cost (preview 1, native code and Pulley)
+for mode in sig pulley; do rm -rf sbx; mkdir sbx; "${RUNF[@]}" $mode wasibench --p1 --dir=/sandbox::sbx > $R/bench-p1-$mode.out 2>&1; done; rm -rf sbx
+note "wasi-p1 call cost sig: $(grep -h '^BENCH' $R/bench-p1-sig.out | sed 's/BENCH //; s/  */ /g' | tr '\n' ';')"
+note "wasi-p1 call cost pulley: $(grep -h '^BENCH' $R/bench-p1-pulley.out | sed 's/BENCH //; s/  */ /g' | tr '\n' ';')"
+
 # 3. async (fibers)
 for mode in sig nosig pulley; do
   "${RUNF[@]}" $mode yield --async --run-tests > $R/async-$mode.out 2> $R/async-$mode.err; rc=$?
@@ -83,7 +88,9 @@ if [ -n "$COMPONENTS" ]; then
     grep -v '^host : \(platform\|engine\|component\)' $R/p2-$mode.out > $R/p2-$mode.cmp
     note "wasi-p2 $mode rc=$rc $(sumline $R/p2-$mode.out) fails=$(grep -c '^FAIL' $R/p2-$mode.out) | $(head -c 300 $R/p2-$mode.err | tr '\n' ' ')"
   done
-  rm -rf sbx
+  rm -rf sbx; mkdir sbx
+  "${RUNF[@]}" sig wasibench.p2 --component --dir=/sandbox::sbx > $R/bench-p2-sig.out 2>&1; rm -rf sbx
+  note "wasi-p2 call cost sig: $(grep -h '^BENCH' $R/bench-p2-sig.out | sed 's/BENCH //; s/  */ /g' | tr '\n' ';')"
 fi
 
 # 6. speed: the base runtime against the full runtime on the same kernels (interleaved, best of 3)
