@@ -39,9 +39,10 @@ jobs:
           for v in scalar simd simd-relaxed autovec; do
             flags=""; case $v in simd*|autovec) flags="--enable-simd" ;; esac; case $v in *relaxed) flags="$flags --enable-relaxed-simd" ;; esac
             mkdir -p out/w2c/$v
-            ./wabt-install/bin/wasm2c $flags out/so-$v.wasm -n so -o out/w2c/$v/so.c 2>&1 | head -5 || true
-            [ -f out/w2c/$v/so.c ] && echo "wasm2c ok: $v ($(wc -c < out/w2c/$v/so.c) bytes of C)" || echo "wasm2c FAILED: $v"
+            ./wabt-install/bin/wasm2c $flags out/so-$v.wasm -n so -o out/w2c/$v/so.c 2>&1 | head -3 | sed "s/^/[$v] /" >> out/w2c.log || true
+            [ -f out/w2c/$v/so.c ] && echo "[$v] wasm2c ok ($(wc -c < out/w2c/$v/so.c) bytes of C)" >> out/w2c.log || echo "[$v] wasm2c FAILED" >> out/w2c.log
           done
+          cat out/w2c.log
       - uses: actions/upload-artifact@v4
         with: { name: so-wasm, path: "out\nwabt-install/rt\nwabt-install/simde" }
   run:
@@ -84,7 +85,7 @@ jobs:
             [ -f so/out/w2c/$v/so.c ] || { echo "no wasm2c output for $v"; continue; }
             for isa in base host; do
               extra=""; [ $isa = host ] && extra="${{ matrix.march }}"
-              if cc -O3 $extra -DW2C_NAME=so -DW2C_HEADER="\"so.h\"" -I$RT -Iso/out/w2c/$v -Iso/wabt-install/simde -Wno-everything wasm-perf/w2c_main.c so/out/w2c/$v/so.c $RT/wasm-rt-impl.c $RT/wasm-rt-mem-impl.c -o bin/w2c-$v-$isa -lm 2>bin/w2c-$v-$isa.err; then echo "built w2c-$v-$isa"; else echo "FAILED w2c-$v-$isa"; grep -m3 "error" bin/w2c-$v-$isa.err | cut -c1-220; fi
+              if cc -O3 $extra -DW2C_NAME=so -DW2C_HEADER="\"so.h\"" -I$RT -Iso/out/w2c/$v -Iso/wabt-install/simde -Wno-everything wasm-perf/w2c_main.c so/out/w2c/$v/so.c $RT/wasm-rt-impl.c $RT/wasm-rt-mem-impl.c -o bin/w2c-$v-$isa -lm 2>bin/w2c-$v-$isa.err; then echo "built w2c-$v-$isa"; else echo "[$v-$isa] build FAILED: $(grep -m4 -E 'undefined reference|error:' bin/w2c-$v-$isa.err | sed -E 's/^.*(undefined reference to)/\1/' | cut -c1-120 | tr '\n' ';')" >> bin/diag.log; fi
             done
           done
       - name: Run everything, 3 rounds interleaved (best of rounds)
@@ -115,5 +116,6 @@ jobs:
               lines.append(f'| {n} | ' + ' | '.join(row) + ' | ' + ' | '.join(rel) + ' |')
           bad = {k: s for k, s in sums.items() if len(s) > 1}
           lines += ['', 'checksums identical across all engines: ' + ('yes' if not bad else 'NO - ' + json.dumps({k: sorted(v) for k, v in bad.items()}))]
+          lines += ['', 'wasm2c translation: ' + (open('so/out/w2c.log').read().replace(chr(10), ' ; ') if os.path.exists('so/out/w2c.log') else 'no log'), 'wasm2c builds: ' + (open('bin/diag.log').read().replace(chr(10), ' ; ') if os.path.exists('bin/diag.log') else 'all built')]
           text = '\n'.join(lines); print(text); open(os.environ['GITHUB_STEP_SUMMARY'], 'a').write(text + '\n')
           PY
