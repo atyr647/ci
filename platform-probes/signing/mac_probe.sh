@@ -140,6 +140,15 @@ done
 R "[B unsigned] nested sign order + entitlements of the loader: $(codesign -d --entitlements :- Bunsigned.app/Contents/MacOS/ape-loader 2>&1 | tr -d '\n' | cut -c1-300)"
 syspolicy_check distribution Bunsigned.app > sp.txt 2>&1; R "[B] syspolicy_check distribution (exit $?): $(grep -E 'Severity|Full Error|^[A-Z][A-Za-z ]+$' sp.txt | tr -s ' ' | tr '\n' '|' | cut -c1-1200)"
 syspolicy_check notary-submission Bunsigned.app > sp2.txt 2>&1; R "[B] syspolicy_check notary-submission (exit $?): $(grep -E 'Severity|Full Error|^[A-Z][A-Za-z ]+$|passed|failed' sp2.txt | tr -s ' ' | tr '\n' '|' | cut -c1-1200)"
+echo "----- full syspolicy_check notary-submission output:"; cat sp2.txt | head -60
+# which file triggers the Xprotect error? same bundle with the APE replaced by a placeholder
+mkbundle Bx; echo placeholder > Bx.app/Contents/Resources/app.com
+signit Bx.app/Contents/MacOS/ape-loader --options runtime; signit Bx.app/Contents/MacOS/Bx --options runtime; signit Bx.app --options runtime
+syspolicy_check notary-submission Bx.app > sp3.txt 2>&1; R "[Bx: APE replaced by a text file] syspolicy_check notary-submission (exit $?): $(grep -E 'Severity|Full Error|^[A-Z][A-Za-z ]+$|passed|failed' sp3.txt | tr -s ' ' | tr '\n' '|' | cut -c1-700)"
+echo "----- full output for Bx:"; head -40 sp3.txt
+for f in ape-loader ape-none launcher; do [ -f $f ] && R "xprotect/syspolicy on loader alone is covered by Bx"; break; done
+R "[B] hardened runtime + test identity, NO entitlements: executable-memory probe through that loader: $(Bnone.app/Contents/MacOS/ape-loader ./jit.com 2>&1 | grep -v '^platform' | sed -E 's/ +/ /g; s/called generated code, //' | cut -c1-60 | tr '\n' '|')"
+R "[B] hardened runtime + test identity, NO entitlements: arbitrary file as 'app': $(Bnone.app/Contents/MacOS/ape-loader ./fresh.com 2>&1 | tr '\n' ' ')"
 
 echo "##### 7. quarantine"
 cp -R Bunsigned.app Q.app; xattr -w com.apple.quarantine "0083;$(printf '%x' $(date +%s));Safari;$(uuidgen)" Q.app; xattr -rw com.apple.quarantine "0083;$(printf '%x' $(date +%s));Safari;$(uuidgen)" Q.app 2>/dev/null
