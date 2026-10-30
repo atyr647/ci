@@ -1,0 +1,70 @@
+name: wasm-platforms
+# The headline comparison (Wasmtime defaults on the SIMD128 source variants vs native at baseline ISA and at the host ISA with explicit 256-bit vectors) on every OS/architecture the runners offer:
+# Linux x64/arm64, macOS arm64/x64, Windows x64/arm64.
+on:
+  workflow_dispatch:
+permissions: { contents: write }
+env: { WT: v50.0.0 }
+jobs:
+  build-wasm:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          wasm-perf/build_wasm.sh $PWD/$(ls -d wasi-sdk-34*) $PWD/out
+      - uses: actions/upload-artifact@v4
+        with: { name: so-wasm, path: out }
+  run:
+    needs: build-wasm
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    url: x86_64-linux.tar.xz,   march: "-march=native", exe: "" }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, url: aarch64-linux.tar.xz,  march: "-mcpu=native",  exe: "" }
+          - { label: mac-arm64,   os: macos-latest,     url: aarch64-macos.tar.xz,  march: "-mcpu=native",  exe: "" }
+          - { label: mac-x64,     os: macos-15-intel,   url: x86_64-macos.tar.xz,   march: "-march=native", exe: "" }
+          - { label: win-x64,     os: windows-latest,   url: x86_64-windows.zip,    march: "-march=native", exe: ".exe" }
+          - { label: win-arm64,   os: windows-11-arm,   url: aarch64-windows.zip,   march: "-mcpu=native",  exe: ".exe" }
+    runs-on: ${{ matrix.os }}
+    env: { RESULTS_FILE: results.md }
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: so-wasm, path: so }
+      - name: Setup
+        run: |
+          case "${{ matrix.url }}" in
+            *.zip) curl -fsSL -o wt.zip https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.url }}; mkdir wt; unzip -q wt.zip -d wt;;
+            *) curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.url }}; mkdir wt; tar xJf wt.tar.xz -C wt;;
+          esac
+          WTX=$(find "$PWD/wt" -name 'wasmtime${{ matrix.exe }}' -type f | head -1); echo "WASMTIME=$WTX" >> "$GITHUB_ENV"
+          { echo "## ${{ matrix.label }}: wasm-platforms run ${{ github.run_id }}, commit ${{ github.sha }}"
+            (grep -m1 'model name\|Model name' /proc/cpuinfo || sysctl -n machdep.cpu.brand_string || (wmic cpu get name 2>/dev/null | sed -n 2p) || echo "(cpu name unavailable)") 2>/dev/null || true
+            "$WTX" --version; command -v clang && clang --version | head -1; command -v cc && cc --version | head -1; python3 --version; } 2>&1 | tee -a results.md
+      - name: Native builds
+        run: |
+          mkdir bin; cd wasm-perf; M="${{ matrix.march }}"; X="${{ matrix.exe }}"; F="-O3 -fno-math-errno shootout.c"
+          if [ "${{ runner.os }}" = Windows ]; then CC=clang; L=""; else CC=cc; L="-lm"; fi
+          $CC $F $L -DSIMD=0 -o ../bin/n-scalar$X
+          $CC $F $L $M -DSIMD=0 -o ../bin/n-hostisa-auto$X || echo "hostisa-auto build failed"
+          $CC $F $L $M -DSIMD=1 -DVB=32 -DUNROLL=2 -o ../bin/n-hostisa-vb32-u2$X || echo "hostisa-vb32 build failed"
+          $CC $F $L -DSIMD=1 -DUNROLL=2 -o ../bin/n-simd128-u2$X || true
+          ls ../bin
+      - name: Run
+        run: |
+          python3 - <<'PY'
+          import json, os, glob
+          W = os.environ['WASMTIME']; rows = []
+          for f in sorted(glob.glob('bin/*')): rows.append({'name': 'native ' + os.path.basename(f).replace('.exe', ''), 'cmd': os.path.normpath(f)})
+          for v in ('scalar', 'autovec', 'simd', 'simd-u2', 'simd-vb32-u2', 'relaxed', 'relaxed-u2'):
+              rows.append({'name': f'wasmtime {v}', 'cmd': f'"{os.path.normpath(W)}" run {os.path.normpath("so/so-" + v + ".wasm")}'})
+          json.dump(rows, open('spec.json', 'w'))
+          PY
+          python3 wasm-perf/runner.py spec.json --rounds 3 --ref 'native n-scalar' --kernels matmul256,nbody1024,transform,interp --title "Platforms ${{ matrix.label }} (ref = native scalar source, baseline ISA, compiler auto-vectorised)"
+      - name: Publish results to the wasm-perf-results branch
+        if: always()
+        uses: ./.github/actions/publish
+        with: { name: "wasm-platforms-${{ matrix.label }}-${{ github.run_id }}" }
