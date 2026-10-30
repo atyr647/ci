@@ -1,0 +1,55 @@
+name: sync-stress
+# Correctness and speed of the futex-only mutex + condition variable for Cosmopolitan (alloc-probe/fast_sync.c) on the five targets, against the library's own (control) and the platform's native C++ library.
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fat executables (x86-64 + arm64 in one file)
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          mkdir out; B=$PWD/cosmo/bin
+          W="-Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -Wl,--wrap=pthread_mutex_trylock -Wl,--wrap=pthread_cond_wait -Wl,--wrap=pthread_cond_timedwait"
+          $B/cosmocc -O2 -c alloc-probe/fast_sync.c -o out/fast_sync.o
+          $B/cosmoc++ -O2 -std=c++17 alloc-probe/sync_stress.cpp -o out/stress-library.com
+          $B/cosmoc++ -O2 -std=c++17 alloc-probe/sync_stress.cpp out/fast_sync.o $W -o out/stress-fast.com
+          $B/cosmoc++ -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o out/probe-library.com
+          $B/cosmoc++ -O2 -std=c++17 alloc-probe/alloc_probe.cpp out/fast_sync.o $W -o out/probe-fast.com
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: sync-stress-bin, path: out }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: sync-stress-bin, path: out }
+      - name: Native reference (the platform's own C++ library)
+        run: |
+          CXX=c++; [ "$RUNNER_OS" = Windows ] && CXX=g++
+          $CXX -O2 -std=c++17 alloc-probe/sync_stress.cpp -o out/stress-native -pthread
+          $CXX -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o out/probe-native -pthread
+          ls out
+      - name: Run
+        run: |
+          run() { if [ "$RUNNER_OS" = Windows ]; then if [ -f "$1.com" ]; then cp "$1.com" "$1.exe"; fi; "./$1.exe"; elif [ -f "$1.com" ]; then sh "./$1.com"; else "./$1"; fi; }
+          cd out; chmod +x *
+          for v in native library fast; do echo "=== stress $v"; run stress-$v 2>&1 | grep -E "FAIL|TIME|RESULT"; done
+          for v in native library fast; do echo "=== probe $v"; run probe-$v 2>&1 | grep -iE "mutex"; done 2>&1 | tee ../run-out.txt
+      - name: Result (last)
+        if: always()
+        run: echo "(see the Run step; stress lines then probe lines)"
