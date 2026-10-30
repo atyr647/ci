@@ -108,6 +108,8 @@ int main(int argc, char **argv) {
   std::vector<gpu_candidate> cands; std::vector<std::string> names; std::vector<dawn::native::Adapter> ads;
   for (int p = 0; p < 3; p++) {
     WGPURequestAdapterOptions o = WGPU_REQUEST_ADAPTER_OPTIONS_INIT; o.powerPreference = pv[p];
+    if (const char *be = getenv("WGT_BACKEND")) o.backendType = !strcmp(be, "vulkan") ? WGPUBackendType_Vulkan : !strcmp(be, "d3d12") ? WGPUBackendType_D3D12 : !strcmp(be, "metal") ? WGPUBackendType_Metal : WGPUBackendType_Undefined;   // same switches as the compute test
+    if (getenv("WGT_FALLBACK")) o.forceFallbackAdapter = 1;
     auto list = instance.EnumerateAdapters(&o);
     printf("Dawn order for powerPreference=%s (%zu adapters):\n", prefs[p], list.size());
     for (size_t i = 0; i < list.size(); i++) {

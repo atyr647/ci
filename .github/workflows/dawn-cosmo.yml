@@ -181,6 +181,9 @@ jobs:
         run: |
           cp wgt-dawn.com wgt-dawn.exe
           export WGT_BACKEND=d3d12 WGT_FALLBACK=1
+          cp gpu-probe.com gpu-probe.exe
+          echo "--- every adapter Dawn finds when D3D12 is requested (all log lines, nothing filtered)"
+          ( ./gpu-probe.exe 2>&1 | cat ) | tr '\r' '\n' | grep -v "^  ok\|policy selftest" | head -30
           echo "--- D3D12, no DXC next to the executable"
           ci-webgpu-test/run-one.sh "dawn built by cosmocc (D3D12 WARP, FXC)" ./wgt-dawn.exe
           echo "--- D3D12 with Microsoft's DXC next to the executable"
