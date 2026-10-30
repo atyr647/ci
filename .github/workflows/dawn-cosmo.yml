@@ -216,6 +216,10 @@ jobs:
           echo "=== Vulkan call trace, last 45 lines"
           ( DAWN_COSMO_TRACE=1 ./wgt-dawn.exe 2>&1 | cat ) > vktrace.txt || true
           tr '\r' '\n' < vktrace.txt | grep -E "^\[vk\]|stage:|Segmentation|compute N" | tail -45
+          echo "=== shield report (access violation: module, offset, stack scan) from the same run"
+          tr '\r' '\n' < vktrace.txt | grep -a -E "shield|error:|RIP|RSP" | head -80 | cut -c1-220
+          echo "=== same run without the shield (Cosmopolitan's own crash report)"
+          ( NO_SHIELD=1 ./wgt-dawn.exe 2>&1 | cat ) | tr '\r' '\n' | grep -a -v "^\[vk\]" | tail -40 | cut -c1-200
           echo "=== Cosmopolitan --strace (system calls) last 40 lines"
           ( ./wgt-dawn.exe --strace 2>&1 | cat ) > strace.txt || true
           tr '\r' '\n' < strace.txt | tail -40 | cut -c1-200
