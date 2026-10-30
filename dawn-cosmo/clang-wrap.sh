@@ -10,6 +10,6 @@ case $ARCH in
 esac
 LX=; [ "$KIND" = c++ ] && LX="-isystem $COSMO/include/third_party/libcxx"
 out=; prev=; for a in "$@"; do [ "$prev" = -o ] && out=$a; prev=$a; done
-"$COSMO/libexec/clang" $AF -D__COSMOPOLITAN__ -D__COSMOCC__ -include libc/integral/normalize.inc -fno-semantic-interposition $LX -fno-pie -nostdinc -isystem "$COSMO/include" -fno-omit-frame-pointer "$@" || exit $?
+"$COSMO/libexec/clang" $AF -D__COSMOPOLITAN__ -D__COSMOCC__ -include libc/integral/normalize.inc -fno-semantic-interposition $LX -fno-pie -nostdinc -isystem "$COSMO/include" -fno-omit-frame-pointer -Wno-error -Wno-unknown-warning-option "$@" || exit $?
 [ -n "$out" ] && [ -f "$out" ] && "$COSMO/bin/fixupobj" "$out"
 exit 0

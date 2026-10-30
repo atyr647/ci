@@ -95,6 +95,7 @@ jobs:
         with: { name: 'bench-${{ matrix.variant }}-${{ matrix.arch }}', path: 'dawn-bench-${{ matrix.variant }}.${{ matrix.arch }}.com.dbg' }
   run:
     needs: build
+    if: ${{ !cancelled() }}
     strategy:
       fail-fast: false
       matrix:
@@ -121,13 +122,13 @@ jobs:
         run: |
           mkdir cosmo
           gh run download ${{ inputs.gcc_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D cosmo
-          for v in gcc-flags clang; do gh run download $GITHUB_RUN_ID -R ${{ github.repository }} -n bench-$v-${{ matrix.arch }} -D cosmo; done
+          for v in gcc-flags clang; do gh run download $GITHUB_RUN_ID -R ${{ github.repository }} -n bench-$v-${{ matrix.arch }} -D cosmo || echo "no $v build"; done
           chmod +x cosmo/*; ls -la cosmo
       - name: Run (interleaved)
         run: |
           N=./benchout/dawn-bench; G=./cosmo/dawn-bench.${{ matrix.arch }}.com.dbg; F=./cosmo/dawn-bench-gcc-flags.${{ matrix.arch }}.com.dbg; C=./cosmo/dawn-bench-clang.${{ matrix.arch }}.com.dbg
           python3 ci-webgpu-test/bench_ab.py --rounds ${{ inputs.rounds }} --title "${{ matrix.label }}: native vs Cosmopolitan default GCC build vs GCC without frame pointers / NOP padding vs clang" --json bench-clang-${{ matrix.label }}.json \
-            --variant "native|WGT_BACKEND=vulkan|$N" --variant "cosmo-gcc|WGT_BACKEND=vulkan|$G" --variant "cosmo-gcc-flags|WGT_BACKEND=vulkan|$F" --variant "cosmo-clang|WGT_BACKEND=vulkan|$C" --variant "native-again|WGT_BACKEND=vulkan|$N" 2>&1 | tee bench-out.txt
+            --variant "native|WGT_BACKEND=vulkan|$N" --variant "cosmo-gcc|WGT_BACKEND=vulkan|$G" --variant "cosmo-gcc-flags|WGT_BACKEND=vulkan|$F" $( [ -f ${C#./} ] && echo --variant "cosmo-clang|WGT_BACKEND=vulkan|$C" ) --variant "native-again|WGT_BACKEND=vulkan|$N" 2>&1 | tee bench-out.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'bench-flags-result-${{ matrix.label }}', path: 'bench-*.json' }
