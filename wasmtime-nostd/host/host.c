@@ -69,6 +69,16 @@ int main(int argc, char **argv) {
     double t2 = now_ms();
     printf("host : engine+load %.1f ms, instantiate %.1f ms, linear memory %zu MiB\n", t1 - t0, t2 - t1, wn_memory_size() >> 20); fflush(stdout);
     uint64_t res[2] = {0, 0};
+    if (strchr(entry, ',')) {   /* a list of exports, called in order in the same instance: a trap must not end the process or spoil the next call */
+        char list[256]; snprintf(list, sizeof list, "%s", entry);
+        for (char *tok = strtok(list, ","); tok; tok = strtok(NULL, ",")) {
+            res[0] = 0;
+            if (wn_call(tok, NULL, 0, res, 1)) printf("host : %s trapped: %.80s\n", tok, wn_last_error());
+            else printf("host : %s -> %d\n", tok, (int)res[0]);
+            fflush(stdout);
+        }
+        return 0;
+    }
     if (wn_call(entry, NULL, 0, res, 1)) { fprintf(stderr, "call failed: %s\n", wn_last_error()); return 70; }
     printf("host : %s returned\n", entry);
     return 0;

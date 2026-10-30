@@ -76,6 +76,26 @@ fn detect(feature: &str) -> Option<bool> {
 #[cfg(not(target_arch = "x86_64"))]
 fn detect(_feature: &str) -> Option<bool> { None }
 
+// ---- x28 (arm64): Cosmopolitan's thread pointer. Cranelift treats x28 as an ordinary callee-saved register, so while wasm runs it holds anything. The host value is
+// recorded when the host enters wasm and put back while a host function runs (and in the signal handler of platform.c) ----------------------------------------------
+#[cfg(target_arch = "aarch64")]
+#[no_mangle]
+pub static mut wn_host_x28: usize = 0;
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+unsafe fn x28_get() -> usize { let v: usize; core::arch::asm!("mov {}, x28", out(reg) v, options(nomem, nostack, preserves_flags)); v }
+#[cfg(target_arch = "aarch64")]
+#[inline(always)]
+unsafe fn x28_set(v: usize) { core::arch::asm!("mov x28, {}", in(reg) v, options(nomem, nostack, preserves_flags)); }
+#[cfg(not(target_arch = "aarch64"))]
+#[inline(always)]
+unsafe fn x28_get() -> usize { 0 }
+#[cfg(not(target_arch = "aarch64"))]
+#[inline(always)]
+unsafe fn x28_set(_v: usize) {}
+#[cfg(not(target_arch = "aarch64"))]
+static mut wn_host_x28: usize = 0;
+
 // ---- state ---------------------------------------------------------------------------------------------------------------------------------------------------
 pub type WnCb = unsafe extern "C" fn(user: *mut c_void, mem: *mut u8, mem_len: usize, args: *const u64, results: *mut u64) -> i32;
 
@@ -116,11 +136,13 @@ pub unsafe extern "C" fn wn_define(module: *const c_char, name: *const c_char, s
     let ty = FuncType::new(&s.engine, params, results.clone());
     let user = user as usize;
     let r = s.linker.func_new(m, n, ty, move |mut caller: Caller<'_, ()>, p: &[Val], out: &mut [Val]| -> Result<()> {
+        let theirs = unsafe { let t = x28_get(); x28_set(wn_host_x28); t };
         let (mem, len) = match caller.get_export("memory") { Some(Extern::Memory(mm)) => { let d = mm.data_mut(&mut caller); (d.as_mut_ptr(), d.len()) } _ => (core::ptr::null_mut(), 0) };
         let mut a = [0u64; 16];
         for (i, v) in p.iter().enumerate().take(16) { a[i] = match v { Val::I32(x) => *x as u32 as u64, Val::I64(x) => *x as u64, Val::F32(x) => *x as u64, Val::F64(x) => *x, _ => 0 }; }
         let mut r = [0u64; 4];
         let rc = unsafe { cb(user as *mut c_void, mem, len, a.as_ptr(), r.as_mut_ptr()) };
+        unsafe { x28_set(theirs); }
         if rc != 0 { wasmtime::bail!("host function returned {rc}"); }
         for (i, t) in results.iter().enumerate() {
             out[i] = match t { ValType::I32 => Val::I32(r[i] as i32), ValType::I64 => Val::I64(r[i] as i64), ValType::F32 => Val::F32(r[i] as u32), _ => Val::F64(r[i]) };
@@ -159,7 +181,10 @@ pub unsafe extern "C" fn wn_call(name: *const c_char, args: *const u64, nargs: u
         a.push(match t { ValType::I32 => Val::I32(v as i32), ValType::I64 => Val::I64(v as i64), ValType::F32 => Val::F32(v as u32), _ => Val::F64(v) });
     }
     let mut out: Vec<Val> = ty.results().map(|_| Val::I32(0)).collect();
-    if let Err(e) = f.call(&mut *store, &a, &mut out) { return fail(e); }
+    let mine = x28_get(); wn_host_x28 = mine;
+    let r = f.call(&mut *store, &a, &mut out);
+    x28_set(mine);
+    if let Err(e) = r { return fail(e); }
     for (i, v) in out.iter().enumerate().take(nres) { *res.add(i) = match v { Val::I32(x) => *x as u32 as u64, Val::I64(x) => *x as u64, Val::F32(x) => *x as u64, Val::F64(x) => *x, _ => 0 }; }
     0
 }

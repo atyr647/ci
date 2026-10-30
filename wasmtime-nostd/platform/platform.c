@@ -31,12 +31,21 @@ int32_t wasmtime_memory_image_map_at(struct wasmtime_memory_image *image, uint8_
 void wasmtime_memory_image_free(struct wasmtime_memory_image *image) { abort(); }
 
 /* one pointer of thread-local state per slot (Cosmopolitan implements thread-locals on every OS) */
-static _Thread_local uint8_t *tls[2];
+/* Plain statics, not thread-locals: on arm64 Cosmopolitan reaches its thread-local storage through x28, which Cranelift-generated code uses as an ordinary register.
+ * (One wasm thread per process; several threads would need a lookup that does not depend on x28.) */
+static uint8_t *tls[2];
+#ifdef __aarch64__
+extern uint64_t wn_host_x28;   /* Rust side: the value x28 had when the host called into wasm */
+#define FIX_X28() __asm__ volatile("mov x28, %0" :: "r"(wn_host_x28) : "memory")
+#else
+#define FIX_X28()
+#endif
 uint8_t *wasmtime_tls_get(uintptr_t slot) { return tls[slot]; }
 void wasmtime_tls_set(uintptr_t slot, uint8_t *v) { tls[slot] = v; }
 
 static wasmtime_trap_handler_t g_handler;
 static void on_signal(int signo, siginfo_t *info, void *context) {
+    FIX_X28();
     ucontext_t *cx = context; uintptr_t ip, fp;
 #if defined(__aarch64__)
     ip = cx->uc_mcontext.pc; fp = cx->uc_mcontext.regs[29];

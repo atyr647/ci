@@ -54,11 +54,12 @@ jobs:
           curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
           S=$(ls -d $PWD/wasi-sdk-34*); mkdir -p wasm out
           $S/bin/clang --target=wasm32-wasip1 -O2 ci-wasm-host/guest.c -o wasm/wire.wasm
+          $S/bin/clang --target=wasm32-wasip1 -O1 -mexec-model=reactor -Wl,--no-entry wasmtime-nostd/guest/trap.c -o wasm/trap.wasm
           $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DSIMD=0 wasm-perf/shootout.c -o wasm/so-scalar.wasm -lm
           $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 -DSIMD=1 wasm-perf/shootout.c -o wasm/so-simd.wasm -lm
           curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux.tar.xz && mkdir wt && tar xJf wt.tar.xz -C wt
           W=$(find wt -name wasmtime -type f | head -1); $W --version
-          for g in wire so-scalar so-simd; do
+          for g in wire trap so-scalar so-simd; do
             for a in x86_64 aarch64; do
               $W compile --target $a-unknown-linux-gnu -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n -O signals-based-traps=y wasm/$g.wasm -o out/$g.sig.$a.cwasm
               $W compile --target $a-unknown-linux-gnu -W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n -O signals-based-traps=n wasm/$g.wasm -o out/$g.nosig.$a.cwasm
@@ -111,6 +112,7 @@ jobs:
     runs-on: ${{ matrix.os }}
     defaults: { run: { shell: bash } }
     steps:
+      - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
         with: { name: wn, path: . }
       - name: Run
@@ -119,7 +121,32 @@ jobs:
           chmod +x wn.com; if [ "$RUNNER_OS" = Windows ]; then cp wn.com wn.exe; RUN=./wn.exe; else RUN="sh ./wn.com"; fi
           echo "RUN=$RUN" >> "$GITHUB_ENV"
           for mode in sig nosig pulley; do echo "=== wire guest, mode $mode"; $RUN $mode wire; echo "exit: $?"; done; true
+      - name: Traps and recovery - the same instance must keep working after each trap
+        continue-on-error: true
+        run: |
+          set +e
+          for mode in sig nosig pulley; do echo "=== trap guest, mode $mode"; $RUN $mode trap --invoke=ok,oob,ok,div0,ok,unreach,ok; echo "exit: $?"; done
       - name: Kernels (mode sig / nosig / pulley)
         continue-on-error: true
         run: |
+          set +e
           for g in so-scalar so-simd; do for mode in sig nosig pulley; do echo "=== $g $mode"; $RUN $mode $g; echo "exit: $?"; done; done
+      - uses: actions/download-artifact@v4
+        with: { name: guests, path: guests }
+      - name: Against the official Wasmtime v50 CLI on the same machine (JIT from the .wasm, and its runtime on our precompiled .cwasm), interleaved
+        if: matrix.asset != ''
+        continue-on-error: true
+        run: |
+          set +e
+          curl -fsSL -o wt.${{ matrix.asset }} https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-${{ matrix.asset }}
+          mkdir wt && if [[ "${{ matrix.asset }}" == *.zip ]]; then (cd wt && unzip -q ../wt.${{ matrix.asset }}); else tar xJf wt.${{ matrix.asset }} -C wt; fi
+          W=$PWD/$(find wt -name 'wasmtime' -o -name 'wasmtime.exe' | grep -v '\.dll\|\.lib\|\.h$' | head -1); "$W" --version
+          PY=$(command -v python3 || command -v python)
+          ARCH=x86_64; [ "$(uname -m)" = arm64 -o "$(uname -m)" = aarch64 ] && ARCH=aarch64
+          F="-W gc-support=n -W concurrency-support=n -W threads=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n"
+          for g in so-scalar so-simd; do
+            AB_TITLE="${{ matrix.label }}: $g" $PY wasmtime-nostd/ab.py 3 \
+              "static sig (this file)|$RUN sig $g" "static nosig (this file)|$RUN nosig $g" \
+              "official CLI, JIT from wasm|$W run guests/wasm/$g.wasm" \
+              "official runtime on our sig .cwasm|$W run --allow-precompiled $F guests/out/$g.sig.$ARCH.cwasm"
+          done
