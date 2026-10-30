@@ -1,0 +1,56 @@
+name: dawn-strace
+# Buffer create+release is 0.74x (x64) and 0.32x (arm64) of native in the Cosmopolitan build and does not move with the allocator, mutex, frame pointer or compiler. The perf profile of the
+# loop is dominated by kernel entry (mmap) in BOTH builds, and the Cosmopolitan build shows more syscall overhead on arm64 (systemfive, el0_svc). Which system calls does one create+release make,
+# in each build? Two loop lengths, so the start-up and the host baselines cancel: syscalls per iteration = (count(N2) - count(N1)) / (N2 - N1).
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'run id of a dawn-cosmo run that uploaded the artifact dbg-dawn-bench', required: true }
+env: { DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1 }
+jobs:
+  strace:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    arch: x86_64 }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1 strace
+      - uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: dawn-native-static-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+          fail-on-cache-miss: true
+      - name: Native benchmark and the Cosmopolitan one (.dbg ELF)
+        run: |
+          cmake -S ci-webgpu-test/bench -B benchout -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist" -DCMAKE_CXX_COMPILER=clang++ && cmake --build benchout
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D dbg; chmod +x dbg/*
+      - name: strace -c -f of the buffer loop at two lengths
+        run: |
+          export WGT_BACKEND=vulkan; set +e
+          for v in native cosmo; do
+            BIN=./benchout/dawn-bench; [ $v = cosmo ] && BIN=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+            for n in 20000 60000; do BENCH_BUFFER_REPEAT=$n strace -f -c -o st.$v.$n.txt $BIN > /dev/null 2>&1; done
+          done
+          python3 - <<'PY'
+          import re
+          def counts(f):
+              d = {}
+              for l in open(f):
+                  m = re.match(r'\s*[\d.]+\s+[\d.]+\s+\d+\s+(\d+)\s+(?:\d+\s+)?(\w+)\s*$', l)
+                  if m: d[m.group(2)] = int(m.group(1))
+              return d
+          for v in ('native', 'cosmo'):
+              a, b = counts(f'st.{v}.20000.txt'), counts(f'st.{v}.60000.txt')
+              rows = sorted(((b.get(k, 0) - a.get(k, 0)) / 40000.0, k) for k in b)
+              rows = [r for r in rows if r[0] > 0.01][::-1][:12]
+              print(f'=== {v}: system calls per create+release (loop 60000 minus loop 20000)')
+              for per, k in rows: print(f'  {per:8.3f}  {k}')
+          PY
+      - name: Result (last)
+        if: always()
+        run: for v in native cosmo; do echo "== $v"; head -14 st.$v.60000.txt 2>/dev/null; done
