@@ -17,7 +17,7 @@ use wasmtime::component::types::ComponentFunc;
 use wasmtime::component::{Component, Linker, Resource, ResourceTable, ResourceType, Val};
 use wasmtime::{bail, Engine, Result, Store, StoreContextMut};
 use wasmtime_wasi_io::bytes::Bytes;
-use wasmtime_wasi_io::poll::{subscribe, DynPollable, Pollable};
+use wasmtime_wasi_io::poll::{subscribe, Pollable};
 use wasmtime_wasi_io::streams::{DynInputStream, DynOutputStream, InputStream, OutputStream, StreamError, StreamResult};
 use wasmtime_wasi_io::{add_to_linker_async, async_trait, IoView};
 
@@ -458,6 +458,6 @@ pub unsafe extern "C" fn wn_p2_run(argc: i32, argv: *const *const c_char, exit_c
     let mut polls = 0u64;
     let r = block_on(run_component(&linker, comp, &mut store, &s.engine), &mut polls);
     x28_set(mine);
-    s.pending_polls_add(polls);
+    s.pending_polls += polls;
     match r { Ok(c) => { *exit_code = c; 0 } Err(e) => fail(e) }
 }

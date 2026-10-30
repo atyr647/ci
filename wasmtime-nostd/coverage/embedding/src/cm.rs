@@ -1,7 +1,6 @@
 //! Component model in the no_std build: load a precompiled component, and a self-test of the canonical ABI (strings, lists, records, results, a host import, a trap)
 //! against a component written by hand (guest/cm.wat).
-use crate::{fail, log, st};
-use alloc::boxed::Box;
+use crate::{fail, st};
 use alloc::format;
 use alloc::string::{String, ToString};
 use alloc::vec;
@@ -77,6 +76,5 @@ pub extern "C" fn wn_cm_selftest() -> i32 {
         report("cm_trap_is_an_error", e.is_err(), "boom returned".to_string());
     }
     out(&format!("SUMMARY tests={} pass={} fail={}\n", pass + failed, pass, failed));
-    let _ = (log, Box::new(0u8));
     if failed == 0 { 0 } else { -1 }
 }

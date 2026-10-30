@@ -34,3 +34,21 @@ jobs:
           ./ms.exe; "RESULT patched build + signtool, run: exit $LASTEXITCODE"
           ./app-signed.exe; "RESULT patched build + osslsigncode, run: exit $LASTEXITCODE"
           $v = Get-AuthenticodeSignature app-signed.exe; "RESULT patched build + osslsigncode: Get-AuthenticodeSignature $($v.Status)"
+  run-others:
+    needs: patch
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: mac-arm64,   os: macos-latest }
+          - { label: mac-x64,     os: macos-15-intel }
+          - { label: win-arm64,   os: windows-11-arm }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: upstream-patched, path: . }
+      - name: Run the file made with the patched ape.o (unsigned and signed)
+        run: |
+          for f in app.com app-signed.exe; do chmod +x $f; if [ "$RUNNER_OS" = Windows ]; then cp $f t-$f.exe; o=$(./t-$f.exe 2>&1 | tr '\n' ' '); else o=$(sh ./$f 2>&1 | tr '\n' ' '); fi; echo "RESULT ${{ matrix.label }} $f: $o"; done
