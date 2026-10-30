@@ -1,0 +1,123 @@
+#pragma once
+/* SAL annotations carry no code; Microsoft headers (DirectX-Headers, DXC) use them freely. */
+#ifndef _Always_
+#define _Always_(...)
+#endif
+#ifndef _COM_Outptr_
+#define _COM_Outptr_
+#endif
+#ifndef _COM_Outptr_opt_
+#define _COM_Outptr_opt_
+#endif
+#ifndef _COM_Outptr_opt_result_maybenull_
+#define _COM_Outptr_opt_result_maybenull_
+#endif
+#ifndef _COM_Outptr_result_maybenull_
+#define _COM_Outptr_result_maybenull_
+#endif
+#ifndef _Field_size_
+#define _Field_size_(...)
+#endif
+#ifndef _Field_size_bytes_full_
+#define _Field_size_bytes_full_(...)
+#endif
+#ifndef _Field_size_bytes_full_opt_
+#define _Field_size_bytes_full_opt_(...)
+#endif
+#ifndef _Field_size_full_
+#define _Field_size_full_(...)
+#endif
+#ifndef _Field_size_full_opt_
+#define _Field_size_full_opt_(...)
+#endif
+#ifndef _In_
+#define _In_
+#endif
+#ifndef _In_bytecount_
+#define _In_bytecount_(...)
+#endif
+#ifndef _In_count_
+#define _In_count_(...)
+#endif
+#ifndef _In_opt_
+#define _In_opt_
+#endif
+#ifndef _In_opt_count_
+#define _In_opt_count_(...)
+#endif
+#ifndef _In_opt_z_
+#define _In_opt_z_
+#endif
+#ifndef _In_range_
+#define _In_range_(...)
+#endif
+#ifndef _In_reads_
+#define _In_reads_(...)
+#endif
+#ifndef _In_reads_bytes_
+#define _In_reads_bytes_(...)
+#endif
+#ifndef _In_reads_bytes_opt_
+#define _In_reads_bytes_opt_(...)
+#endif
+#ifndef _In_reads_opt_
+#define _In_reads_opt_(...)
+#endif
+#ifndef _In_z_
+#define _In_z_
+#endif
+#ifndef _Inexpressible_
+#define _Inexpressible_(...)
+#endif
+#ifndef _Inout_
+#define _Inout_
+#endif
+#ifndef _Inout_opt_
+#define _Inout_opt_
+#endif
+#ifndef _Inout_updates_bytes_
+#define _Inout_updates_bytes_(...)
+#endif
+#ifndef _Maybenull_
+#define _Maybenull_
+#endif
+#ifndef _Out_
+#define _Out_
+#endif
+#ifndef _Out_opt_
+#define _Out_opt_
+#endif
+#ifndef _Out_writes_
+#define _Out_writes_(...)
+#endif
+#ifndef _Out_writes_bytes_
+#define _Out_writes_bytes_(...)
+#endif
+#ifndef _Out_writes_bytes_opt_
+#define _Out_writes_bytes_opt_(...)
+#endif
+#ifndef _Out_writes_opt_
+#define _Out_writes_opt_(...)
+#endif
+#ifndef _Outptr_
+#define _Outptr_
+#endif
+#ifndef _Outptr_opt_result_bytebuffer_
+#define _Outptr_opt_result_bytebuffer_(...)
+#endif
+#ifndef _Outptr_opt_result_maybenull_
+#define _Outptr_opt_result_maybenull_
+#endif
+#ifndef _Outptr_opt_result_z_
+#define _Outptr_opt_result_z_
+#endif
+#ifndef _Outptr_result_nullonfailure_
+#define _Outptr_result_nullonfailure_
+#endif
+#ifndef _Outptr_result_z_
+#define _Outptr_result_z_
+#endif
+#ifdef __cplusplus
+extern "C++" { template <typename T> void **IID_PPV_ARGS_Helper(T **pp) { return reinterpret_cast<void **>(pp); } }
+#define IID_PPV_ARGS(pp) __uuidof(**(pp)), IID_PPV_ARGS_Helper(pp)
+#endif
