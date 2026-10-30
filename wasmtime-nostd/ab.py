@@ -1,11 +1,11 @@
 #!/usr/bin/env python3
 """Interleaved A/B of the same wasm kernels under several runtimes on one machine. usage: ab.py <rounds> "name|command" ...   prints best-of-rounds ms per kernel and the speed relative to the first variant."""
-import re, statistics, subprocess, sys, os
+import re, shlex, statistics, subprocess, sys, os
 rounds = int(sys.argv[1]); variants = [v.split('|', 1) for v in sys.argv[2:]]
 best = {}; sums = {}; failed = {}
 for r in range(rounds):
     for name, cmd in (variants if r % 2 == 0 else list(reversed(variants))):
-        try: out = subprocess.run(['bash', '-c', cmd], capture_output=True, text=True, timeout=900).stdout
+        try: out = subprocess.run(shlex.split(cmd), capture_output=True, text=True, timeout=900).stdout
         except Exception as e: out = ''
         got = 0
         for m in re.finditer(r'^KERNEL (\S+) (\S+) (\d+)', out, re.M):

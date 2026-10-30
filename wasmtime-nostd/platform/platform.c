@@ -54,8 +54,17 @@ static void on_signal(int signo, siginfo_t *info, void *context) {
     ip = cx->uc_mcontext.rip; fp = cx->uc_mcontext.rbp;
 #endif
     bool has_addr = signo == SIGSEGV || signo == SIGBUS;
-    if (getenv("WN_TRACE")) fprintf(stderr, "[wn] signal %d code %d ip %p fp %p si_addr %p\n", signo, info->si_code, (void *)ip, (void *)fp, info->si_addr);
-    g_handler(ip, fp, has_addr, has_addr ? (uintptr_t)info->si_addr : 0);
+    uintptr_t fault = (uintptr_t)info->si_addr;
+    /* Cosmopolitan on Windows reports the INSTRUCTION address in si_addr for an access violation (measured: si_addr == ip), not the address that was accessed.
+     * Use the CR2 slot of the context if it carries something else; otherwise say "address unknown" (Wasmtime then skips its extra check that the address lies in a linear memory). */
+#ifdef __x86_64__
+    uintptr_t cr2 = (uintptr_t)cx->uc_mcontext.cr2;
+#else
+    uintptr_t cr2 = (uintptr_t)cx->uc_mcontext.fault_address;
+#endif
+    if (IsWindows()) { if (cr2 && cr2 != ip) fault = cr2; else has_addr = false; }
+    if (getenv("WN_TRACE")) fprintf(stderr, "[wn] signal %d code %d ip %p fp %p si_addr %p cr2 %p -> %s %p\n", signo, info->si_code, (void *)ip, (void *)fp, info->si_addr, (void *)cr2, has_addr ? "fault address" : "no address", (void *)fault);
+    g_handler(ip, fp, has_addr, has_addr ? fault : 0);
     /* not a trap of ours: fall back to the default action (crash with the original signal) */
     signal(signo, SIG_DFL);
 }
