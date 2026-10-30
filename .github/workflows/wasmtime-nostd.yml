@@ -85,7 +85,7 @@ jobs:
           cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
           B=$PWD/cosmo/bin; cd wasmtime-nostd; mkdir -p ../parts
           for A in x86_64 aarch64; do
-            $B/$A-unknown-cosmo-cc -O2 -Iplatform -c platform/platform.c -o ../parts/platform.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -Iplatform -DWASMTIME_VIRTUAL_MEMORY -DWASMTIME_NATIVE_SIGNALS -c platform/platform.c -o ../parts/platform.$A.o
             $B/$A-unknown-cosmo-cc -O2 -c host/host.c -o ../parts/host.$A.o
             $B/$A-unknown-cosmo-cc -O2 ../parts/host.$A.o ../parts/platform.$A.o ../lib/$A/libwn_embedding.a -Wl,--gc-sections -lm -o ../parts/wn.$A.com 2>&1 | tail -30
           done

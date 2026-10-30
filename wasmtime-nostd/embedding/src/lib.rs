@@ -92,7 +92,7 @@ pub extern "C" fn wn_init(mode: i32) -> i32 {
     unsafe { cfg.detect_host_feature(detect); }
     match mode {
         1 => { cfg.signals_based_traps(false); }
-        2 => { if let Err(e) = cfg.target("pulley64") { unsafe { wn_log(format!("{e:?}\n").as_ptr(), 0); } return -1; } cfg.signals_based_traps(false); }
+        2 => { if let Err(e) = cfg.target("pulley64") { let s = format!("target pulley64: {e:?}\n"); unsafe { wn_log(s.as_ptr(), s.len()); } return -1; } cfg.signals_based_traps(false); }
         _ => {}
     }
     let engine = match Engine::new(&cfg) { Ok(e) => e, Err(e) => { let s = format!("Engine::new: {e:?}\n"); unsafe { wn_log(s.as_ptr(), s.len()); } return -1; } };
