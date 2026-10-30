@@ -148,7 +148,13 @@ mkbundle Bx; echo placeholder > Bx.app/Contents/Resources/app.com
 signit Bx.app/Contents/MacOS/ape-loader --options runtime; signit Bx.app/Contents/MacOS/Bx --options runtime; signit Bx.app --options runtime
 syspolicy_check notary-submission Bx.app > sp3.txt 2>&1; R "[Bx: APE replaced by a text file] syspolicy_check notary-submission (exit $?): $(grep -E 'Severity|Full Error|^[A-Z][A-Za-z ]+$|passed|failed' sp3.txt | tr -s ' ' | tr '\n' '|' | cut -c1-700)"
 echo "----- full output for Bx:"; head -40 sp3.txt
-for f in ape-loader ape-none launcher; do [ -f $f ] && R "xprotect/syspolicy on loader alone is covered by Bx"; break; done
+mkdir -p Bt.app/Contents/MacOS; printf 'int main(void){return 0;}' > triv.c; cc -o Bt.app/Contents/MacOS/Bt triv.c
+cat > Bt.app/Contents/Info.plist <<'EOF'
+<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>CFBundleExecutable</key><string>Bt</string><key>CFBundleIdentifier</key><string>ci.test.Bt</string><key>CFBundlePackageType</key><string>APPL</string><key>CFBundleName</key><string>Bt</string><key>CFBundleVersion</key><string>1</string></dict></plist>
+EOF
+signit Bt.app/Contents/MacOS/Bt --options runtime; signit Bt.app --options runtime
+syspolicy_check notary-submission Bt.app > sp4.txt 2>&1; R "[Bt: a trivial C program, nothing of ours] syspolicy_check notary-submission (exit $?): $(grep -E 'Severity|Full Error|^[A-Z][A-Za-z -]+$|passed|failed' sp4.txt | tr -s ' ' | tr '\n' '|' | cut -c1-500)"
+R "xprotect usage: $(xprotect check --help 2>&1 | head -8 | tr '\n' '|' | cut -c1-400)"
 R "[B] hardened runtime + test identity, NO entitlements: executable-memory probe through that loader: $(Bnone.app/Contents/MacOS/ape-loader ./jit.com 2>&1 | grep -v '^platform' | sed -E 's/ +/ /g; s/called generated code, //' | cut -c1-60 | tr '\n' '|')"
 R "[B] hardened runtime + test identity, NO entitlements: arbitrary file as 'app': $(Bnone.app/Contents/MacOS/ape-loader ./fresh.com 2>&1 | tr '\n' ' ')"
 
