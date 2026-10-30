@@ -94,9 +94,9 @@ jobs:
           B=$HOME/cosmo/bin; lib=$(find $PWD/build -name libwebgpu_dawn.a | head -1)
           INC="-I$PWD/dawn/include -I$PWD/build/gen/include -I$PWD/ci-webgpu-test"
           $B/$COSMO_ARCH-unknown-cosmo-cc -O2 $INC -c ci-webgpu-test/wgt.c -o wgt.o
-          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 wgt.o "$lib" -o wgt.$COSMO_ARCH.com
+          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 wgt.o "$lib" -Wl,--wrap=pthread_create -o wgt.$COSMO_ARCH.com
           $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 -std=c++20 $INC -c ci-webgpu-test/gpu_probe.cpp -o gpu_probe.o
-          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 gpu_probe.o "$lib" -o gpu-probe.$COSMO_ARCH.com
+          $B/$COSMO_ARCH-unknown-cosmo-c++ -O2 gpu_probe.o "$lib" -Wl,--wrap=pthread_create -o gpu-probe.$COSMO_ARCH.com
           ls -la wgt.$COSMO_ARCH.com* gpu-probe.$COSMO_ARCH.com*
       - uses: actions/upload-artifact@v4
         if: always()
@@ -198,7 +198,7 @@ jobs:
           echo "--- the smallest D3D12 test (no Dawn), with the exception wrapper"
           ( ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
           echo "--- with the exception wrapper AND the thread block's stack limits set to Cosmopolitan's stack"
-          ( FIX_TEB=1 ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
+          ( ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
           echo "--- and without the wrapper"
           ( NO_SHIELD=1 ./d3d12min.exe 2>&1 | cat ) | tr '\r' '\n' | head -30 || true
           echo "--- D3D12, no DXC next to the executable"

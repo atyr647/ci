@@ -14,6 +14,7 @@
 #include <unistd.h>
 #if defined(__COSMOPOLITAN__)
 #include <cosmo.h>
+#define WIN_SHIELD_WRAP_THREADS 1
 #include "win_shield.h"
 #endif
 #include "dawn/native/DawnNative.h"

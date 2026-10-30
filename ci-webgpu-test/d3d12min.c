@@ -28,7 +28,7 @@ int main(int argc, char **argv) {
     uintptr_t base, limit, dealloc, rsp; __asm__ volatile("mov %%gs:8, %0" : "=r"(base)); __asm__ volatile("mov %%gs:16, %0" : "=r"(limit)); __asm__ volatile("mov %%gs:0x1478, %0" : "=r"(dealloc)); __asm__ volatile("mov %%rsp, %0" : "=r"(rsp));
     void *saddr = 0; size_t ssize = 0; pthread_attr_t at; if (!pthread_getattr_np(pthread_self(), &at)) { pthread_attr_getstack(&at, &saddr, &ssize); }
     STEP("rsp=%#lx  TEB StackBase=%#lx StackLimit=%#lx DeallocationStack=%#lx  cosmo stack=%p+%#zx  rsp inside TEB range: %s", (unsigned long)rsp, (unsigned long)base, (unsigned long)limit, (unsigned long)dealloc, saddr, ssize, (rsp >= limit && rsp < base) ? "yes" : "NO");
-    if (getenv("FIX_TEB") && saddr) {
+    if (getenv("FIX_TEB_AGAIN") && saddr) {
       uintptr_t lo = (uintptr_t)saddr, hi = lo + ssize;
       __asm__ volatile("mov %0, %%gs:8" :: "r"(hi)); __asm__ volatile("mov %0, %%gs:16" :: "r"(lo)); __asm__ volatile("mov %0, %%gs:0x1478" :: "r"(lo));
       STEP("TEB stack fields set to %#lx..%#lx", (unsigned long)lo, (unsigned long)hi);
