@@ -11,7 +11,7 @@ use wasmtime::Store;
 extern "C" {
     fn wn_out(msg: *const u8, len: usize);
 }
-pub(crate) fn out(s: &str) { unsafe { wn_out(s.as_ptr(), s.len()) } }
+pub(crate) fn out(s: &str) { crate::with_host(|| unsafe { wn_out(s.as_ptr(), s.len()) }) }
 
 pub(crate) static mut COMP: Option<Component> = None;
 static mut LOGS: Vec<String> = Vec::new();

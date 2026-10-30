@@ -353,7 +353,7 @@ hf!(fs_set_times, |cx, p, r| {   // (self, atime, mtime)
 });
 hf!(fs_set_times_at, |cx, p, r| {   // (self, path-flags, path, atime, mtime)
     let follow = flags_of(&p[1]).iter().any(|f| f == "symlink-follow"); let (am, an) = timestamp_mode(&p[3]); let (mm, mn) = timestamp_mode(&p[4]);
-    if unsafe { getenv(b"WN_TRACE\0".as_ptr() as *const c_char) }.is_null() == false { crate::log(&format!("[p2] set-times-at path={:?} follow={follow} atime=({am},{an}) mtime=({mm},{mn}) raw={:?} {:?}\n", p[2], p[3], p[4])); }
+    if hx(|| unsafe { getenv(b"WN_TRACE\0".as_ptr() as *const c_char) }).is_null() == false { crate::log(&format!("[p2] set-times-at path={:?} follow={follow} atime=({am},{an}) mtime=({mm},{mn}) raw={:?} {:?}\n", p[2], p[3], p[4])); }
     match resolve_in(&mut cx, &p[0], &p[2], follow)? { Err(e) => r[0] = err_ec(e), Ok((root, rel)) => { let c = cs(&rel); let e = hx(|| unsafe { wn_fs_utimens(root, c.as_ptr() as *const c_char, follow as i32, am, an, mm, mn) }); r[0] = if e < 0 { err_ec(e) } else { ok_none() }; } } Ok(())
 });
 fn hash_val(st: &[u64; 8]) -> Val { Val::Record(vec![("lower".to_string(), Val::U64(st[6])), ("upper".to_string(), Val::U64(st[7]))]) }

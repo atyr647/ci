@@ -132,7 +132,7 @@ static mut STATE: Option<Box<State>> = None;
 
 pub(crate) fn st() -> &'static mut State { #[allow(static_mut_refs)] unsafe { STATE.as_mut().expect("wn_init first") } }
 pub(crate) fn fail(e: impl core::fmt::Debug) -> i32 { let s = st(); s.err = format!("{e:?}").into_bytes(); s.err.push(0); -1 }
-pub(crate) fn log(s: &str) { unsafe { wn_log(s.as_ptr(), s.len()) } }
+pub(crate) fn log(s: &str) { with_host(|| unsafe { wn_log(s.as_ptr(), s.len()) }) }
 
 /// collector: 0 default (copying), 1 deferred reference counting, 2 null, 3 copying (only with the `gc` feature).
 /// mode 0: native code, signals-based traps; 1: native code, explicit checks; 2: Pulley interpreter.

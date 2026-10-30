@@ -37,7 +37,8 @@ int main(void) {
     struct sockaddr_in pa; socklen_t pl = sizeof pa; int as = accept(ls, (struct sockaddr *)&pa, &pl); CHECK("accept", as >= 0);
     struct sockaddr_in cp; socklen_t cl = sizeof cp; CHECK("getpeername on the client is the listener port", getpeername(cs, (struct sockaddr *)&cp, &cl) == 0 && cp.sin_port == la.sin_port);
 
-    unsigned char out[65536], in[65536]; uint64_t hsend = 1469598103934665603ull, hrecv = hsend, hback = hsend, hecho = hsend; int ok = 1;
+    static unsigned char out[65536], in[65536];   /* static: the default wasm stack is far smaller than 128 KiB */
+    uint64_t hsend = 1469598103934665603ull, hrecv = hsend, hback = hsend, hecho = hsend; int ok = 1;
     for (int round = 0; round < 6 && ok; round++) {
         for (size_t i = 0; i < sizeof out; i++) out[i] = (unsigned char)(i * 7 + round * 13);
         hsend = fnv(out, sizeof out, hsend);
