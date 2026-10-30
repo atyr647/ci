@@ -34,7 +34,7 @@ jobs:
           d['panic-strategy'] = 'abort'
           if d['arch'] == 'x86_64': d['disable-redzone'] = True
           else:
-              f = d.get('features', ''); d['features'] = (f + ',' if f else '') + '+reserve-x28,-outline-atomics'   # Cosmopolitan keeps its thread pointer in x28
+              fs = [x for x in d.get('features', '').split(',') if x and 'outline-atomics' not in x]; d['features'] = ','.join(fs + ['+reserve-x28'])   # Cosmopolitan keeps its thread pointer in x28
           json.dump(d, open('nostd-${{ matrix.arch }}.json', 'w'), indent=1)
           PY
       - name: Build the runtime as a static library (core and alloc rebuilt from source for that target)
