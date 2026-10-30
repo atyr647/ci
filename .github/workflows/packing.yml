@@ -43,6 +43,9 @@ jobs:
             for v in lnx win; do python3 -I packing/analyze.py "$v x86_64" maps/$v.x86_64.map work/o-x86_64 | sed -n '1,22p'; echo; done
             for v in lnx mac; do python3 -I packing/analyze.py "$v aarch64" maps/$v.aarch64.map work/o-aarch64 | sed -n '1,22p'; echo; done
           } > inventory.md; cat inventory.md
+          echo "=== why is the Vulkan backend still in the Windows link (stubbed connector)? objects outside BackendVk.cpp that reference it"
+          python3 -I packing/whopulls.py maps/win.x86_64.map BackendVk.cpp.o 25
+          python3 -I packing/whopulls.py maps/win.x86_64.map VulkanFunctions.cpp.o 12
           echo "=== map sizes"; ls -l maps | awk '{print $5, $9}'
       - uses: actions/upload-artifact@v4
         with: { name: packing-parts, path: "out/*.com\nparts/base.x86_64.com\nparts/base.aarch64.com\ninventory.md\nrelink.log", compression-level: 1 }
@@ -95,6 +98,12 @@ jobs:
                   tot[n] = tot.get(n, 0) + len(subprocess.run(cmd, input=d, capture_output=True).stdout)
           print('cwasm modules compressed one by one:', len(fs), 'files', tot)
           PY
+      - { uses: actions/download-artifact@v4, continue-on-error: true, with: { name: wgt-dawn, path: old, run-id: '41034054904', github-token: '${{ github.token }}' } }
+      - name: Depot-style updates - chunk reuse between two real consecutive builds, and the cost of compressing chunk by chunk
+        continue-on-error: true
+        run: |
+          ls -l old pp/out/all.com | awk '{print $5, $9}'
+          python3 -I packing/chunks.py old/wgt-dawn.com pp/out/all.com
       - name: Merge the benchmark inputs
         run: |
           mkdir -p bench/data && cp data/* bench/data/ && for d in data-assets; do cp $d/* bench/data/ 2>/dev/null || true; done

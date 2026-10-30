@@ -32,7 +32,7 @@ link nogc   x86_64 "" -Wl,--no-gc-sections
 link gc     x86_64 "" $GC
 link nonull x86_64 "$(S x86_64 null)" $GC $AMD
 link lnx    x86_64 "$(S x86_64 d3d12 null)" $GC $AMD
-link win    x86_64 "$(S x86_64 vulkan null)" $GC $AMD
+link win    x86_64 "$(S x86_64 vulkan null)" $GC $AMD -Wl,--cref
 link base   aarch64 ""
 link nogc   aarch64 "" -Wl,--no-gc-sections
 link gc     aarch64 "" $GC
@@ -47,7 +47,7 @@ echo "== linked halves"; ls -l parts | awk '{print $5, $9}'
 
 $B/cosmocc -O2 packing/hello.c -o out/hello.com
 AL="-l $B/ape-x86_64.elf -l $B/ape-aarch64.elf"; M1="-M $B/ape-m1.c"
-fat() { local out=$1; shift; $B/apelink -V -1 "$@" -o out/$out; }
+fat() { local out=$1; shift; $B/apelink -V -1 -o out/$out "$@"; }
 fat all.com        $AL $M1 parts/base.x86_64.com.dbg parts/base.aarch64.com.dbg
 fat nom1.com       $AL     parts/base.x86_64.com.dbg parts/base.aarch64.com.dbg
 fat x64only.com    -l $B/ape-x86_64.elf parts/base.x86_64.com.dbg

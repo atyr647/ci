@@ -27,6 +27,7 @@ for l in open(mapf, errors='replace'):
     l = l.rstrip('\n')
     if not started:
         started = l.startswith('Linker script and memory map'); continue
+    if l.startswith('Cross Reference Table'): break
     if not l.strip(): continue
     if l[0] != ' ':
         pending = None; continue
@@ -86,6 +87,7 @@ for k in range(0, len(members), CH):
         if q: sub[b]['::'.join(q.group(1).split('::')[:3])] += size
 
 def member_cat(b):
+    if re.search(r'Win32Shim|WindowsUtils', b): return 'win32 shim (Win32Shim, UTF-16 helpers)'
     if b in sym and sym[b]:
         return sym[b].most_common(1)[0][0]
     n = b.split('_', 1)[1] if '_' in b else b
@@ -111,7 +113,7 @@ for sec, size, path in items:
     elif base.startswith(('libcosmo', 'crt', 'libc')) or 'cosmo' in path: c = 'Cosmopolitan libc + runtime'
     else: c = 'other: ' + base
     k = cls_of(sec)
-    tot[c][k] += size
+    tot['other symbols (C names, third-party, misc)' if c.startswith('other:') else c][k] += size
     bymem[(c, mem or base)][k] += size
 FILE = ('text', 'rodata', 'relro', 'data', 'eh_frame', 'except', 'initarr', 'other', 'fill')
 def fsize(cn): return sum(cn[k] for k in FILE)
