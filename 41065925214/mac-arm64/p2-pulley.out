@@ -1,0 +1,2 @@
+host : platform=macos arch=aarch64 mode=pulley name=wasitest.p2 (322992 bytes) features=0xf
+host : component loaded in 0.2 ms

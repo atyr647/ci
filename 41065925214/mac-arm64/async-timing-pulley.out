@@ -1,0 +1,4 @@
+host : platform=macos arch=aarch64 mode=pulley name=yield (68152 bytes) features=0xf
+host : engine+load 0.2 ms, instantiate 0.0 ms, linear memory 0 MiB
+CALL s_async_loop(100000) -> 100000 in 20.318 ms, suspensions 100000
+CALL s_sync_loop(100000) -> 100000 in 8.466 ms, suspensions 0

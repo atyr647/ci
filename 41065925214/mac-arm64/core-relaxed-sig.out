@@ -1,0 +1,12 @@
+host : platform=macos arch=aarch64 mode=sig name=relaxed (199248 bytes) features=0xf
+host : engine+load 0.1 ms, instantiate 0.0 ms, linear memory 0 MiB
+PASS t_madd
+PASS t_nmadd
+PASS t_trunc
+PASS t_swizzle
+PASS t_laneselect
+PASS t_minmax
+PASS t_q15mulr
+PASS t_dot
+PASS t_regular_simd_still_works
+SUMMARY tests=9 pass=9 fail=0

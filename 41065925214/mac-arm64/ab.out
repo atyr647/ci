@@ -1,0 +1,6 @@
+| runtime | matmul256 | nbody1024 | interp | triad32MB | hash16MB | sort1M | transform |
+|---|---|---|---|---|---|---|---|
+| base runtime | 6.04 | 2.14 | 115.22 | 2.33 | 3.14 | 56.47 | 1.05 |
+| full runtime (gc+async+component) | 6.10 (0.99x) | 2.09 (1.02x) | 120.59 (0.96x) | 2.46 (0.95x) | 3.15 (1.00x) | 56.34 (1.00x) | 1.09 (0.96x) |
+
+ms, best of 3 interleaved rounds; (x) = speed relative to `base runtime`, above 1.00 is faster. checksums identical across runtimes: yes
