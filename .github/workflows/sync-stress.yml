@@ -15,7 +15,7 @@ jobs:
           W="-Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -Wl,--wrap=pthread_mutex_trylock -Wl,--wrap=pthread_cond_wait -Wl,--wrap=pthread_cond_timedwait"
           $B/cosmocc -O2 -c alloc-probe/fast_sync.c -o out/fast_sync.o
           $B/cosmoc++ -O2 -std=c++17 alloc-probe/sync_stress.cpp -o out/stress-library.com
-          $B/cosmoc++ -O2 -std=c++17 alloc-probe/sync_stress.cpp out/fast_sync.o $W -o out/stress-fast.com
+          $B/cosmoc++ -O2 -std=c++17 -DHAVE_TIMEDLOCK alloc-probe/sync_stress.cpp out/fast_sync.o $W -o out/stress-fast.com
           $B/cosmoc++ -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o out/probe-library.com
           $B/cosmoc++ -O2 -std=c++17 alloc-probe/alloc_probe.cpp out/fast_sync.o $W -o out/probe-fast.com
           ls -la out
@@ -41,7 +41,7 @@ jobs:
       - name: Native reference (the platform's own C++ library)
         run: |
           CXX=c++; ST=""; if [ "$RUNNER_OS" = Windows ]; then CXX=g++; ST="-static"; fi
-          $CXX -O2 -std=c++17 alloc-probe/sync_stress.cpp -o out/stress-native -pthread $ST
+          $CXX -O2 -std=c++17 -DHAVE_TIMEDLOCK alloc-probe/sync_stress.cpp -o out/stress-native -pthread $ST
           $CXX -O2 -std=c++17 alloc-probe/alloc_probe.cpp -o out/probe-native -pthread $ST
           ls out
       - name: Run
