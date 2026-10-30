@@ -5,6 +5,7 @@
 #include <string.h>
 #include <time.h>
 #include <stdint.h>
+#include <setjmp.h>
 #include "wasm-rt.h"
 #include W2C_HEADER
 
@@ -14,6 +15,7 @@
 #define EXPORT(x) CAT(MOD, CAT(_, x))
 #define WASI(x) w2c_wasi__snapshot__preview1_##x
 
+static jmp_buf g_trap; void w2c_trap_handler(wasm_rt_trap_t code) { longjmp(g_trap, (int)code + 1); }   /* -DWASM_RT_TRAP_HANDLER=w2c_trap_handler */
 struct w2c_wasi__snapshot__preview1 { MOD *inst; };
 static struct w2c_wasi__snapshot__preview1 wasi;
 
@@ -40,8 +42,8 @@ int main(void) {
     MOD inst;
     CAT(wasm2c_, CAT(W2C_NAME, _instantiate))(&inst, &wasi);
     wasi.inst = &inst;
-    wasm_rt_trap_t code = wasm_rt_impl_try();
-    if (code) { fprintf(stderr, "trap %d\n", (int)code); return 1; }
+    int code = setjmp(g_trap);
+    if (code) { fprintf(stderr, "trap %d\n", code - 1); return 1; }
     CAT(MOD, _0x5Fstart)(&inst);
     CAT(wasm2c_, CAT(W2C_NAME, _free))(&inst);
     wasm_rt_free();
