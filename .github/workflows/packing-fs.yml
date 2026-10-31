@@ -30,13 +30,13 @@ jobs:
             : > res.$v
             for i in $(seq 1 ${{ inputs.trials }}); do
               f=t/f-$v-$i.exe; cp $SRC $f
-              if [ $v != none ]; then compact //c //exe:$v $f > compact.$v.txt 2>&1; fi
+              if [ $v != none ]; then (cd t && MSYS_NO_PATHCONV=1 cmd.exe /c "compact /c /exe:$v f-$v-$i.exe") > compact.$v.txt 2>&1; fi
               run1 $f >> res.$v
             done
             ms=$(awk '{print $1}' res.$v | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}'); rcs=$(awk '{print $2}' res.$v | sort -u | tr '\n' ' ')
             echo "variant $v: fresh start median $ms ms (exit codes: $rcs); $(grep -i -E 'compressed|ratio' compact.$v.txt 2>/dev/null | tail -2 | tr '\n' ' ')"
           done
-          echo "--- compact /q (size on disk and ratio) for the last copy of each variant"; for v in lzx xpress16k xpress4k; do compact //q t/f-$v-1.exe 2>&1 | tail -3; done
+          echo "--- compact /q (size on disk and ratio) for the last copy of each variant"; for v in lzx xpress16k xpress4k; do (cd t && MSYS_NO_PATHCONV=1 cmd.exe /c "compact /q f-$v-1.exe") 2>&1 | tail -4; done; cat compact.lzx.txt
       - name: macOS - APFS transparent compression (ditto --hfsCompression)
         if: runner.os == 'macOS'
         run: |
