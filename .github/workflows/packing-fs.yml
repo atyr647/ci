@@ -19,6 +19,7 @@ jobs:
     defaults: { run: { shell: bash } }
     env: { GH_TOKEN: '${{ github.token }}' }
     steps:
+      - uses: actions/checkout@v4
       - name: The fat file
         run: gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D in && ls -la in
       - name: Windows - NTFS compression of an executable (compact /c /exe:...), virus scanner on
