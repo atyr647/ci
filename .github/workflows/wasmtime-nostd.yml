@@ -252,7 +252,7 @@ jobs:
           for mode in sig nosig; do for cfg in "none 1" "save 1" "save 4" "none 4"; do set -- $cfg
             echo "=== stock cwasm, mode $mode, x28 workaround: $1, threads: $2"
             if [ $1 = save ]; then export WN_X28=save; else unset WN_X28; fi
-            WN_CWASM_DIR=guests/out-stock limited $RUN $mode stress --stress --threads=$2 --seconds=3 --engine=shared 2>&1 | tail -6; echo "exit: ${PIPESTATUS[0]}"
+            WN_CWASM_DIR=guests/out-stock limited $RUN $mode stress --stress --threads=$2 --seconds=3 --engine=shared > xs.txt 2>&1; echo "exit: $?"; tail -6 xs.txt   # to a file: a killed loader's surviving child must not hold a pipe open
           done; done
       - name: Wasm threads - shared memory, atomics, wait/notify, wasi:thread-spawn
         timeout-minutes: 8

@@ -153,11 +153,18 @@ pub unsafe extern "C" fn wn_engine_error(e: *const Eng) -> *const c_char { let e
 
 fn valtype(c: u8) -> Option<ValType> { Some(match c { b'i' => ValType::I32, b'l' => ValType::I64, b'f' => ValType::F32, b'd' => ValType::F64, _ => return None }) }
 
+unsafe fn mem_diag(what: &str) {   // once per kind: a host callback could not get the guest memory
+    static SEEN: core::sync::atomic::AtomicU32 = core::sync::atomic::AtomicU32::new(0);
+    if SEEN.fetch_add(1, core::sync::atomic::Ordering::Relaxed) < 4 { let m = format!("wasmtime-nostd: host callback without guest memory: {what}\n"); wn_log(m.as_ptr(), m.len()); }
+}
 unsafe fn mem_of(c: &mut Caller<'_, Data>) -> (*mut u8, usize) {
     match c.get_export("memory") {
-        Some(Extern::Memory(m)) => { let d = m.data_mut(&mut *c); (d.as_mut_ptr(), d.len()) }
+        Some(Extern::Memory(m)) => { let d = m.data_mut(&mut *c); if d.is_empty() { mem_diag("export memory has length 0"); } (d.as_mut_ptr(), d.len()) }
         Some(Extern::SharedMemory(sm)) => { let d = sm.data(); (d.as_ptr() as *mut u8, d.len()) }
-        _ => match &c.data().shared { Some(sm) => { let d = sm.data(); (d.as_ptr() as *mut u8, d.len()) } None => (core::ptr::null_mut(), 0) },
+        other => match &c.data().shared {
+            Some(sm) => { let d = sm.data(); (d.as_ptr() as *mut u8, d.len()) }
+            None => { mem_diag(if other.is_none() { "no export named memory" } else { "export memory is not a memory" }); (core::ptr::null_mut(), 0) }
+        },
     }
 }
 
