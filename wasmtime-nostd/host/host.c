@@ -14,6 +14,7 @@
 #include <stdint.h>
 #include <time.h>
 #include <cosmo.h>
+#include <dlfcn.h>
 #include "wn-platform.h"
 #include "kernels.h"
 #include "native_kernels.h"
@@ -100,6 +101,16 @@ static uint8_t *read_all(const char *path, size_t *n) {
     FILE *f = fopen(path, "rb"); if (!f) return NULL;
     fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET);
     uint8_t *b = malloc(len); if (fread(b, 1, len, f) != (size_t)len) { fclose(f); free(b); return NULL; } fclose(f); *n = len; return b;
+}
+/* Windows on ARM runs the x86-64 half of the file under emulation. Measured there (kernels, same machine): modules compiled for AVX2/FMA are 14% slower on matmul and 30% slower on n-body than the baseline ones,
+ * so the baseline module is chosen when the machine is ARM64. IsWow64Process2 reports the native machine type. */
+static int under_arm_emulation(void) {
+    if (!IsWindows()) return 0;
+    void *k = cosmo_dlopen("kernel32.dll", RTLD_NOW); if (!k) return 0;
+    typedef int (__attribute__((ms_abi)) *w2_t)(void *, unsigned short *, unsigned short *);
+    w2_t f = (w2_t)cosmo_dlsym(k, "IsWow64Process2"); if (!f) return 0;
+    unsigned short proc = 0, native = 0; if (!f((void *)(intptr_t)-1, &proc, &native)) return 0;
+    return native == 0xAA64;
 }
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
 
@@ -236,7 +247,7 @@ int main(int argc, char **argv) {
     nk_init();
     /* which precompiled variant: on x86-64 the module compiled for the AVX2/FMA/BMI level when this CPU and OS have all of it, else the baseline one (WN_CWASM_LEVEL=base forces the baseline) */
     const char *lvl = ""; const char *lenv = getenv("WN_CWASM_LEVEL");
-    if (!IsAarch64() && m != 2 && !(lenv && !strcmp(lenv, "base")) && nk_haswell_ok()) lvl = ".v3";
+    if (!IsAarch64() && m != 2 && !(lenv && !strcmp(lenv, "base")) && nk_haswell_ok() && (!under_arm_emulation() || (lenv && !strcmp(lenv, "v3")))) lvl = ".v3";   /* WN_CWASM_LEVEL=v3 forces it under emulation (for measuring) */
     if (m == 2) snprintf(name, sizeof name, "%s.pulley.cwasm", base); else snprintf(name, sizeof name, "%s.%s.%s%s.cwasm", base, mode, arch, lvl);
     snprintf(path, sizeof path, "/zip/%s", name); snprintf(alt, sizeof alt, "%s", name);
     size_t len = 0; uint8_t *bytes = NULL;

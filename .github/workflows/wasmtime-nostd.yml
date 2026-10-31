@@ -210,7 +210,7 @@ jobs:
           set +e; PY=$(command -v python3 || command -v python)
           [ "$RUNNER_OS" = Windows ] && { cp wn.com wn.exe; RUN=./wn.exe; } || RUN="sh ./wn.com"
           echo "cpu: $(grep -m1 -i 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null || echo '(unknown)')"; grep -m1 -o -E 'avx512f|avx2' /proc/cpuinfo 2>/dev/null | sort -u | tr '\n' ' '; echo
-          for cfg in "A-baseline-module-baseline-kernels|base|0" "B-baseline-module-best-kernels|base|9" "C-v3-module-best-kernels|auto|9" "D-v3-module-avx2-kernels|auto|1"; do
+          for cfg in "A-baseline-module-baseline-kernels|base|0" "B-baseline-module-best-kernels|base|9" "C-v3-module-best-kernels|v3|9" "D-v3-module-avx2-kernels|v3|1"; do
             IFS='|' read -r label mod kl <<< "$cfg"; : > kern.$label.txt
             for r in 1 2 3; do WN_CWASM_LEVEL=$mod WN_KERNEL_LEVEL=$kl $RUN sig kern > kern.run.txt 2>&1; rc=$?; cat kern.run.txt >> kern.$label.txt; if [ $rc != 0 ]; then echo "::error::$label run $r exit $rc"; tail -n 25 kern.run.txt; kfail=1; fi; done
             echo "== $label: ($(grep -m1 'module level' kern.$label.txt))"
@@ -219,7 +219,7 @@ jobs:
           done
           $PY wasmtime-nostd/tools/kern-table.py A-baseline-module-baseline-kernels=kern.A-baseline-module-baseline-kernels.txt B-baseline-module-best-kernels=kern.B-baseline-module-best-kernels.txt C-v3-module-best-kernels=kern.C-v3-module-best-kernels.txt D-v3-module-avx2-kernels=kern.D-v3-module-avx2-kernels.txt
           echo "=== the shootout kernels, baseline module vs v3 module (best of 3, ms)"
-          for g in so-simd so-scalar; do for mod in base auto; do for r in 1 2 3; do WN_CWASM_LEVEL=$mod $RUN sig $g 2>&1 | grep -E "^KERNEL|module level" | sed "s/^KERNEL /KERNEL $g-$mod /"; done; done; done | $PY wasmtime-nostd/tools/best-table.py
+          for g in so-simd so-scalar; do for mod in base v3 auto; do for r in 1 2 3; do WN_CWASM_LEVEL=$mod $RUN sig $g 2>&1 | grep -E "^KERNEL|module level" | sed "s/^KERNEL /KERNEL $g-$mod /"; done; done; done | $PY wasmtime-nostd/tools/best-table.py
           [ "$kfail" = 1 ] && { echo "RESULT: FAIL (see the errors above)"; exit 1; }; echo "RESULT: all four configurations produced kernel results"
       - name: "macOS - the kernel guest 25 times (it failed intermittently with exit 70 and with a segmentation fault), with the system crash report"
         if: runner.os == 'macOS'
