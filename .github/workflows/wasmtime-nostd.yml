@@ -155,8 +155,8 @@ jobs:
           C=$(find "$PWD/capi" -maxdepth 1 -type d -name 'wasmtime-*' | head -1); export MSYS_NO_PATHCONV=1
           INC="$(cygpath -w $C/include)"; WTLIB="$(cygpath -w $C/lib/wasmtime.dll.lib)"   # not LIB: that is the compiler environment's library search path
           clang-cl --target=aarch64-pc-windows-msvc -MD -nologo -O2 -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" -c winarm/host.c wasmtime-nostd/host/native_kernels.c 2>&1 | tail -5
-          MSVCLINK=$(which -a link.exe link 2>/dev/null | grep -i "Visual Studio" | head -1); [ -z "$MSVCLINK" ] && MSVCLINK="$(cygpath -u "$VCToolsInstallDir")bin/HostARM64/arm64/link.exe"
-          "$MSVCLINK" -nologo host.obj native_kernels.obj "$WTLIB" -out:wt-host.exe 2>&1 | tail -5
+          MSVCLINK="$(cygpath -u "$VCToolsInstallDir")bin/HostARM64/ARM64/link.exe"; [ -f "$MSVCLINK" ] || MSVCLINK=$(which -a link.exe link 2>/dev/null | grep -i "Visual Studio" | head -1); echo "linker: $MSVCLINK (VCToolsInstallDir=$VCToolsInstallDir)"; ls host.obj native_kernels.obj
+          "$MSVCLINK" -nologo host.obj native_kernels.obj "$WTLIB" -out:wt-host.exe 2>&1 | tail -5; ls -la wt-host.exe
           mkdir winarm-out; cp wt-host.exe winarm-out/; cp $C/lib/wasmtime.dll winarm-out/ 2>/dev/null || cp $C/bin/wasmtime.dll winarm-out/
           for g in kern so-simd so-scalar; do ./wt-host.exe --precompile guests/wasm/$g.wasm winarm-out/$g.cwasm; done
           ls -la winarm-out
