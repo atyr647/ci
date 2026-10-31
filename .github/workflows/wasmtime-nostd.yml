@@ -212,8 +212,8 @@ jobs:
           echo "cpu: $(grep -m1 -i 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null || echo '(unknown)')"; grep -m1 -o -E 'avx512f|avx2' /proc/cpuinfo 2>/dev/null | sort -u | tr '\n' ' '; echo
           for cfg in "A-baseline-module-baseline-kernels|base|0" "B-baseline-module-best-kernels|base|9" "C-v3-module-best-kernels|auto|9" "D-v3-module-avx2-kernels|auto|1"; do
             IFS='|' read -r label mod kl <<< "$cfg"; : > kern.$label.txt
-            for r in 1 2; do WN_CWASM_LEVEL=$mod WN_KERNEL_LEVEL=$kl $RUN sig kern >> kern.$label.txt 2>&1; done
-            echo "== $label: exit $? ($(grep -m1 'module level' kern.$label.txt))"
+            for r in 1 2 3; do WN_CWASM_LEVEL=$mod WN_KERNEL_LEVEL=$kl $RUN sig kern > kern.run.txt 2>&1; rc=$?; cat kern.run.txt >> kern.$label.txt; if [ $rc != 0 ]; then echo "::error::$label run $r exit $rc"; tail -n 25 kern.run.txt; kfail=1; fi; done
+            echo "== $label: ($(grep -m1 'module level' kern.$label.txt))"
             if grep -q "refused by the engine\|load failed" kern.$label.txt; then echo "::error::$label: the module was refused or failed to load"; kfail=1; fi
             if ! grep -q "^KERNEL" kern.$label.txt; then echo "::error::$label: no kernel result at all"; kfail=1; fi
           done
