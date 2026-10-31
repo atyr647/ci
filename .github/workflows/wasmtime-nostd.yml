@@ -34,7 +34,7 @@ jobs:
           d['panic-strategy'] = 'abort'
           if d['arch'] == 'x86_64': d['disable-redzone'] = True
           else:
-              fs = [x for x in d.get('features', '').split(',') if x and 'outline-atomics' not in x]; d['features'] = ','.join(fs + ['+reserve-x28'])   # Cosmopolitan keeps its thread pointer in x28
+              fs = [x for x in d.get('features', '').split(',') if x and 'outline-atomics' not in x]; d['features'] = ','.join(fs + ['+reserve-x28', '+reserve-x18'])   # Cosmopolitan keeps its thread pointer in x28; macOS owns x18 (the kernel overwrites it asynchronously, and Cosmopolitan compiles with -ffixed-x18)
           import os; os.makedirs('spec-${{ matrix.arch }}', exist_ok=True); json.dump(d, open('spec-${{ matrix.arch }}/${{ matrix.arch }}-unknown-linux-gnu.json', 'w'), indent=1)   # same NAME as the real triple: build scripts (target-lexicon) take the host triple from it, and .cwasm files are checked against it
           PY
       - name: Wasmtime 50.0.0 from crates.io with the no_std threads patch (the published crate ties the threads feature to std)

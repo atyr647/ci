@@ -92,7 +92,7 @@ jobs:
           if [ "$A" = aarch64 ]; then
             # Cosmopolitan keeps its thread pointer in x28 and every libc call reads it. Rust must therefore never use x28: rebuild the standard library with it reserved.
             rustup toolchain install nightly --profile minimal --component rust-src
-            RUSTFLAGS="-C target-feature=+reserve-x28 --cfg mio_unsupported_force_poll_poll --cfg mio_unsupported_force_waker_pipe" cargo +nightly rustc -Zbuild-std=std,panic_abort -p wasmtime-c-api --release --target aarch64-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
+            RUSTFLAGS="-C target-feature=+reserve-x28,+reserve-x18 --cfg mio_unsupported_force_poll_poll --cfg mio_unsupported_force_waker_pipe" cargo +nightly rustc -Zbuild-std=std,panic_abort -p wasmtime-c-api --release --target aarch64-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
           else
             # no epoll and no eventfd in Cosmopolitan: make the I/O reactor (mio) use poll(2) and a pipe for its wake-up
             RUSTFLAGS="--cfg mio_unsupported_force_poll_poll --cfg mio_unsupported_force_waker_pipe" cargo rustc -p wasmtime-c-api --release --target ${A}-unknown-linux-musl --no-default-features --features $F --crate-type staticlib 2>&1 | tail -15
