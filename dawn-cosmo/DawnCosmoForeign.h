@@ -10,6 +10,7 @@
 #ifndef DAWN_COSMO_FOREIGN_H
 #define DAWN_COSMO_FOREIGN_H
 #ifdef __COSMOPOLITAN__
+extern "C" int gettid(void);   // Cosmopolitan declares it only under _COSMO_SOURCE (cosmocc's GCC driver defines that; the clang wrapper does not)
 extern "C" {
 unsigned long DawnCosmoForeignTcb();   // thread block to run foreign calls on for THIS thread; 0 = none needed (main thread, or not Linux)
 void DawnCosmoForeignInit();           // call on the main thread before other threads call foreign code (idempotent)
