@@ -10,7 +10,7 @@ jobs:
   rep:
     strategy:
       fail-fast: false
-      matrix: { slot: [1, 2, 3] }
+      matrix: { slot: [1, 2, 3, 4] }
     runs-on: macos-latest
     env: { GH_TOKEN: '${{ github.token }}' }
     steps:
@@ -18,9 +18,8 @@ jobs:
         run: |
           gh run download ${{ inputs.old_run }} -R ${{ github.repository }} -n wn -D old; gh run download ${{ inputs.new_run }} -R ${{ github.repository }} -n wn -D new
           chmod +x old/wn.com new/wn.com; sysctl -n machdep.cpu.brand_string; sw_vers -productVersion; uname -v | cut -c1-80
-      - name: Interleaved runs
+      - name: Modes (signal-based traps, explicit bounds checks, interpreter), interleaved, new build
         run: |
-          set +e; po=0; pn=0; for i in $(seq 1 40); do
-            WN_KERNEL_LEVEL=9 sh old/wn.com sig kern > o.txt 2>&1; ro=$?; [ $ro = 0 ] && po=$((po+1)) || { echo "old run $i exit $ro: $(grep -E 'out of bounds|without guest' o.txt | head -1)"; }
-            WN_KERNEL_LEVEL=9 sh new/wn.com sig kern > n.txt 2>&1; rn=$?; [ $rn = 0 ] && pn=$((pn+1)) || { echo "new run $i exit $rn: $(grep -E 'out of bounds|without guest' n.txt | head -1)"; }
-          done; echo "RESULT slot ${{ matrix.slot }}: old build $po of 40 passed, new build $pn of 40 passed"
+          set +e; p=(0 0 0); m=(sig nosig pulley); for i in $(seq 1 40); do
+            for k in 0 1 2; do WN_KERNEL_LEVEL=9 sh new/wn.com ${m[$k]} kern > r.txt 2>&1; rc=$?; [ $rc = 0 ] && p[$k]=$((p[$k]+1)) || { [ $i -le 4 ] && echo "${m[$k]} run $i exit $rc: $(grep -E 'out of bounds|without guest' r.txt | head -1)"; }; done
+          done; echo "RESULT slot ${{ matrix.slot }} $(sysctl -n machdep.cpu.brand_string): sig ${p[0]}/40, nosig ${p[1]}/40, pulley ${p[2]}/40 passed"
