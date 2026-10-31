@@ -18,6 +18,12 @@ jobs:
         run: |
           gh run download ${{ inputs.old_run }} -R ${{ github.repository }} -n wn -D old; gh run download ${{ inputs.new_run }} -R ${{ github.repository }} -n wn -D new
           chmod +x old/wn.com new/wn.com; sysctl -n machdep.cpu.brand_string; sw_vers -productVersion; uname -v | cut -c1-80
+      - name: Old and new build, interleaved, signal-trap mode (the same machine for both)
+        run: |
+          set +e; po=0; pn=0; for i in $(seq 1 80); do
+            WN_KERNEL_LEVEL=9 sh old/wn.com sig kern > o.txt 2>&1; [ $? = 0 ] && po=$((po+1))
+            WN_KERNEL_LEVEL=9 sh new/wn.com sig kern > n.txt 2>&1; [ $? = 0 ] && pn=$((pn+1))
+          done; echo "RESULT slot ${{ matrix.slot }} $(sysctl -n machdep.cpu.brand_string): previous build $po of 80 passed, build with x18 reserved $pn of 80 passed"
       - name: Modes (signal-based traps, explicit bounds checks, interpreter), interleaved, new build
         run: |
           set +e; p=(0 0 0); m=(sig nosig pulley); for i in $(seq 1 40); do
