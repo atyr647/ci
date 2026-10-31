@@ -16,14 +16,18 @@ jobs:
     runs-on: ${{ matrix.os }}
     env: { GH_TOKEN: '${{ github.token }}' }
     steps:
-      - name: Dependencies and the file
+      - name: Dependencies and the files (the linker's .dbg ELF carries the symbols)
         run: |
-          sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
-          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D c && chmod +x c/dawn-bench.com
-          echo "default thread stack (ulimit -s): $(ulimit -s) KiB"
-      - name: Runs (a hang is turned into a crash report with SIGSEGV after 30 s)
+          sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 gdb
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D d && chmod +x d/*
+          A=$(uname -m); echo "DBG=$PWD/d/dawn-bench.$A.com.dbg" >> $GITHUB_ENV; ls -la d
+      - name: Async pipeline creation - crash backtrace of every thread
         run: |
-          set +e; export WGT_BACKEND=vulkan; ulimit -c 0
-          for v in "BENCH_ASYNC_PIPELINE=1" "BENCH_ASYNC_PIPELINE=1 DAWN_COSMO_DIRECT=0" "BENCH_IN_THREAD=1" "BENCH_IN_THREAD=1 DAWN_COSMO_DIRECT=0" "BENCH_IN_THREAD=1 BENCH_THREAD_STACK_MB=64"; do
-            echo "=================== $v"; timeout -s SEGV 30 env $v sh ./c/dawn-bench.com > out.txt 2>&1; echo "exit $?"; grep -v "^BENCH\|^gpu_alu\|^Warning" out.txt | head -60 | cut -c1-250
-          done
+          set +e; export WGT_BACKEND=vulkan BENCH_ASYNC_PIPELINE=1
+          timeout -s KILL 120 sudo -E gdb -batch -ex "handle SIGSEGV stop nopass" -ex run -ex "thread apply all bt 14" -ex "info registers pc sp" --args $DBG 2>&1 | grep -v "^BENCH\|^\[New\|^\[Thread\|^warning" | tail -n 70 | cut -c1-230
+      - name: The benchmark on a created thread - where does the process hang after it finished
+        run: |
+          set +e; export WGT_BACKEND=vulkan BENCH_IN_THREAD=1
+          $DBG > out.txt 2>&1 & P=$!; for i in $(seq 1 40); do sleep 1; kill -0 $P 2>/dev/null || break; done
+          if kill -0 $P 2>/dev/null; then echo "still running after 40 s: the hang"; sudo gdb -p $P -batch -ex "thread apply all bt 14" 2>&1 | grep -v "^\[New\|^\[Thread\|^warning\|^Reading\|^Using" | head -70 | cut -c1-230; kill -9 $P; else echo "finished by itself"; fi
+          tail -n 3 out.txt | cut -c1-200
