@@ -1,0 +1,38 @@
+name: dlopen-helper
+# Build the little helper Cosmopolitan compiles on Linux the first time it loads a driver, ahead of time on an OLD glibc (so it runs on newer ones), and check that Linux machines WITHOUT a C compiler - the build machine's
+# own glibc, Ubuntu 20.04 (glibc 2.31) and Debian 11 (glibc 2.31) - find the GPU driver with it put into the cache directory first.
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'dawn-cosmo run with artifact wgt-dawn', required: true }
+jobs:
+  helper:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - name: The file, and the helper source it writes itself (so the copy is byte for byte the one it expects)
+        run: |
+          sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D c && chmod +x c/dawn-bench.com
+          mkdir -p t0 && WGT_BACKEND=vulkan TMPDIR=$PWD/t0 sh ./c/dawn-bench.com > /dev/null 2>&1; ls -la t0/.cosmo; wc -c t0/.cosmo/dlopen-helper.c
+      - name: Build the helper in an Ubuntu 20.04 container (glibc 2.31)
+        run: |
+          mkdir -p out; cp t0/.cosmo/dlopen-helper.c out/
+          docker run --rm -v $PWD/out:/w ubuntu:20.04 bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc libc6-dev >/dev/null && cc -pie -fPIC /w/dlopen-helper.c -o /w/dlopen-helper -Wl,-z,execstack -ldl && ls -la /w && objdump -T /w/dlopen-helper | grep -i "dl[a-z]*@\|GLIBC_2" | head -8 || true'
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: 'dlopen-helper-${{ matrix.label }}', path: out }
+      - name: Machines without a C compiler, the pre-built helper in the cache directory
+        run: |
+          set +e; export WGT_BACKEND=vulkan
+          for img in ubuntu:20.04 debian:11 ubuntu:24.04; do
+            rm -rf t; mkdir -p t/.cosmo; cp out/dlopen-helper out/dlopen-helper.c t/.cosmo/; touch t/.cosmo/dlopen-helper t/.cosmo/dlopen-helper.c
+            echo "=== $img (no compiler installed)"
+            docker run --rm -v $PWD:/w -e WGT_BACKEND=vulkan -e TMPDIR=/w/t $img bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mesa-vulkan-drivers libvulkan1 >/dev/null 2>&1; command -v cc gcc >/dev/null && echo "A COMPILER IS INSTALLED"; sh /w/c/dawn-bench.com > /w/o.txt 2>&1; echo "exit $?"; grep -m1 "^adapter" /w/o.txt | cut -c1-100; grep -m1 -i "no supported adapters\|isn.t supported\|GLIBC" /w/o.txt | cut -c1-140'
+          done
