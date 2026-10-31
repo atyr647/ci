@@ -210,6 +210,7 @@ jobs:
           - { label: win-arm64,   os: windows-11-arm,   asset: '' }
     runs-on: ${{ matrix.os }}
     defaults: { run: { shell: bash } }
+    env: { WN_NO_NATIVE: "${{ matrix.label == 'win-arm64' && '1' || '' }}" }   # keep testing the emulated x86-64 half on Windows on ARM; the step that tests the native host unsets it
     steps:
       - uses: actions/checkout@v4
       - uses: actions/download-artifact@v4
@@ -264,7 +265,7 @@ jobs:
         if: matrix.label == 'win-arm64'
         continue-on-error: true
         run: |
-          set +e; cp wn.com wn.exe; ls -la wn.exe
+          set +e; unset WN_NO_NATIVE; cp wn.com wn.exe; ls -la wn.exe
           for g in kern so-simd; do
             echo "=== $g: default"; ./wn.exe sig $g > nat.$g.txt 2>&1; echo "exit $?"; grep -E "^host :" nat.$g.txt | cut -c1-150 | head -4
             echo "=== $g: WN_NO_NATIVE=1 (emulated x86-64 half)"; WN_NO_NATIVE=1 ./wn.exe sig $g > emu.$g.txt 2>&1; echo "exit $?"; grep -E "^host :" emu.$g.txt | cut -c1-150 | head -3
