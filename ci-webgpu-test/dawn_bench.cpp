@@ -343,13 +343,21 @@ static int bench_main(int argc, char **argv) {
         }
     }
     bench("process_total_ms", ms_since(tProc), "ms");
+#ifndef _WIN32
+    { struct rusage ru; getrusage(RUSAGE_SELF, &ru);   // whole process, kernel accounting: where the time went, and how many page faults the process took
+      bench("process_user_ms", ru.ru_utime.tv_sec * 1e3 + ru.ru_utime.tv_usec / 1e3, "ms"); bench("process_sys_ms", ru.ru_stime.tv_sec * 1e3 + ru.ru_stime.tv_usec / 1e3, "ms"); bench("process_minor_faults", (double)ru.ru_minflt, "count"); }
+#endif
     return 0;
 }
 
 // BENCH_IN_THREAD=1: the whole benchmark runs on a thread this program creates instead of on the main thread (a game's render thread is not the main thread); the driver is then called from a thread
 // that the C library of this program created. Used to check that foreign (driver) code works on such threads.
+#ifdef __COSMOPOLITAN__
+extern "C" int mallopt(int, int) __attribute__((weak));   // (weak: absent from some builds) dlmalloc's tuning (M_TRIM_THRESHOLD -1, M_GRANULARITY -2, M_MMAP_THRESHOLD -3), as in Cosmopolitan's third_party/dlmalloc
+#endif
 int main(int argc, char **argv) {
 #ifdef __COSMOPOLITAN__
+    if (const char *mo = getenv("BENCH_MALLOPT")) { if (!mallopt) fprintf(stderr, "mallopt is not in this C library\n"); else const int mb = atoi(mo) > 0 ? atoi(mo) : 64; mallopt(-3, 1 << 30); mallopt(-1, 1 << 30); mallopt(-2, mb << 20); } }   // experiment: keep freed memory in the process instead of unmapping it
     { int rc = WinArmRunNative("dawn-bench", argv); if (rc >= 0) return rc; }   // Windows on ARM: the file carries a native arm64 build and starts it instead of running this x86-64 half under emulation
     DawnCosmoForeignInit();   // on the main thread, before any other thread calls the driver (what a game host does at start-up)
 #endif
