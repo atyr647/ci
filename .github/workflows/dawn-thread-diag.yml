@@ -21,9 +21,9 @@ jobs:
           sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D c && chmod +x c/dawn-bench.com
           echo "default thread stack (ulimit -s): $(ulimit -s) KiB"
-      - name: Runs
+      - name: Runs (a hang is turned into a crash report with SIGSEGV after 30 s)
         run: |
-          set +e; export WGT_BACKEND=vulkan
-          for v in "BENCH_IN_THREAD=1" "BENCH_IN_THREAD=1 DAWN_COSMO_DIRECT=0" "BENCH_ASYNC_PIPELINE=1" "BENCH_ASYNC_PIPELINE=1 DAWN_COSMO_DIRECT=0" "BENCH_IN_THREAD=1 BENCH_THREAD_STACK_MB=64"; do
-            echo "=================== $v"; env $v sh ./c/dawn-bench.com > out.txt 2>&1; echo "exit $?"; grep -v "^BENCH" out.txt | head -45 | cut -c1-250
+          set +e; export WGT_BACKEND=vulkan; ulimit -c 0
+          for v in "BENCH_ASYNC_PIPELINE=1" "BENCH_ASYNC_PIPELINE=1 DAWN_COSMO_DIRECT=0" "BENCH_IN_THREAD=1" "BENCH_IN_THREAD=1 DAWN_COSMO_DIRECT=0" "BENCH_IN_THREAD=1 BENCH_THREAD_STACK_MB=64"; do
+            echo "=================== $v"; timeout -s SEGV 30 env $v sh ./c/dawn-bench.com > out.txt 2>&1; echo "exit $?"; grep -v "^BENCH\|^gpu_alu\|^Warning" out.txt | head -60 | cut -c1-250
           done
