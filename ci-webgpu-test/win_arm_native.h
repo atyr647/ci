@@ -37,7 +37,9 @@ static bool WinArmPut(const char *path, const std::vector<unsigned char> &d) {  
 
 // Returns the exit status of the native program, or -1 if there is nothing native to run (not on ARM64, not packed, WN_NO_NATIVE set, or it could not be unpacked).
 static int WinArmRunNative(const char *name, char **argv) {
-    if (!IsWindows() || getenv("WN_NO_NATIVE") || !WinArmUnderEmulation()) return -1;
+    if (!IsWindows()) return -1;
+    { const char *off = getenv("WN_NO_NATIVE"); if (off && *off) return -1; }   // an empty value counts as not set
+    if (!WinArmUnderEmulation()) return -1;
     char zp[200]; snprintf(zp, sizeof zp, "/zip/winarm/%s.exe", name);
     std::vector<unsigned char> exe; if (!WinArmReadAll(zp, exe)) return -1;
     const char *tmp = getenv("TEMP"); if (!tmp || !*tmp) tmp = getenv("TMP"); if (!tmp || !*tmp) tmp = ".";
