@@ -54,7 +54,7 @@ jobs:
               print(f'=== {v}: system calls per create+release (loop 60000 minus loop 20000)')
               for per, k in rows: print(f'  {per:8.3f}  {k}')
           PY
-      - name: Who makes the extra system calls (Cosmopolitan build): call stacks of rt_sigprocmask (strace -k) and callers of the syscall stub (perf, frame pointers)
+      - name: "Who makes the extra system calls (Cosmopolitan build) - call stacks of rt_sigprocmask (strace -k) and callers of the syscall stub (perf, frame pointers)"
         run: |
           export WGT_BACKEND=vulkan; set +e; C=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
           BENCH_BUFFER_REPEAT=3000 strace -f -k -e trace=rt_sigprocmask -o sk.txt $C > /dev/null 2>&1
