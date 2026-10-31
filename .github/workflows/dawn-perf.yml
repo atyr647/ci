@@ -82,5 +82,5 @@ jobs:
         run: |
           for v in native cosmo cosmo-mallopt; do echo "=== $v: strace -c (top 8)"; head -12 strace.$v.txt; echo "--- faults"; grep -E "page-faults|task-clock" stat2.$v.txt; done
           VARS=$(ls run.*.txt | sed "s/run\.//;s/\.txt//" | tr "\n" " ")
-          for v in $VARS; do echo "=== $v: run"; grep -E "buffer_create|rror|what" run.$v.txt | head -5; tail -3 run.$v.txt; echo "--- by object"; cat dso.$v.txt; echo "--- kernel symbols, top 25"; head -25 ktop.$v.txt; echo "--- software counters"; grep -E "task-clock|page-faults|context-switches|migrations|elapsed|user|sys" stat.$v.txt || true; done
+          for v in $VARS; do echo "=== $v: run"; grep -E "buffer_create|rror|what" run.$v.txt | head -5; tail -3 run.$v.txt; echo "--- by object"; cat dso.$v.txt 2>/dev/null; echo "--- kernel symbols, top 25"; head -25 ktop.$v.txt 2>/dev/null; echo "--- software counters"; grep -E "task-clock|page-faults|context-switches|migrations|elapsed|user|sys" stat.$v.txt 2>/dev/null || true; done
           for v in native cosmo clang; do [ -f top.$v.txt ] || continue; echo "=== $v: flat profile, top 45"; head -45 top.$v.txt; done
