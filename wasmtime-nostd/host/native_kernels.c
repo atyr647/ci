@@ -1,11 +1,15 @@
 #define _COSMO_SOURCE
+#ifdef __COSMOPOLITAN__
 #include <cosmo.h>
+#endif
 #include <stdlib.h>
 #include <string.h>
 #include "native_kernels.h"
 #if defined(__x86_64__)
 #include <immintrin.h>
+#ifdef __COSMOPOLITAN__
 #include <libc/nexgen32e/x86feature.h>
+#endif
 #elif defined(__aarch64__)
 #include <arm_neon.h>
 #endif
@@ -119,7 +123,7 @@ static int max_level(void) { return 0; }
 #endif
 
 int nk_haswell_ok(void) {
-#if defined(__x86_64__)
+#if defined(__x86_64__) && defined(__COSMOPOLITAN__)
     return max_level() >= 1 && X86_HAVE(BMI) && X86_HAVE(BMI2) && X86_HAVE(ABM) && X86_HAVE(POPCNT) && X86_HAVE(SSE4_2);
 #else
     return 0;

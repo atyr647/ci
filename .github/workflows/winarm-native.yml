@@ -5,7 +5,7 @@ name: winarm-native
 on:
   workflow_dispatch:
     inputs:
-      wn_run: { description: 'wasmtime-nostd run with artifacts wn (the Cosmopolitan file) and guests', required: true, default: '41063560278' }
+      wn_run: { description: 'wasmtime-nostd run with artifacts wn (the Cosmopolitan file) and guests', required: true, default: '41160777864' }
       wasm_run: { description: 'wasm-platforms run with artifact so-wasm (wasm kernels)', required: true, default: '41064377721' }
       rounds: { description: 'interleaved rounds', required: false, default: '5' }
 env: { WT: v50.0.0 }
@@ -31,7 +31,10 @@ jobs:
         run: |
           C=$(find "$PWD/capi" -maxdepth 1 -type d -name 'wasmtime-*' | head -1)
           export MSYS_NO_PATHCONV=1   # Git bash would turn /O2 into a path
-          cl.exe -nologo -O2 -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$(cygpath -w $C/include)" winarm/host.c -Fe:wt-host.exe -link "$(cygpath -w $C/lib/wasmtime.dll.lib)" 2>&1 | tail -5
+          INC="$(cygpath -w $C/include)"; LIB="$(cygpath -w $C/lib/wasmtime.dll.lib)"
+          # clang-cl defines __aarch64__ (so the NEON kernels are compiled in); fall back to cl.exe with that define if clang-cl is not on this image
+          if command -v clang-cl >/dev/null 2>&1; then echo "compiler: $(clang-cl --version | head -1)"; clang-cl -nologo -O2 -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" winarm/host.c wasmtime-nostd/host/native_kernels.c -Fe:wt-host.exe -link "$LIB" 2>&1 | tail -8
+          else echo "compiler: cl.exe (clang-cl not found)"; cl.exe -nologo -O2 -D__aarch64__ -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" winarm/host.c wasmtime-nostd/host/native_kernels.c -Fe:wt-host.exe -link "$LIB" 2>&1 | tail -8; fi
           cp $C/lib/wasmtime.dll . 2>/dev/null || cp $C/bin/wasmtime.dll . ; ls -la wt-host.exe wasmtime.dll
           dumpbin.exe -headers wt-host.exe 2>/dev/null | grep -i -E "machine|AA64|ARM" | head -2
       - name: Same kernels - native arm64 official CLI, native arm64 host, Cosmopolitan file (x86-64 under emulation)
@@ -59,6 +62,12 @@ jobs:
           print('| kernel | ' + ' | '.join(cfgs) + ' |'); print('|---' * (len(cfgs) + 1) + '|')
           for k in kernels: print(f'| {k} | ' + ' | '.join(f'{best[(c,k)]:.2f}' if (c, k) in best else '-' for c in cfgs) + ' |')
           PY
+      - name: Kernel guest - native arm64 host (NEON kernels as imports, no emulation) against the Cosmopolitan file under emulation (AVX2 kernels)
+        run: |
+          set +e; ./wt-host.exe --precompile guests/wasm/kern.wasm kern.drc.cwasm
+          for r in 1 2 3; do ./wt-host.exe kern.drc.cwasm 1 > nat.$r.txt 2>&1; WN_KERNEL_LEVEL=9 ./wn/wn.exe sig kern > emu.$r.txt 2>&1; done
+          cat nat.?.txt > nat.txt; cat emu.?.txt > emu.txt; grep -m1 "native level" nat.txt; grep -m1 "module level" emu.txt; grep -c "^K " nat.txt emu.txt
+          python3 wasmtime-nostd/tools/kern-table.py native-arm64-host=nat.txt emulated-x64-file=emu.txt
       - name: Native arm64 Dawn benchmark build exists (cache from dawn-bench)
         uses: actions/cache/restore@v4
         with:
