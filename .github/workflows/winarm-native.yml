@@ -36,7 +36,7 @@ jobs:
           # clang-cl (defines __aarch64__, so the NEON kernels are compiled in) makes the objects, the Visual Studio linker links them (the clang on this image does not find the C runtime libraries by itself)
           if command -v clang-cl >/dev/null 2>&1; then echo "compiler: $(clang-cl --version | head -1)"
             clang-cl --target=aarch64-pc-windows-msvc -MD -nologo -O2 -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" -c winarm/host.c wasmtime-nostd/host/native_kernels.c 2>&1 | tail -8
-            link.exe -nologo host.obj native_kernels.obj "$LIB" -out:wt-host.exe 2>&1 | tail -6
+            MSYS_NO_PATHCONV=1 cmd.exe /c "link.exe /nologo host.obj native_kernels.obj \"$LIB\" /out:wt-host.exe" 2>&1 | tail -6   # through cmd: in Git bash "link" is the coreutils one
           else echo "compiler: cl.exe (clang-cl not found)"; cl.exe -nologo -O2 -D__aarch64__ -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" winarm/host.c wasmtime-nostd/host/native_kernels.c -Fe:wt-host.exe -link "$LIB" 2>&1 | tail -8; fi
           cp $C/lib/wasmtime.dll . 2>/dev/null || cp $C/bin/wasmtime.dll . ; ls -la wt-host.exe wasmtime.dll
           dumpbin.exe -headers wt-host.exe 2>/dev/null | grep -i -E "machine|AA64|ARM" | head -2
