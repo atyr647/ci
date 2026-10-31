@@ -13,6 +13,7 @@
 #include <cstdint>
 #include <cstdio>
 #include <cstdlib>
+#include <csignal>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -124,6 +125,11 @@ int main(int argc, char **argv) {
     if (const char *e = getenv("BENCH_SCALE")) g_scale = atof(e) > 0 ? atof(e) : 1.0;
     bool hostOnly = argc > 1 && !strcmp(argv[1], "--host-only");
     auto tProc = Clock::now();
+#ifdef __COSMOPOLITAN__
+    if (getenv("DAWN_COSMO_DIRECT")) {   // direct driver calls (arm64): keep asynchronous signals out of this process's threads, as the per-call trampoline would do around every call
+        sigset_t m; sigfillset(&m); sigdelset(&m, SIGSEGV); sigdelset(&m, SIGBUS); sigdelset(&m, SIGFPE); sigdelset(&m, SIGILL); sigdelset(&m, SIGTRAP); sigprocmask(SIG_BLOCK, &m, nullptr);
+    }
+#endif
     const char *tintRepeat = getenv("BENCH_TINT_REPEAT");   // profiling aid: only start-up and N shader-module creations, nothing else
     if (!tintRepeat) host_baselines();
     if (hostOnly) return 0;

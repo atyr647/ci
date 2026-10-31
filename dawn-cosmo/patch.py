@@ -61,6 +61,7 @@ struct VkFnImpl<R(VKAPI_PTR*)(Args...)> {
 #if DAWN_NO_SANITIZE_VK_FN'''
     new = '''#ifdef __COSMOPOLITAN__  // %s
 extern "C" bool DawnCosmoIsWindows();
+extern "C" bool DawnCosmoDirect();
 extern "C" bool DawnCosmoTrace();                                  // DAWN_COSMO_TRACE=1 prints every Vulkan call (name) to stderr
 extern "C" void DawnCosmoTraceCall(const char* name, void* addr);  // defined in VulkanFunctions.cpp, which can include cosmo.h without its IsWindows() macro leaking into Dawn's headers
 // Windows' Vulkan loader uses the Microsoft x64 calling convention, Linux and macOS use System V; the OS is only known at run time.
@@ -118,8 +119,9 @@ VkFn<F> AsVkFn(void(VKAPI_PTR* addr)()) {
     if (addr == nullptr) {
         return VkFn<F>(nullptr);
     }
-    // Windows: the raw pointer, called with the Microsoft ABI by DualAbiFn. Elsewhere: a cosmo_dltramp thunk.
-    return VkFn<F>(DawnCosmoIsWindows() ? reinterpret_cast<void*>(addr) : cosmo_dltramp(reinterpret_cast<void*>(addr)));
+    // Windows: the raw pointer, called with the Microsoft ABI by DualAbiFn. Elsewhere: a cosmo_dltramp thunk (on arm64 each call through it blocks and unblocks signals with two
+    // rt_sigprocmask system calls). Experiment, arm64 only: DAWN_COSMO_DIRECT=1 calls the driver directly (x28 is callee-saved in foreign code; the caller must keep asynchronous signals blocked).
+    return VkFn<F>((DawnCosmoIsWindows() || DawnCosmoDirect()) ? reinterpret_cast<void*>(addr) : cosmo_dltramp(reinterpret_cast<void*>(addr)));
 }
 
 #else
@@ -151,7 +153,7 @@ F AsVkFn(void(VKAPI_PTR* addr)()) {''' % MARK
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name));', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name)), "vk" #name);', 1)
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName))', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName)), "vk" #procName)', 1)
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetDeviceProcAddr(device, "vk" #name));', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetDeviceProcAddr(device, "vk" #name)), "vk" #name);', 1)
-    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows() { return IsWindows(); }\nextern "C" bool DawnCosmoIsXnu() { return IsXnu(); }\nextern "C" bool DawnCosmoTrace() { static const bool on = getenv("DAWN_COSMO_TRACE") != nullptr; return on; }\nextern "C" void DawnCosmoTraceCall(const char* name, void* addr) { (void)addr; fprintf(stderr, "[vk] %s\\n", name); fflush(stderr); }\n#undef IsWindows\n#endif')
+    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows() { return IsWindows(); }\nextern "C" bool DawnCosmoIsXnu() { return IsXnu(); }\n#ifdef __aarch64__\nextern "C" bool DawnCosmoDirect() { static const bool on = getenv("DAWN_COSMO_DIRECT") != nullptr; return on; }\n#else\nextern "C" bool DawnCosmoDirect() { return false; }\n#endif\nextern "C" bool DawnCosmoTrace() { static const bool on = getenv("DAWN_COSMO_TRACE") != nullptr; return on; }\nextern "C" void DawnCosmoTraceCall(const char* name, void* addr) { (void)addr; fprintf(stderr, "[vk] %s\\n", name); fflush(stderr); }\n#undef IsWindows\n#endif')
 edit('src/dawn/native/vulkan/VulkanFunctions.cpp', vkfns_cpp)
 
 # 6. Cosmopolitan's own headers #undef __linux__, so code that tests it directly needs the extra clause
