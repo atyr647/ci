@@ -1,0 +1,35 @@
+name: dlopen-nocc
+# On Linux, Cosmopolitan's cosmo_dlopen (what loads the GPU driver) compiles a small helper program with the system's `cc` the first time (libc/dlopen/dlopen.c: posix_spawnp "cc -pie -fPIC ... -ldl") and caches it in $TMPDIR/.cosmo.
+# What happens on a machine without a C compiler, and does a helper that was built elsewhere and put in the cache directory first work there?
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'dawn-cosmo run with artifact wgt-dawn', required: true }
+jobs:
+  nocc:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - name: Files and a PATH without any C compiler
+        run: |
+          sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D c && chmod +x c/dawn-bench.com
+          mkdir -p $HOME/nocc; for d in /usr/bin /bin /usr/sbin /sbin; do for f in $d/*; do b=$(basename "$f"); case "$b" in cc|c89|c99|gcc|gcc-*|g++|g++-*|c++|cpp|clang|clang-*|clang++*|tcc|*-gcc|*-gcc-*|*-g++|*-g++-*|*-cc|*-cpp|*-cpp-*) ;; *) [ -e "$HOME/nocc/$b" ] || ln -s "$f" "$HOME/nocc/$b";; esac; done; done
+          PATH=$HOME/nocc command -v cc && echo "STILL A COMPILER" || echo "no compiler on the restricted PATH"
+      - name: Four runs (adapter found or not)
+        run: |
+          set +e; export WGT_BACKEND=vulkan
+          run() { TMPDIR=$1 PATH=$2 sh ./c/dawn-bench.com > o.txt 2>&1; echo "exit $?; $(grep -m1 '^adapter' o.txt | cut -c1-90 || true) $(grep -m1 -i 'no adapter\|adapter request failed\|dlopen' o.txt | cut -c1-120)"; }
+          mkdir -p t1 t2 t3
+          echo "1. normal PATH, empty cache (the helper gets compiled):";           run $PWD/t1 "$PATH"
+          ls -la t1/.cosmo 2>/dev/null | cut -c1-120
+          echo "2. no compiler, empty cache:";                                       run $PWD/t3 "$HOME/nocc"
+          mkdir -p t2 && cp -a t1/.cosmo t2/ && touch t2/.cosmo/dlopen-helper t2/.cosmo/dlopen-helper.c
+          echo "3. no compiler, the helper from run 1 copied into the cache first:"; run $PWD/t2 "$HOME/nocc"
+          echo "4. normal PATH again (the cache is used):";                          run $PWD/t1 "$PATH"
