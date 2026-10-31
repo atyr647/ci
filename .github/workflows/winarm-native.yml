@@ -38,8 +38,8 @@ jobs:
         run: |
           set +e; SO=$(ls so/so-simd.wasm so/*/so-simd.wasm 2>/dev/null | head -1); SC=$(ls so/so-scalar.wasm so/*/so-scalar.wasm 2>/dev/null | head -1); echo "simd=$SO scalar=$SC"
           "$WT_EXE" compile "$SO" -o simd.cwasm && "$WT_EXE" compile "$SC" -o scalar.cwasm
-          # the C API host uses the deferred reference-counting collector by default and the CLI the copying one: a module is only loadable by the collector it was compiled for, so the host gets its own copies
-          "$WT_EXE" compile -O collector=drc "$SO" -o simd.drc.cwasm && "$WT_EXE" compile -O collector=drc "$SC" -o scalar.drc.cwasm
+          # the C API host and the CLI default to different garbage collectors and a precompiled module only loads in an engine configured like the one that compiled it, so the host precompiles with itself
+          ./wt-host.exe --precompile "$SO" simd.drc.cwasm; ./wt-host.exe --precompile "$SC" scalar.drc.cwasm
           echo "--- raw: native host"; ./wt-host.exe simd.drc.cwasm 1 2>&1 | head -8; echo "exit $?"; echo "--- raw: Cosmopolitan file"; ./wn/wn.exe sig so-simd 2>&1 | head -8; echo "--- raw: wasm with the host (JIT from wasm)"; ./wt-host.exe $SO 1 2>&1 | head -8
           for g in simd scalar; do
             for r in $(seq 1 ${{ inputs.rounds }}); do

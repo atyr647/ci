@@ -12,7 +12,16 @@ static void die(const char *what, wasmtime_error_t *e, wasm_trap_t *t) {
   fprintf(stderr, "%s: %.*s\n", what, (int)m.size, m.data); exit(2);
 }
 int main(int argc, char **argv) {
-  if (argc < 2) { fprintf(stderr, "usage: wt-host module [rounds]\n"); return 1; }
+  if (argc < 2) { fprintf(stderr, "usage: wt-host module [rounds] | wt-host --precompile in.wasm out.cwasm\n"); return 1; }
+  if (!strcmp(argv[1], "--precompile") && argc > 3) {   /* ahead-of-time compile with this engine's own configuration, so the result always loads in it */
+    FILE *in = fopen(argv[2], "rb"); if (!in) { perror("open"); return 1; }
+    fseek(in, 0, SEEK_END); long wn = ftell(in); fseek(in, 0, SEEK_SET); uint8_t *wb = malloc(wn); fread(wb, 1, wn, in); fclose(in);
+    wasm_engine_t *pe = wasm_engine_new(); wasmtime_module_t *pm = NULL; wasmtime_error_t *perr = wasmtime_module_new(pe, wb, wn, &pm);
+    if (perr) die("compile", perr, NULL);
+    wasm_byte_vec_t out; if ((perr = wasmtime_module_serialize(pm, &out))) die("serialize", perr, NULL);
+    FILE *of = fopen(argv[3], "wb"); fwrite(out.data, 1, out.size, of); fclose(of);
+    fprintf(stderr, "precompiled %s -> %s (%zu bytes)\n", argv[2], argv[3], out.size); return 0;
+  }
   int rounds = argc > 2 ? atoi(argv[2]) : 1;
   FILE *f = fopen(argv[1], "rb"); if (!f) { perror("open"); return 1; }
   fseek(f, 0, SEEK_END); long n = ftell(f); fseek(f, 0, SEEK_SET); uint8_t *buf = malloc(n); fread(buf, 1, n, f); fclose(f);
