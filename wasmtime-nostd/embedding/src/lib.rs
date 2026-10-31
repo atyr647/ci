@@ -56,10 +56,15 @@ fn detect(feature: &str) -> Option<bool> {
     let max = unsafe { __cpuid(0) }.eax;
     let l7 = if max >= 7 { unsafe { __cpuid_count(7, 0) } } else { unsafe { __cpuid(0) } };
     let l81 = unsafe { __cpuid(0x8000_0001) };
+    let l71 = if max >= 7 && l7.eax >= 1 { unsafe { __cpuid_count(7, 1) } } else { unsafe { __cpuid(0) } };
     let bit = |v: u32, b: u32| v & (1 << b) != 0;
-    // AVX needs OS support for the YMM state too: XGETBV (OSXSAVE is ecx bit 27 of leaf 1)
-    let ymm = bit(l1.ecx, 27) && unsafe { core::arch::x86_64::_xgetbv(0) } & 6 == 6;
+    // AVX needs OS support for the YMM state too: XGETBV (OSXSAVE is ecx bit 27 of leaf 1); AVX-512 also needs the opmask and ZMM state (bits 5-7)
+    let xcr0 = if bit(l1.ecx, 27) { unsafe { core::arch::x86_64::_xgetbv(0) } } else { 0 };
+    let ymm = xcr0 & 6 == 6;
+    let zmm = ymm && xcr0 & 0xe0 == 0xe0;
+    // the complete list Wasmtime itself asks for with std (config.rs, detect_host_feature): any name missing here makes a module that needs it fail to load
     Some(match feature {
+        "cmpxchg16b" => bit(l1.ecx, 13),
         "sse3" => bit(l1.ecx, 0),
         "ssse3" => bit(l1.ecx, 9),
         "sse4.1" => bit(l1.ecx, 19),
@@ -68,9 +73,16 @@ fn detect(feature: &str) -> Option<bool> {
         "fma" => bit(l1.ecx, 12) && ymm,
         "avx" => bit(l1.ecx, 28) && ymm,
         "avx2" => bit(l7.ebx, 5) && ymm,
+        "avxvnni" => bit(l71.eax, 4) && ymm,
         "bmi1" => bit(l7.ebx, 3),
         "bmi2" => bit(l7.ebx, 8),
         "lzcnt" => bit(l81.ecx, 5),
+        "avx512f" => bit(l7.ebx, 16) && zmm,
+        "avx512dq" => bit(l7.ebx, 17) && zmm,
+        "avx512vl" => bit(l7.ebx, 31) && zmm,
+        "avx512vbmi" => bit(l7.ecx, 1) && zmm,
+        "avx512vnni" => bit(l7.ecx, 11) && zmm,
+        "avx512bitalg" => bit(l7.ecx, 12) && zmm,
         _ => return None,
     })
 }

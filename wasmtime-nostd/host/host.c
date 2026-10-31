@@ -248,6 +248,17 @@ int main(int argc, char **argv) {
         bytes = read_all(path, &len); if (!bytes) bytes = read_all(alt, &len);
     }
     if (!bytes) { fprintf(stderr, "cannot read %s or %s\n", path, alt); return 65; }
+    if (*lvl) {   /* the CPU check above and the engine's own check of the module's compile settings must agree; if the engine refuses the v3 module, fall back to the baseline one instead of failing to start */
+        WnEngine *probe = make_engine(m, wt, bytes, len);
+        if (probe) wn_engine_free(probe);
+        else {
+            fprintf(stderr, "host : the v3 module was refused by the engine, using the baseline module\n");
+            free(bytes); bytes = NULL; lvl = "";
+            snprintf(name, sizeof name, "%s.%s.%s.cwasm", base, mode, arch); snprintf(path, sizeof path, "/zip/%s", name); snprintf(alt, sizeof alt, "%s", name);
+            bytes = read_all(path, &len); if (!bytes) bytes = read_all(alt, &len);
+            if (!bytes) { fprintf(stderr, "cannot read %s or %s\n", path, alt); return 65; }
+        }
+    }
     printf("host : platform=%s arch=%s mode=%s guest=%s (%zu bytes)\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", arch, mode, base, len); fflush(stdout);
     printf("host : module level: %s; native kernels: %s\n", *lvl ? "x86-64 AVX2/FMA/BMI (v3)" : IsAarch64() ? "arm64 baseline" : "x86-64 baseline", nk_level_name()); fflush(stdout);
     if (stress) return run_stress(m, bytes, len, nthreads, seconds, priv);
