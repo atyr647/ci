@@ -19,7 +19,10 @@ jobs:
     env: { GH_TOKEN: '${{ github.token }}' }
     steps:
       - uses: actions/checkout@v4
-      - run: sudo apt-get update && sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1 strace
+      - run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1 strace
+          sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y linux-tools-azure || true
+          echo "PERF=$(command -v perf || ls /usr/lib/linux-tools/*/perf | tail -1)" >> "$GITHUB_ENV"; sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0 || true
       - uses: actions/cache/restore@v4
         with:
           path: dist
@@ -51,6 +54,13 @@ jobs:
               print(f'=== {v}: system calls per create+release (loop 60000 minus loop 20000)')
               for per, k in rows: print(f'  {per:8.3f}  {k}')
           PY
+      - name: Who makes the extra system calls (Cosmopolitan build): call stacks of rt_sigprocmask (strace -k) and callers of the syscall stub (perf, frame pointers)
+        run: |
+          export WGT_BACKEND=vulkan; set +e; C=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+          BENCH_BUFFER_REPEAT=3000 strace -f -k -e trace=rt_sigprocmask -o sk.txt $C > /dev/null 2>&1
+          echo "--- first stacks of rt_sigprocmask"; awk '/rt_sigprocmask/{n++} n>=200 && n<204' sk.txt | cut -c1-170 | head -40
+          BENCH_BUFFER_REPEAT=300000 "$PERF" record -e cpu-clock -F 15000 -g -o pg.data -- $C > /dev/null 2>&1
+          echo "--- callers of the syscall stub (perf, cosmo build)"; "$PERF" report -i pg.data --stdio --no-children -G -S systemfive,__sig_mask 2>/dev/null | grep -v '^#' | grep -v '^$' | cut -c1-150 | head -40
       - name: Result (last)
         if: always()
         run: for v in native cosmo; do echo "== $v"; head -14 st.$v.60000.txt 2>/dev/null; done
