@@ -1,0 +1,53 @@
+name: dawn-faults
+# Linux x86-64: buffer create+release costs 0.4 us more in the Cosmopolitan build, entirely system time, with the same number of system calls and page faults per iteration. Where does the kernel time go?
+# (1) page faults of the loop: which code takes them and which mappings they hit; (2) a kernel+user profile of the loop only, with core dumps off and the process stopped by timeout so no crash dump ends up in the profile.
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'dawn-cosmo run with artifact dbg-dawn-bench', required: true }
+env: { DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1 }
+jobs:
+  faults:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    arch: x86_64 }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1
+          sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y linux-tools-azure || true
+          echo "PERF=$(command -v perf || ls /usr/lib/linux-tools/*/perf | tail -1)" >> "$GITHUB_ENV"; sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0 || true
+          cat /sys/kernel/mm/transparent_hugepage/enabled /sys/kernel/mm/transparent_hugepage/shmem_enabled 2>/dev/null | tr '\n' ' '; echo
+      - uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: dawn-native-static-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+          fail-on-cache-miss: true
+      - name: Native benchmark and the Cosmopolitan one (.dbg ELF)
+        run: |
+          cmake -S ci-webgpu-test/bench -B benchout -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS="-g1" && cmake --build benchout
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D dbg; chmod +x dbg/*
+      - name: Page faults of the loop - code that takes them, and the mappings they hit
+        run: |
+          export WGT_BACKEND=vulkan; ulimit -c 0; set +e
+          for v in native cosmo; do
+            BIN=./benchout/dawn-bench; [ $v = cosmo ] && BIN=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+            BENCH_BUFFER_REPEAT=30000000 "$PERF" record -D 2500 -e page-faults -c 1 -d -o pf.$v.data -- timeout -s TERM 6 $BIN > /dev/null 2>&1
+            echo "=== $v: faults by code location (loop window)"; "$PERF" report -i pf.$v.data --stdio --no-children --sort dso,symbol 2>/dev/null | grep -v '^#' | grep -v '^$' | head -14 | cut -c1-150
+            echo "=== $v: faults by the mapping of the address"; "$PERF" report -i pf.$v.data --stdio --no-children --sort dso_daddr 2>/dev/null | grep -v '^#' | grep -v '^$' | head -8 | cut -c1-150
+            echo "=== $v: number of faults in the window and per thread"; "$PERF" report -i pf.$v.data --stdio --no-children --sort tid 2>/dev/null | grep -v '^#' | grep -v '^$' | head -6
+          done
+      - name: Kernel and user profile of the loop only (core dumps off, stopped by timeout)
+        run: |
+          export WGT_BACKEND=vulkan; ulimit -c 0; set +e
+          for v in native cosmo; do
+            BIN=./benchout/dawn-bench; [ $v = cosmo ] && BIN=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+            BENCH_BUFFER_REPEAT=30000000 "$PERF" record -D 2500 -e cpu-clock -F 15000 -g -o pk.$v.data -- timeout -s TERM 6 $BIN > /dev/null 2>&1
+            echo "=== $v: samples by object"; "$PERF" report -i pk.$v.data --stdio --no-children --sort dso -g none 2>/dev/null | grep -v '^#' | grep -v '^$' | head -6
+            echo "=== $v: top symbols"; "$PERF" report -i pk.$v.data --stdio --no-children --sort dso,symbol -g none 2>/dev/null | grep -v '^#' | grep -v '^$' | head -22 | cut -c1-130
+          done
