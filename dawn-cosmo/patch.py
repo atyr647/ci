@@ -62,6 +62,7 @@ struct VkFnImpl<R(VKAPI_PTR*)(Args...)> {
     new = '''#ifdef __COSMOPOLITAN__  // %s
 extern "C" bool DawnCosmoIsWindows();
 extern "C" bool DawnCosmoDirect();
+extern "C" bool DawnCosmoDirectOk();   // arm64 Linux: true when THIS thread keeps asynchronous signals blocked (DawnCosmoGpuThreadEnter), which is what makes a raw call into the driver safe
 extern "C" bool DawnCosmoTrace();                                  // DAWN_COSMO_TRACE=1 prints every Vulkan call (name) to stderr
 extern "C" void DawnCosmoTraceCall(const char* name, void* addr);  // defined in VulkanFunctions.cpp, which can include cosmo.h without its IsWindows() macro leaking into Dawn's headers
 // Windows' Vulkan loader uses the Microsoft x64 calling convention, Linux and macOS use System V; the OS is only known at run time.
@@ -69,11 +70,12 @@ template <typename R, typename... Args>
 struct DualAbiFn {
     using SysV = R (*)(Args...);
     using Ms = R(__attribute__((ms_abi)) *)(Args...);
-    void* addr = nullptr;
+    void* addr = nullptr;   // what is called: the cosmo_dltramp thunk (the raw pointer on Windows and x86-64, where there is none)
+    void* raw = nullptr;    // the driver's own entry point, called instead of the thunk on threads that block asynchronous signals (arm64 Linux)
     const char* name = "?";   // for DAWN_COSMO_TRACE=1
     DualAbiFn() = default;
     DualAbiFn(std::nullptr_t) {}
-    explicit DualAbiFn(void* a) : addr(a) {}
+    explicit DualAbiFn(void* a, void* r = nullptr) : addr(a), raw(r ? r : a) {}
     // GCC merges "cond ? ms_abi_call(args) : sysv_call(args)" into ONE System V call and drops the Microsoft one (the calling convention is not part of
     // what its tail-merging/cross-jumping compares) - measured: Windows then called vulkan-1.dll with System V registers. The two differently-worded asm
     // statements keep the branches distinct; noinline keeps one out-of-line copy per signature.
@@ -86,7 +88,7 @@ struct DualAbiFn {
             return reinterpret_cast<Ms>(addr)(args...);
         }
         __asm__ volatile("# dawn-cosmo: System V call" ::: "memory");
-        return reinterpret_cast<SysV>(addr)(args...);
+        return reinterpret_cast<SysV>(raw != addr && DawnCosmoDirectOk() ? raw : addr)(args...);
     }
     bool operator==(std::nullptr_t) const { return addr == nullptr; }
     bool operator!=(std::nullptr_t) const { return addr != nullptr; }
@@ -119,9 +121,12 @@ VkFn<F> AsVkFn(void(VKAPI_PTR* addr)()) {
     if (addr == nullptr) {
         return VkFn<F>(nullptr);
     }
-    // Windows: the raw pointer, called with the Microsoft ABI by DualAbiFn. Elsewhere: a cosmo_dltramp thunk (on arm64 each call through it blocks and unblocks signals with two
-    // rt_sigprocmask system calls). Experiment, arm64 only: DAWN_COSMO_DIRECT=1 calls the driver directly (x28 is callee-saved in foreign code; the caller must keep asynchronous signals blocked).
-    return VkFn<F>((DawnCosmoIsWindows() || DawnCosmoDirect()) ? reinterpret_cast<void*>(addr) : cosmo_dltramp(reinterpret_cast<void*>(addr)));
+    // Windows: the raw pointer, called with the Microsoft ABI by DualAbiFn. Elsewhere: a cosmo_dltramp thunk (none on x86-64; on arm64 each call through it blocks and unblocks ALL signals with two
+    // rt_sigprocmask system calls, 450 ns). Driver code may use x28 (Cosmopolitan's thread register on arm64) as an ordinary register, so a signal handler of ours that ran inside it would read
+    // thread-local storage through garbage (measured: SIGSEGV). Threads that called DawnCosmoGpuThreadEnter keep asynchronous signals blocked for good and DualAbiFn then calls the raw pointer;
+    // every other thread keeps using the thunk. Synchronous faults stay unblocked, as before (a fault inside the driver ends the process either way).
+    void* raw = reinterpret_cast<void*>(addr);
+    return VkFn<F>(DawnCosmoIsWindows() ? raw : cosmo_dltramp(raw), raw);
 }
 
 #else
@@ -153,7 +158,7 @@ F AsVkFn(void(VKAPI_PTR* addr)()) {''' % MARK
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name));', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetInstanceProcAddr(nullptr, "vk" #name)), "vk" #name);', 1)
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName))', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetInstanceProcAddr(instance, "vk" #procName)), "vk" #procName)', 1)
     s = s.replace('name = AsVkFn<PFN_vk##name>(GetDeviceProcAddr(device, "vk" #name));', 'name = DawnCosmoNamed(AsVkFn<PFN_vk##name>(GetDeviceProcAddr(device, "vk" #name)), "vk" #name);', 1)
-    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows() { return IsWindows(); }\nextern "C" bool DawnCosmoIsXnu() { return IsXnu(); }\n#ifdef __aarch64__\nextern "C" bool DawnCosmoDirect() { static const bool on = getenv("DAWN_COSMO_DIRECT") != nullptr; return on; }\n#else\nextern "C" bool DawnCosmoDirect() { return false; }\n#endif\nextern "C" bool DawnCosmoTrace() { static const bool on = getenv("DAWN_COSMO_TRACE") != nullptr; return on; }\nextern "C" void DawnCosmoTraceCall(const char* name, void* addr) { (void)addr; fprintf(stderr, "[vk] %s\\n", name); fflush(stderr); }\n#undef IsWindows\n#endif')
+    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#include <cstdio>\n#include <cstdlib>\nextern "C" bool DawnCosmoIsWindows() { return IsWindows(); }\nextern "C" bool DawnCosmoIsXnu() { return IsXnu(); }\n#if defined(__aarch64__)\n#include <signal.h>\n#include <pthread.h>\nextern "C" bool DawnCosmoDirect() { static const bool on = IsLinux() && !(getenv("DAWN_COSMO_DIRECT") && getenv("DAWN_COSMO_DIRECT")[0] == 48); return on; }\nstatic _Thread_local bool gDawnCosmoAsyncBlocked;\nstatic _Thread_local sigset_t gDawnCosmoSavedMask;\nextern "C" bool DawnCosmoDirectOk() { return gDawnCosmoAsyncBlocked; }\nextern "C" void DawnCosmoGpuThreadEnter() { if (gDawnCosmoAsyncBlocked || !DawnCosmoDirect()) return; sigset_t m; sigfillset(&m); sigdelset(&m, SIGSEGV); sigdelset(&m, SIGBUS); sigdelset(&m, SIGFPE); sigdelset(&m, SIGILL); sigdelset(&m, SIGTRAP); pthread_sigmask(SIG_BLOCK, &m, &gDawnCosmoSavedMask); gDawnCosmoAsyncBlocked = true; }\nextern "C" void DawnCosmoGpuThreadLeave() { if (!gDawnCosmoAsyncBlocked) return; pthread_sigmask(SIG_SETMASK, &gDawnCosmoSavedMask, nullptr); gDawnCosmoAsyncBlocked = false; }\n#else\nextern "C" bool DawnCosmoDirect() { return false; }\nextern "C" bool DawnCosmoDirectOk() { return false; }\nextern "C" void DawnCosmoGpuThreadEnter() {}\nextern "C" void DawnCosmoGpuThreadLeave() {}\n#endif\nextern "C" bool DawnCosmoTrace() { static const bool on = getenv("DAWN_COSMO_TRACE") != nullptr; return on; }\nextern "C" void DawnCosmoTraceCall(const char* name, void* addr) { (void)addr; fprintf(stderr, "[vk] %s\\n", name); fflush(stderr); }\n#undef IsWindows\n#endif')
 edit('src/dawn/native/vulkan/VulkanFunctions.cpp', vkfns_cpp)
 
 # 6. Cosmopolitan's own headers #undef __linux__, so code that tests it directly needs the extra clause

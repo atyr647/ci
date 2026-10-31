@@ -18,6 +18,9 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#ifdef __COSMOPOLITAN__
+extern "C" void DawnCosmoGpuThreadEnter();
+#endif
 #include <vector>
 #include <webgpu/webgpu.h>
 #if defined(__COSMOPOLITAN__)
@@ -126,9 +129,7 @@ int main(int argc, char **argv) {
     bool hostOnly = argc > 1 && !strcmp(argv[1], "--host-only");
     auto tProc = Clock::now();
 #ifdef __COSMOPOLITAN__
-    if (getenv("DAWN_COSMO_DIRECT")) {   // direct driver calls (arm64): keep asynchronous signals out of this process's threads, as the per-call trampoline would do around every call
-        sigset_t m; sigfillset(&m); sigdelset(&m, SIGSEGV); sigdelset(&m, SIGBUS); sigdelset(&m, SIGFPE); sigdelset(&m, SIGILL); sigdelset(&m, SIGTRAP); sigprocmask(SIG_BLOCK, &m, nullptr);
-    }
+    DawnCosmoGpuThreadEnter();   // arm64 Linux: this thread keeps asynchronous signals blocked, so Dawn's calls into the driver on it skip the signal-blocking trampoline (other threads still use it); no-op elsewhere. DAWN_COSMO_DIRECT=0 turns it off.
 #endif
     const char *tintRepeat = getenv("BENCH_TINT_REPEAT");   // profiling aid: only start-up and N shader-module creations, nothing else
     if (!tintRepeat) host_baselines();
