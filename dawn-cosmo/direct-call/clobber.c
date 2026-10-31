@@ -46,3 +46,14 @@ long fb_tlsinfo(long *out) {
 #endif
   out[0] = tp; out[1] = (long)&tls_value; out[2] = (long)&errno; return 0;
 }
+/* a parked thread: stores its thread pointer, then sleeps forever (all signals blocked by its creator). Its thread block is borrowed by other threads. */
+#include <unistd.h>
+void *fb_park(void *out) {
+  long tp;
+#if defined(__aarch64__)
+  __asm__("mrs %0, tpidr_el0" : "=r"(tp));
+#else
+  __asm__("mov %%fs:0, %0" : "=r"(tp));
+#endif
+  *(volatile long *)out = tp; for (;;) pause(); return 0;
+}

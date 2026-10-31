@@ -59,9 +59,28 @@ static void *thr(void *arg) {
 }
 
 static const char *g_test; static int g_result = -99;
+#if defined(__x86_64__)
+#include <immintrin.h>
+__attribute__((noinline, target("fsgsbase"))) static long call_swapped(fn_t f, long arg, unsigned long tcb) { unsigned long saved = _readfsbase_u64(); _writefsbase_u64(tcb); long r = f(arg); _writefsbase_u64(saved); return r; }
+#else
+__attribute__((noinline)) static long call_swapped(fn_t f, long arg, unsigned long tcb) {
+    unsigned long saved; __asm__ volatile("mrs %0, tpidr_el0" : "=r"(saved)); __asm__ volatile("msr tpidr_el0, %0" :: "r"(tcb) : "memory");
+    long r = f(arg); __asm__ volatile("msr tpidr_el0, %0" :: "r"(saved) : "memory"); return r;
+}
+#endif
+static unsigned long g_tp_minus_self;   // arm64: where the thread pointer lies relative to pthread_self() of the foreign library (measured on the main thread)
+static unsigned long borrow_tcb(void) {   // the thread block of a parked foreign thread (made by the foreign pthread_create, all signals blocked meanwhile)
+    typedef int (*pc_t)(unsigned long *, const void *, void *(*)(void *), void *); pc_t pc = cosmo_dltramp(cosmo_dlsym(g_h, "pthread_create"));
+    void *park = cosmo_dlsym(g_h, "fb_park"); static volatile long tp; tp = 0; unsigned long t = 0; sigset_t all, old; sigfillset(&all); pthread_sigmask(SIG_SETMASK, &all, &old);
+    if (pc(&t, 0, (void *(*)(void *))cosmo_dltramp(park), (void *)&tp)) return 0; pthread_sigmask(SIG_SETMASK, &old, 0);
+    for (int i = 0; i < 2000 && !tp; i++) { struct timespec z = {0, 1000000}; nanosleep(&z, 0); } return (unsigned long)tp;
+}
+static unsigned long g_borrowed;
 static int g_pre;   // 1: call the foreign uselocale(LC_GLOBAL_LOCALE) first (sets the thread's locale and ctype pointers, which glibc normally sets when it starts a thread)
 static void *battery_thr(void *arg) {
     (void)arg;
+    if (g_pre == 2) { g_borrowed = borrow_tcb(); if (!g_borrowed) { printf("could not borrow a thread block\n"); g_result = -3; return 0; }
+        fn_t f = cosmo_dlsym(g_h, g_test); g_result = (int)call_swapped(f, 2000, g_borrowed); return 0; }
     if (g_pre == 1) { typedef void *(*ul_t)(void *); ul_t ul = cosmo_dltramp(cosmo_dlsym(g_h, "uselocale")); if (ul) ul((void *)-1); }
     fn_t f = cosmo_dlsym(g_h, g_test); g_result = (int)f(2000); return 0;
 }
@@ -127,7 +146,7 @@ int main(int argc, char **argv) {
   if (!strcmp(mode, "tlsinfo")) { setvbuf(stdout, 0, _IONBF, 0); tlsinfo("main"); pthread_t t; pthread_create(&t, 0, tlsinfo_thr, 0); pthread_join(t, 0); return 0; }
   if (!strcmp(mode, "battery")) {   // battery <fb_test> <main|thread|thread-ctype-init>: foreign C library use from the main thread or from a thread the C library created
     setvbuf(stdout, 0, _IONBF, 0); g_test = argc > 2 ? argv[2] : "fb_ctype"; const char *where = argc > 3 ? argv[3] : "main";
-    g_pre = strstr(where, "uselocale") ? 1 : 0;
+    g_pre = strstr(where, "uselocale") ? 1 : strstr(where, "borrow") ? 2 : 0;
     if (!strcmp(where, "foreign-thread")) {
         typedef int (*pc_t)(unsigned long *, const void *, void *(*)(void *), void *); typedef int (*pj_t)(unsigned long, void **);
         pc_t pc = cosmo_dltramp(cosmo_dlsym(g_h, "pthread_create")); pj_t pj = cosmo_dltramp(cosmo_dlsym(g_h, "pthread_join")); unsigned long t = 0;
