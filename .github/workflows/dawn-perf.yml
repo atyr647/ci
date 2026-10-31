@@ -25,7 +25,7 @@ jobs:
       - name: Dependencies
         run: |
           sudo apt-get update
-          sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1
+          sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1 strace
           sudo apt-get install -y linux-tools-common "linux-tools-$(uname -r)" || sudo apt-get install -y linux-tools-azure || sudo apt-get install -y linux-tools-generic || true
           PERF=$(command -v perf || ls /usr/lib/linux-tools/*/perf | tail -1); echo "PERF=$PERF" >> "$GITHUB_ENV"; "$PERF" --version || true
           sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0 || true
@@ -58,6 +58,12 @@ jobs:
             "$PERF" stat -e task-clock,page-faults,context-switches,cpu-migrations -o stat.$v.txt -- $BIN > /dev/null 2>&1 || true
             "$PERF" report -i perf.$v.data --stdio --no-children --sort dso 2>/dev/null | grep -v '^#' | grep -v '^$' | head -12 > dso.$v.txt || true
           done
+          # system calls and page faults of the same loop, native against the Cosmopolitan build, and the Cosmopolitan build with the allocator told to keep freed memory (BENCH_MALLOPT)
+          for v in native cosmo; do case $v in native) BIN=$N;; *) BIN=$C;; esac
+            strace -c -f -o strace.$v.txt $BIN > /dev/null 2>&1 || true
+            "$PERF" stat -e page-faults,task-clock -o stat2.$v.txt -- $BIN > /dev/null 2>&1 || true; done
+          BENCH_MALLOPT=64 "$PERF" stat -e page-faults,task-clock -o stat2.cosmo-mallopt.txt -- $C > run.cosmo-mallopt.txt 2>&1 || true
+          BENCH_MALLOPT=64 strace -c -f -o strace.cosmo-mallopt.txt $C > /dev/null 2>&1 || true
           for v in native cosmo; do echo "=== $v: by object"; cat dso.$v.txt; done
       - uses: actions/upload-artifact@v4
         if: always()
@@ -69,9 +75,12 @@ jobs:
             run.*.txt
             ktop.*.txt
             stat.*.txt
+            stat2.*.txt
+            strace.*.txt
       - name: Result (printed last)
         if: always()
         run: |
+          for v in native cosmo cosmo-mallopt; do echo "=== $v: strace -c (top 8)"; head -12 strace.$v.txt; echo "--- faults"; grep -E "page-faults|task-clock" stat2.$v.txt; done
           VARS=$(ls run.*.txt | sed "s/run\.//;s/\.txt//" | tr "\n" " ")
           for v in $VARS; do echo "=== $v: run"; grep -E "buffer_create|rror|what" run.$v.txt | head -5; tail -3 run.$v.txt; echo "--- by object"; cat dso.$v.txt; echo "--- kernel symbols, top 25"; head -25 ktop.$v.txt; echo "--- software counters"; grep -E "task-clock|page-faults|context-switches|migrations|elapsed|user|sys" stat.$v.txt || true; done
           for v in native cosmo clang; do [ -f top.$v.txt ] || continue; echo "=== $v: flat profile, top 45"; head -45 top.$v.txt; done
