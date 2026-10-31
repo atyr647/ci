@@ -54,6 +54,32 @@ jobs:
               print(f'=== {v}: system calls per create+release (loop 60000 minus loop 20000)')
               for per, k in rows: print(f'  {per:8.3f}  {k}')
           PY
+      - name: User time and system time per create+release (two loop lengths, 5 repeats, native and Cosmopolitan interleaved)
+        run: |
+          export WGT_BACKEND=vulkan; set +e
+          python3 - <<'PY'
+          import os, resource, subprocess, statistics
+          def run(cmd, n):
+              e = dict(os.environ, BENCH_BUFFER_REPEAT=str(n)); r0 = resource.getrusage(resource.RUSAGE_CHILDREN)
+              subprocess.run(cmd, env=e, stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
+              r1 = resource.getrusage(resource.RUSAGE_CHILDREN); return r1.ru_utime - r0.ru_utime, r1.ru_stime - r0.ru_stime
+          bins = {'native': ['./benchout/dawn-bench'], 'cosmo': ['./dbg/dawn-bench.${{ matrix.arch }}.com.dbg']}
+          res = {k: {'u': [], 's': []} for k in bins}
+          for rep in range(5):
+              for k, cmd in bins.items():
+                  u1, s1 = run(cmd, 20000); u2, s2 = run(cmd, 120000)
+                  res[k]['u'].append((u2 - u1) / 100000 * 1e6); res[k]['s'].append((s2 - s1) / 100000 * 1e6)
+          for k in bins: print(f"{k:7s} per create+release: user {statistics.median(res[k]['u']):.3f} us, system {statistics.median(res[k]['s']):.3f} us   (user: {[round(x,2) for x in res[k]['u']]})")
+          PY
+      - name: User-only profile of the loop (what the user-space part of one create+release is made of)
+        run: |
+          export WGT_BACKEND=vulkan; set +e
+          for v in native cosmo; do
+            BIN=./benchout/dawn-bench; [ $v = cosmo ] && BIN=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+            BENCH_BUFFER_REPEAT=400000 "$PERF" record -e cpu-clock:u -F 20000 -o pu.$v.data -- $BIN > /dev/null 2>&1
+            echo "=== $v: user-space samples by object"; "$PERF" report -i pu.$v.data --stdio --no-children --sort dso 2>/dev/null | grep -v '^#' | grep -v '^$' | head -6
+            echo "=== $v: user-space top symbols"; "$PERF" report -i pu.$v.data --stdio --no-children --sort dso,symbol 2>/dev/null | grep -v '^#' | grep -v '^$' | head -22 | cut -c1-150
+          done
       - name: "Who makes the extra system calls (Cosmopolitan build) - call stacks of rt_sigprocmask (strace -k) and callers of the syscall stub (perf, frame pointers)"
         run: |
           export WGT_BACKEND=vulkan; set +e; C=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg

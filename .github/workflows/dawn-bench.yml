@@ -106,6 +106,7 @@ jobs:
                 --variant "native-tcache|WGT_BACKEND=$B|$NATIVE_TC" --variant "cosmo-mutexfast|WGT_BACKEND=$B|$COSMO_MF" --variant "cosmo-nsyncinline|WGT_BACKEND=$B|$COSMO_NF")
           args+=(--variant "native-async|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1|$NATIVE" --variant "cosmo-async|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1|$COSMO")   # pipeline creation on Dawn's worker threads
           args+=(--variant "cosmo-async-inline|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=1|$COSMO" --variant "cosmo-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO")   # worker tasks on the posting thread / on Dawn's worker threads
+          args+=(--variant "cosmo-mf-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO_MF" --variant "cosmo-nf-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO_NF")   # does the crash depend on the lock implementation
           args+=(--variant "cosmo-thread|WGT_BACKEND=$B,BENCH_IN_THREAD=1|$COSMO")   # the same file with the whole benchmark on a thread the C library created, not the main thread
           if [ "${{ matrix.label }}" = linux-arm64 ]; then args+=(--variant "cosmo-tramp|WGT_BACKEND=$B,DAWN_COSMO_DIRECT=0|$COSMO"); fi
           if [ "$RUNNER_OS" = macOS ]; then

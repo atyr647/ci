@@ -1,0 +1,37 @@
+name: alloc-race
+# Heap corruption in operator new on a Dawn worker thread (Linux arm64, Cosmopolitan build): is it the allocator under cross-thread allocate/free, with no Dawn and no driver involved?
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          mkdir out; cosmo/bin/cosmoc++ -O2 -std=c++17 alloc-probe/xthread_alloc.cpp -o out/xthread.com && ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: alloc-race-bin, path: out }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: mac-arm64,   os: macos-latest }
+          - { label: win-x64,     os: windows-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: alloc-race-bin, path: out }
+      - name: Runs
+        run: |
+          set +e; cd out; chmod +x xthread.com; [ "$RUNNER_OS" = Windows ] && cp xthread.com xthread.exe
+          run() { if [ "$RUNNER_OS" = Windows ]; then timeout 60 ./xthread.exe "$@"; else timeout -s KILL 60 sh ./xthread.com "$@"; fi; }
+          for t in 2 6 12; do echo "=== Cosmopolitan, $t threads"; run $t 4 2>&1 | tail -3; echo "exit $?"; done
+          CXX=c++; [ "$RUNNER_OS" = Windows ] && CXX=g++; $CXX -O2 -std=c++17 ../alloc-probe/xthread_alloc.cpp -o native -pthread $( [ "$RUNNER_OS" = Windows ] && echo -static ) && for t in 6 12; do echo "=== native, $t threads"; ./native $t 4 2>&1 | tail -2; done

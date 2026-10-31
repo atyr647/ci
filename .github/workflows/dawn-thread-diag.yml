@@ -21,10 +21,12 @@ jobs:
           sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 gdb
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D d && chmod +x d/*; gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D c
           A=$(uname -m); echo "DBG=$PWD/d/dawn-bench.$A.com.dbg" >> $GITHUB_ENV; ls -la d
-      - name: The benchmark on a created thread - does the process end by itself, run as the real file
+      - name: The benchmark on a created thread - where is every thread when the process does not end (the .dbg ELF, run as the normal user, attached to with gdb)
         run: |
           set +e; export WGT_BACKEND=vulkan BENCH_IN_THREAD=1
-          chmod +x c/dawn-bench.com 2>/dev/null; for i in 1 2 3; do timeout -s KILL 60 sh ./c/dawn-bench.com > out.$i.txt 2>&1; echo "run $i exit $? ; last line: $(tail -n 1 out.$i.txt | cut -c1-120)"; done
+          $DBG > hang.txt 2>&1 & P=$!
+          for i in $(seq 1 60); do sleep 1; grep -q process_total_ms hang.txt && break; done; echo "benchmark output complete after ~$i s"; sleep 12
+          if kill -0 $P 2>/dev/null; then echo "THE PROCESS IS STILL THERE 12 s after it printed its last line"; sudo gdb -p $P -batch -ex "thread apply all bt 25" 2>&1 | grep -v "^\[New\|^\[Thread\|^warning\|^Reading\|^Using\|^\[Inferior" | head -150 | cut -c1-240; sudo cat /proc/$P/status | grep -E "State|Threads"; ls /proc/$P/task | wc -l; for t in /proc/$P/task/*; do echo "$(basename $t) $(cat $t/comm) $(cat $t/wchan 2>/dev/null) $(cat $t/stat | cut -d' ' -f3)"; done | head -30; kill -9 $P; else echo "ended by itself"; fi
       - name: Async pipeline creation - where it crashes and in what state
         run: |
           set +e; export WGT_BACKEND=vulkan BENCH_ASYNC_PIPELINE=1
