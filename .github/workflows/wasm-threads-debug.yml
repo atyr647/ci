@@ -1,0 +1,22 @@
+name: wasm-threads-debug
+# The wasm-threads guest (wasmtime-nostd/guest/par.c) traps in wasi_thread_start with the static Wasmtime AND with an official Wasmtime that still has wasi-threads (v30): is the guest build wrong?
+on:
+  workflow_dispatch:
+jobs:
+  dbg:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Tools
+        run: |
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz; echo "S=$(ls -d $PWD/wasi-sdk-34*)" >> $GITHUB_ENV
+          curl -fsSL https://github.com/bytecodealliance/wasmtime/releases/download/v30.0.2/wasmtime-v30.0.2-x86_64-linux.tar.xz | tar xJ; echo "WT30=$PWD/wasmtime-v30.0.2-x86_64-linux/wasmtime" >> $GITHUB_ENV
+      - name: Variants of the link step, each run by the official v30 CLI
+        run: |
+          set +e; mkdir w
+          build() { n=$1; shift; $S/bin/clang --target=wasm32-wasip1-threads -pthread -O2 wasmtime-nostd/guest/par.c -o w/$n.wasm "$@" 2>&1 | head -5; echo "--- $n: $*"; python3 wasmtime-nostd/tools/wasm-mem.py w/$n.wasm
+            for t in "1 scale" "4 scale" "4 sync" "1 waitnotify" "1 trapthread"; do echo "  [$t]"; timeout 60 $WT30 run -W threads=y -S threads=y w/$n.wasm $t 2>&1 | grep -E "^(KERNEL|SYNC|WAIT|TRAP|unknown|Error|.*memory fault|.*trap)" | head -3 | cut -c1-200; done; }
+          build current -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576
+          build init32 -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576 -Wl,--initial-memory=33554432
+          build default
+          build stack128k -Wl,--max-memory=268435456 -Wl,-z,stack-size=131072
