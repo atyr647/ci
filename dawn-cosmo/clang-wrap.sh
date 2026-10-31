@@ -4,6 +4,9 @@
 ARCH=$1; KIND=$2; shift 2
 COSMO=${COSMO:-$HOME/cosmo}
 case " $* " in *" -c "*) ;; *) exec "$COSMO/bin/$ARCH-unknown-cosmo-$KIND" "$@";; esac
+# The Direct3D backend sources stay on the GCC driver: they call Windows COM interfaces through ms_abi, which was only made to work with GCC's calling-convention quirks (dawn-cosmo/fix_com_struct_returns.py);
+# compiled by clang the same Dawn built fine but D3D12 on Windows failed its compute check (measured). Everything else, including Tint's HLSL writer, is compiled by clang.
+for a in "$@"; do case "$a" in *.cpp|*.cc|*.c|*.mm) case "$a" in */native/d3d12/*|*/native/d3d11/*|*/native/d3d/*) exec "$COSMO/bin/$ARCH-unknown-cosmo-$KIND" "$@";; esac;; esac; done
 case $ARCH in
   x86_64)  AF="--target=x86_64 -mno-tls-direct-seg-refs -fpatchable-function-entry=18,16 -mno-red-zone" ;;
   aarch64) AF="--target=aarch64 -ffixed-x18 -ffixed-x28 -fpatchable-function-entry=7,6 -fsigned-char" ;;
