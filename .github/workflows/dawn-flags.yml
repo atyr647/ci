@@ -89,7 +89,8 @@ jobs:
           INC="-I$L/inc1 -I$L/inc2 -I$PWD/ci-webgpu-test"
           $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -c alloc-probe/tcache_new.cpp -o tcache_new.o
           $B/$A-unknown-cosmo-c++ -O2 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.o
-          $B/$A-unknown-cosmo-c++ -O2 dawn_bench.o tcache_new.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o dawn-bench-$VARIANT.$A.com
+          $B/$A-unknown-cosmo-cc -O2 -c alloc-probe/nsync_fast.c -o nsync_fast.o   # the shipped mutex fast path, so the comparison with the default build (which has it) is like for like
+          $B/$A-unknown-cosmo-c++ -O2 dawn_bench.o tcache_new.o nsync_fast.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -o dawn-bench-$VARIANT.$A.com
           ls -la dawn-bench-$VARIANT.$A.com*
       - uses: actions/upload-artifact@v4
         with: { name: 'bench-${{ matrix.variant }}-${{ matrix.arch }}', path: 'dawn-bench-${{ matrix.variant }}.${{ matrix.arch }}.com.dbg' }
