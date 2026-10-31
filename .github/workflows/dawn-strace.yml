@@ -71,6 +71,23 @@ jobs:
                   res[k]['u'].append((u2 - u1) / 100000 * 1e6); res[k]['s'].append((s2 - s1) / 100000 * 1e6)
           for k in bins: print(f"{k:7s} per create+release: user {statistics.median(res[k]['u']):.3f} us, system {statistics.median(res[k]['s']):.3f} us   (user: {[round(x,2) for x in res[k]['u']]})")
           PY
+      - name: Page faults, context switches and migrations per create+release (perf stat, two loop lengths)
+        run: |
+          export WGT_BACKEND=vulkan; set +e
+          python3 - <<'PY'
+          import os, re, subprocess
+          def stat(cmd, n):
+              e = dict(os.environ, BENCH_BUFFER_REPEAT=str(n)); r = subprocess.run(['$PERF'.replace('$PERF', os.environ.get('PERF', 'perf')), 'stat', '-x,', '-e', 'page-faults,context-switches,cpu-migrations,minor-faults,major-faults'] + cmd, env=e, capture_output=True, text=True)
+              d = {}
+              for l in r.stderr.splitlines():
+                  p = l.split(',')
+                  if len(p) > 2 and p[0].replace('.', '').isdigit(): d[p[2].split(':')[0]] = float(p[0])
+              return d
+          bins = {'native': ['./benchout/dawn-bench'], 'cosmo': ['./dbg/dawn-bench.${{ matrix.arch }}.com.dbg']}
+          for k, cmd in bins.items():
+              a, b = stat(cmd, 20000), stat(cmd, 120000)
+              print(k.ljust(7), ' '.join(f"{ev}/iter={(b.get(ev, 0) - a.get(ev, 0)) / 100000:.3f}" for ev in sorted(b)))
+          PY
       - name: User-only profile of the loop (what the user-space part of one create+release is made of)
         run: |
           export WGT_BACKEND=vulkan; set +e
