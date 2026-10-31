@@ -104,6 +104,8 @@ static WGPUShaderModule make_module(WGPUDevice dev, const std::string &wgsl) {
     WGPUShaderSourceWGSL w = WGPU_SHADER_SOURCE_WGSL_INIT; w.code = {wgsl.data(), wgsl.size()};
     WGPUShaderModuleDescriptor d = WGPU_SHADER_MODULE_DESCRIPTOR_INIT; d.nextInChain = &w.chain; return wgpuDeviceCreateShaderModule(dev, &d);
 }
+static WGPUComputePipeline g_async_pipe; static int g_async_status = -1;
+static void on_pipe(WGPUCreatePipelineAsyncStatus st, WGPUComputePipeline p, WGPUStringView, void *, void *) { g_async_status = (int)st; g_async_pipe = p; g_done = 1; }
 static WGPUComputePipeline make_pipeline(WGPUDevice dev, WGPUShaderModule m) {
     WGPUComputePipelineDescriptor c = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT; c.compute.module = m; c.compute.entryPoint = {"main", 4}; return wgpuDeviceCreateComputePipeline(dev, &c);
 }
@@ -167,6 +169,18 @@ static int bench_main(int argc, char **argv) {
         std::vector<double> pip;
         for (int i = 0; i < scaled(5); i++) { std::string w = big_wgsl(12, 100 + i); auto t0 = Clock::now(); WGPUShaderModule m = make_module(dev, w); WGPUComputePipeline p = make_pipeline(dev, m); pip.push_back(ms_since(t0)); wgpuComputePipelineRelease(p); wgpuShaderModuleRelease(m); }
         bench("shader_pipeline_12fn_ms", median(pip), "ms");
+        if (getenv("BENCH_ASYNC_PIPELINE")) {   // pipeline creation on Dawn's own worker threads: the driver's pipeline compiler is then called from threads the C library created
+            std::vector<double> ap;
+            for (int i = 0; i < 5; i++) {
+                std::string w = big_wgsl(12, 300 + i); WGPUShaderModule m = make_module(dev, w);
+                WGPUComputePipelineDescriptor c = WGPU_COMPUTE_PIPELINE_DESCRIPTOR_INIT; c.compute.module = m; c.compute.entryPoint = {"main", 4};
+                WGPUCreateComputePipelineAsyncCallbackInfo ci = WGPU_CREATE_COMPUTE_PIPELINE_ASYNC_CALLBACK_INFO_INIT; ci.mode = WGPUCallbackMode_AllowProcessEvents; ci.callback = on_pipe;
+                g_done = 0; g_async_pipe = nullptr; auto t0 = Clock::now(); wgpuDeviceCreateComputePipelineAsync(dev, &c, ci); bool ok = pump(); ap.push_back(ms_since(t0));
+                if (!ok || g_async_status != WGPUCreatePipelineAsyncStatus_Success) { printf("FAIL async pipeline status %d\n", g_async_status); return 1; }
+                wgpuComputePipelineRelease(g_async_pipe); wgpuShaderModuleRelease(m);
+            }
+            bench("async_pipeline_12fn_ms", median(ap), "ms");
+        }
     }
 
     // ---- common objects
