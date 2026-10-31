@@ -158,7 +158,7 @@ jobs:
           MSVCLINK="$(cygpath -u "$VCToolsInstallDir")bin/HostARM64/ARM64/link.exe"; [ -f "$MSVCLINK" ] || MSVCLINK=$(which -a link.exe link 2>/dev/null | grep -i "Visual Studio" | head -1); echo "linker: $MSVCLINK (VCToolsInstallDir=$VCToolsInstallDir)"; ls host.obj native_kernels.obj
           "$MSVCLINK" -nologo host.obj native_kernels.obj "$WTLIB" -out:wt-host.exe 2>&1 | tail -5; ls -la wt-host.exe
           mkdir winarm-out; cp wt-host.exe winarm-out/; cp $C/lib/wasmtime.dll winarm-out/ 2>/dev/null || cp $C/bin/wasmtime.dll winarm-out/
-          for g in kern so-simd so-scalar; do ./wt-host.exe --precompile guests/wasm/$g.wasm winarm-out/$g.cwasm; done
+          for g in kern so-simd so-scalar; do ./winarm-out/wt-host.exe --precompile guests/wasm/$g.wasm winarm-out/$g.cwasm; done   # from winarm-out: wasmtime.dll is next to it
           ls -la winarm-out
       - uses: actions/upload-artifact@v4
         with: { name: winarm, path: winarm-out }
