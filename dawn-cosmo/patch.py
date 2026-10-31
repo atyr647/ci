@@ -28,7 +28,7 @@ edit('src/utils/platform.h', platform_h)
 #    where the Vulkan wrapper below calls them with the Microsoft ABI itself
 def dynlib(s):
     hdr = ('// %s\n#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#ifndef RTLD_NOLOAD\n#define RTLD_NOLOAD 0\n#endif\n'
-           '#define dlopen cosmo_dlopen\n#define dlsym cosmo_dlsym\n#define dlclose cosmo_dlclose\n#define dlerror cosmo_dlerror\n#endif\n') % MARK
+           '#include "src/dawn/native/vulkan/DawnCosmoForeign.h"\n#define dlopen DawnCosmoDlopen\n#define dlsym DawnCosmoDlsym\n#define dlclose cosmo_dlclose\n#define dlerror cosmo_dlerror\n#endif\n') % MARK
     i = s.index('#include')
     return s[:i] + hdr + s[i:]
 edit('src/dawn/common/DynamicLib.cpp', dynlib)

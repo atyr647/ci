@@ -14,6 +14,8 @@ extern "C" {
 unsigned long DawnCosmoForeignTcb();   // thread block to run foreign calls on for THIS thread; 0 = none needed (main thread, or not Linux)
 void DawnCosmoForeignInit();           // call on the main thread before other threads call foreign code (idempotent)
 extern int gDawnCosmoFsgsbase;         // x86-64: wrfsbase/rdfsbase can be used instead of arch_prctl
+void* DawnCosmoDlopen(const char* file, int mode);   // cosmo_dlopen, except that the Vulkan loader loaded ahead of time by the main thread is handed out without a foreign call
+void* DawnCosmoDlsym(void* handle, const char* name);   // likewise for vkGetInstanceProcAddr (a foreign dlsym on a created thread would need the library's thread block, and cosmo_dlsym cannot be wrapped: most of it is Cosmopolitan code)
 }
 static inline __attribute__((always_inline)) unsigned long DawnCosmoSwapIn(unsigned long tcb) {
     unsigned long saved;
@@ -90,6 +92,19 @@ struct Slot { int idx = -1; unsigned long tcb = 0; ~Slot() { if (idx >= 0) gUsed
 thread_local Slot gSlot;
 thread_local bool gChecked = false;
 }  // namespace
+
+namespace {
+void* gVkHandle = nullptr;
+void* gVkGipa = nullptr;
+}
+extern "C" void* DawnCosmoDlopen(const char* file, int mode) {
+    if (gVkHandle && file && strstr(file, "libvulkan")) return gVkHandle;
+    return cosmo_dlopen(file, mode);
+}
+extern "C" void* DawnCosmoDlsym(void* handle, const char* name) {
+    if (handle && handle == gVkHandle && gVkGipa && !strcmp(name, "vkGetInstanceProcAddr")) return gVkGipa;
+    return cosmo_dlsym(handle, name);
+}
 extern "C" void DawnCosmoForeignInit() {
     if (gInitDone) return;
     gInitDone = true;
@@ -98,6 +113,7 @@ extern "C" void DawnCosmoForeignInit() {
 #if defined(__x86_64__)
     gDawnCosmoFsgsbase = (getauxval(AT_HWCAP2) & 2) ? 1 : 0;   // HWCAP2_FSGSBASE
 #endif
+    for (const char* n : {"libvulkan.so.1", "libvulkan.so"}) { void* v = cosmo_dlopen(n, RTLD_NOW); if (v) { gVkHandle = v; gVkGipa = cosmo_dlsym(v, "vkGetInstanceProcAddr"); break; } }   // on the main thread, for Dawn's loader code on other threads
     void* libc = cosmo_dlopen("libc.so.6", RTLD_NOW);
     if (!libc) return;
     auto pcreate = reinterpret_cast<int (*)(unsigned long*, const void*, void* (*)(void*), void*)>(cosmo_dltramp(cosmo_dlsym(libc, "pthread_create")));
