@@ -172,7 +172,7 @@ jobs:
             $B/$A-unknown-cosmo-c++ -O2 wgt.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/wgt.$A.com
             $B/$A-unknown-cosmo-c++ -O2 -std=c++20 $INC -c ci-webgpu-test/gpu_probe.cpp -o gpu_probe.$A.o
             $B/$A-unknown-cosmo-c++ -O2 gpu_probe.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/gpu-probe.$A.com
-            $B/$A-unknown-cosmo-c++ -O2 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.$A.o
+            $B/$A-unknown-cosmo-c++ -O3 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.$A.o
             $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/dawn-bench.$A.com
             # the same benchmark with the futex-only default mutex + condition variable (alloc-probe/fast_sync.c), to measure what it buys
             $B/$A-unknown-cosmo-cc -O2 -c alloc-probe/fast_sync.c -o fast_sync.$A.o
