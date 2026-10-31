@@ -36,3 +36,11 @@ jobs:
             echo "=== $img (no compiler installed)"
             docker run --rm -v $PWD:/w -e WGT_BACKEND=vulkan -e TMPDIR=/w/t $img bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mesa-vulkan-drivers libvulkan1 >/dev/null 2>&1; command -v cc gcc >/dev/null && echo "A COMPILER IS INSTALLED"; sh /w/c/dawn-bench.com > /w/o.txt 2>&1; echo "exit $?"; grep -m1 "^adapter" /w/o.txt | cut -c1-100; grep -m1 -i "no supported adapters\|isn.t supported\|GLIBC" /w/o.txt | cut -c1-140'
           done
+      - name: Control - the same old distributions WITH a compiler, no pre-built helper (Cosmopolitan builds its own)
+        run: |
+          set +e; export WGT_BACKEND=vulkan
+          for img in ubuntu:20.04 debian:11; do
+            rm -rf t; mkdir -p t
+            echo "=== $img (compiler installed, empty cache)"
+            docker run --rm -v $PWD:/w -e WGT_BACKEND=vulkan -e TMPDIR=/w/t $img bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq mesa-vulkan-drivers libvulkan1 gcc libc6-dev >/dev/null 2>&1; dpkg -l | grep -E "mesa-vulkan-drivers|libvulkan1 " | awk "{print \$2, \$3}"; ls /usr/share/vulkan/icd.d/ 2>/dev/null | tr "\n" " "; echo; sh /w/c/dawn-bench.com > /w/o.txt 2>&1; echo "exit $?"; grep -m1 "^adapter" /w/o.txt | cut -c1-100; grep -m2 -i "no supported adapters\|isn.t supported\|error\|GLIBC" /w/o.txt | cut -c1-160'
+          done
