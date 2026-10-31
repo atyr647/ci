@@ -357,7 +357,10 @@ extern "C" int mallopt(int, int) __attribute__((weak));   // (weak: absent from 
 #endif
 int main(int argc, char **argv) {
 #ifdef __COSMOPOLITAN__
-    if (const char *mo = getenv("BENCH_MALLOPT")) { if (!mallopt) fprintf(stderr, "mallopt is not in this C library\n"); else const int mb = atoi(mo) > 0 ? atoi(mo) : 64; mallopt(-3, 1 << 30); mallopt(-1, 1 << 30); mallopt(-2, mb << 20); } }   // experiment: keep freed memory in the process instead of unmapping it
+    if (const char *mo = getenv("BENCH_MALLOPT")) {   // experiment: keep freed memory in the process instead of unmapping it (dlmalloc: M_MMAP_THRESHOLD, M_TRIM_THRESHOLD, M_GRANULARITY)
+        if (!mallopt) fprintf(stderr, "mallopt is not in this C library\n");
+        else { const int mb = atoi(mo) > 0 ? atoi(mo) : 64; mallopt(-3, 1 << 30); mallopt(-1, 1 << 30); mallopt(-2, mb << 20); }
+    }
     { int rc = WinArmRunNative("dawn-bench", argv); if (rc >= 0) return rc; }   // Windows on ARM: the file carries a native arm64 build and starts it instead of running this x86-64 half under emulation
     DawnCosmoForeignInit();   // on the main thread, before any other thread calls the driver (what a game host does at start-up)
 #endif
