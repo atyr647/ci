@@ -16,6 +16,7 @@
 #include <cosmo.h>
 #include "wn-platform.h"
 #include "kernels.h"
+#include "native_kernels.h"
 
 typedef struct WnEngine WnEngine; typedef struct WnInst WnInst;
 typedef int32_t (*WnCb)(void *, WnInst *, uint8_t *, size_t, const uint64_t *, uint64_t *);
@@ -102,11 +103,22 @@ static uint8_t *read_all(const char *path, size_t *n) {
 }
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
 
+/* ---- native kernels offered to wasm as imports (instruction set chosen at start-up, see native_kernels.h) ---- */
+#define NK_OK(p, bytes) ((uint64_t)(uint32_t)(p) + (uint64_t)(bytes) <= (uint64_t)memlen)
+CB(nk_cb_level) { (void)a; r[0] = (uint64_t)nk_level(); return 0; }
+CB(nk_cb_saxpy) { uint32_t n = (uint32_t)a[0], x = (uint32_t)a[2], y = (uint32_t)a[3]; float al; uint32_t ab = (uint32_t)a[1]; memcpy(&al, &ab, 4);
+    if (!NK_OK(x, 4ull * n) || !NK_OK(y, 4ull * n)) return 1; nk_saxpy(n, al, (const float *)(mem + x), (float *)(mem + y)); return 0; }
+CB(nk_cb_dot) { uint32_t n = (uint32_t)a[0], x = (uint32_t)a[1], y = (uint32_t)a[2];
+    if (!NK_OK(x, 4ull * n) || !NK_OK(y, 4ull * n)) return 1; float d = nk_dot(n, (const float *)(mem + x), (const float *)(mem + y)); uint32_t b; memcpy(&b, &d, 4); r[0] = b; return 0; }
+CB(nk_cb_matmul) { uint32_t m = (uint32_t)a[0], n = (uint32_t)a[1], k = (uint32_t)a[2], A = (uint32_t)a[3], B = (uint32_t)a[4], C = (uint32_t)a[5];
+    if (!NK_OK(A, 4ull * m * k) || !NK_OK(B, 4ull * k * n) || !NK_OK(C, 4ull * m * n)) return 1; nk_matmul(m, n, k, (const float *)(mem + A), (const float *)(mem + B), (float *)(mem + C)); return 0; }
+
 static int define_all(WnEngine *e, int wt) {
     const char *W = "wasi_snapshot_preview1"; int rc = 0;
 #define D(m, n, sg, cb) rc |= wn_engine_define(e, m, n, sg, cb, 0)
     D("sample:wire/transport@0.1.0", "send", "ii>i", wire_send); D("sample:wire/transport@0.1.0", "recv", "ii>i", wire_recv);
     D("stress", "mix", "ii>i", stress_mix);
+    D("native", "cpu_level", ">i", nk_cb_level); D("native", "saxpy_f32", "ifii>", nk_cb_saxpy); D("native", "dot_f32", "iii>f", nk_cb_dot); D("native", "matmul_f32", "iiiiii>", nk_cb_matmul);
     D(W, "fd_write", "iiii>i", h_fd_write); D(W, "clock_time_get", "ili>i", h_clock_time_get); D(W, "proc_exit", "i", h_proc_exit);
     D(W, "args_sizes_get", "ii>i", h_args_sizes_get); D(W, "args_get", "ii>i", h_args_get); D(W, "environ_sizes_get", "ii>i", zero2); D(W, "environ_get", "ii>i", ok2);
     D(W, "fd_close", "i>i", ok2); D(W, "fd_prestat_get", "ii>i", h_ebadf); D(W, "fd_prestat_dir_name", "iii>i", h_ebadf);
@@ -221,14 +233,23 @@ int main(int argc, char **argv) {
     int m = !strcmp(mode, "sig") ? 0 : !strcmp(mode, "nosig") ? 1 : 2;
     const char *arch = IsAarch64() ? "aarch64" : "x86_64";
     char path[512], alt[512], envp[1024], name[256];
-    if (m == 2) snprintf(name, sizeof name, "%s.pulley.cwasm", base); else snprintf(name, sizeof name, "%s.%s.%s.cwasm", base, mode, arch);
+    nk_init();
+    /* which precompiled variant: on x86-64 the module compiled for the AVX2/FMA/BMI level when this CPU and OS have all of it, else the baseline one (WN_CWASM_LEVEL=base forces the baseline) */
+    const char *lvl = ""; const char *lenv = getenv("WN_CWASM_LEVEL");
+    if (!IsAarch64() && m != 2 && !(lenv && !strcmp(lenv, "base")) && nk_haswell_ok()) lvl = ".v3";
+    if (m == 2) snprintf(name, sizeof name, "%s.pulley.cwasm", base); else snprintf(name, sizeof name, "%s.%s.%s%s.cwasm", base, mode, arch, lvl);
     snprintf(path, sizeof path, "/zip/%s", name); snprintf(alt, sizeof alt, "%s", name);
     size_t len = 0; uint8_t *bytes = NULL;
     if (getenv("WN_CWASM_DIR")) { snprintf(envp, sizeof envp, "%s/%s", getenv("WN_CWASM_DIR"), name); bytes = read_all(envp, &len); if (bytes) printf("host : using %s\n", envp); }   /* e.g. the baseline built by the stock compiler */
     if (!bytes) bytes = read_all(path, &len);
     if (!bytes) bytes = read_all(alt, &len);
+    if (!bytes && *lvl) {   /* no variant for this level in the file: the baseline one */
+        lvl = ""; snprintf(name, sizeof name, "%s.%s.%s.cwasm", base, mode, arch); snprintf(path, sizeof path, "/zip/%s", name); snprintf(alt, sizeof alt, "%s", name);
+        bytes = read_all(path, &len); if (!bytes) bytes = read_all(alt, &len);
+    }
     if (!bytes) { fprintf(stderr, "cannot read %s or %s\n", path, alt); return 65; }
     printf("host : platform=%s arch=%s mode=%s guest=%s (%zu bytes)\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", arch, mode, base, len); fflush(stdout);
+    printf("host : module level: %s; native kernels: %s\n", *lvl ? "x86-64 AVX2/FMA/BMI (v3)" : IsAarch64() ? "arm64 baseline" : "x86-64 baseline", nk_level_name()); fflush(stdout);
     if (stress) return run_stress(m, bytes, len, nthreads, seconds, priv);
     double t0 = now_ms();
     WnEngine *eng = make_engine(m, wt, bytes, len); if (!eng) return 66;

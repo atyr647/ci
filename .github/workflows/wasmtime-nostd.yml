@@ -84,11 +84,12 @@ jobs:
           $S/bin/clang --target=wasm32-wasip1 -O2 -mexec-model=reactor -Wl,--no-entry wasmtime-nostd/guest/stress.c -o wasm/stress.wasm
           $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DSIMD=0 wasm-perf/shootout.c -o wasm/so-scalar.wasm -lm
           $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 -DSIMD=1 wasm-perf/shootout.c -o wasm/so-simd.wasm -lm
+          $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 wasmtime-nostd/guest/kern.c -o wasm/kern.wasm -lm
           $S/bin/clang --target=wasm32-wasip1-threads -pthread -O2 wasmtime-nostd/guest/par.c -o wasm/par.wasm -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576
           curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux.tar.xz && mkdir wt && tar xJf wt.tar.xz -C wt
           W=$(find wt -name wasmtime -type f | head -1); chmod +x cli/wasmtime; WP=$PWD/cli/wasmtime; $W --version; $WP --version
           F="-W gc-support=n -W concurrency-support=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n"
-          for g in wire trap stress so-scalar so-simd par; do
+          for g in wire trap stress so-scalar so-simd kern par; do
             T="-W threads=n"; [ $g = par ] && T="-W threads=y"
             for a in x86_64 aarch64; do
               C=$W; [ $a = aarch64 ] && C=$WP
@@ -99,6 +100,16 @@ jobs:
             $W compile --target aarch64-unknown-linux-gnu $F $T -O signals-based-traps=n wasm/$g.wasm -o out-stock/$g.nosig.aarch64.cwasm
             $W compile --target pulley64 $F $T wasm/$g.wasm -o out/$g.pulley.cwasm || echo "pulley compile failed for $g"
           done
+          echo "== x86-64 v3 variants (AVX2 / FMA / BMI1 / BMI2 / LZCNT / POPCNT): which spelling of the preset does the CLI accept"
+          V3=""
+          for pre in x86-64-v3 x86_64_v3 haswell; do if $W compile --target x86_64-unknown-linux-gnu -C cranelift-$pre -o /tmp/p3.cwasm wasm/kern.wasm 2>/dev/null; then V3="-C cranelift-$pre"; break; fi; done
+          if [ -z "$V3" ]; then for pre in has_avx has_avx2 has_fma has_bmi1 has_bmi2 has_lzcnt has_popcnt has_sse41 has_sse42; do V3="$V3 -C cranelift-$pre=true"; done; fi
+          echo "v3 flags: $V3"
+          for g in so-scalar so-simd kern stress; do for mode in sig nosig; do
+            SG=n; [ $mode = sig ] && SG=y
+            $W compile --target x86_64-unknown-linux-gnu $F -W threads=n -O signals-based-traps=$SG $V3 wasm/$g.wasm -o out/$g.$mode.x86_64.v3.cwasm || echo "v3 compile failed: $g $mode"
+          done; done
+          ls -la out | grep v3 | head -12
           echo "== patched CLI vs official CLI, x86_64 and pulley output (the patch touches aarch64 only): byte-identical?"
           for g in stress so-simd par; do
             $WP compile --target x86_64-unknown-linux-gnu $F $( [ $g = par ] && echo -W threads=y || echo -W threads=n ) -O signals-based-traps=y wasm/$g.wasm -o /tmp/p.cwasm && cmp /tmp/p.cwasm out/$g.sig.x86_64.cwasm && echo "$g x86_64: identical"
@@ -147,8 +158,9 @@ jobs:
           for A in x86_64 aarch64; do
             $B/$A-unknown-cosmo-cc -O2 -Iplatform -DWASMTIME_VIRTUAL_MEMORY -DWASMTIME_NATIVE_SIGNALS -DWASMTIME_CUSTOM_SYNC -c platform/platform.c -o ../parts/platform.$A.o
             $B/$A-unknown-cosmo-cc -O2 -Iplatform -Iguest -c host/host.c -o ../parts/host.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -c host/native_kernels.c -o ../parts/nk.$A.o
             $B/$A-unknown-cosmo-cc -O2 guest/par.c -o ../parts/par.$A.com
-            $B/$A-unknown-cosmo-cc -O2 ../parts/host.$A.o ../parts/platform.$A.o ../lib/$A/libwn_embedding.a -Wl,--gc-sections -lm -o ../parts/wn.$A.com 2>&1 | tail -30
+            $B/$A-unknown-cosmo-cc -O2 ../parts/host.$A.o ../parts/nk.$A.o ../parts/platform.$A.o ../lib/$A/libwn_embedding.a -Wl,--gc-sections -lm -o ../parts/wn.$A.com 2>&1 | tail -30
           done
           cd ..; ls -la parts lib/*
           $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o wn.com parts/wn.x86_64.com.dbg parts/wn.aarch64.com.dbg
@@ -192,6 +204,20 @@ jobs:
         run: |
           set +e
           for g in so-scalar so-simd; do for mode in sig nosig pulley; do echo "=== $g $mode"; $RUN $mode $g; echo "exit: $?"; done; done
+      - name: SIMD, AVX2/FMA and native kernels - module level (baseline / AVX2+FMA+BMI) x kernel level, wasm SIMD128 vs native imports vs scalar
+        continue-on-error: true
+        run: |
+          set +e; PY=$(command -v python3 || command -v python)
+          [ "$RUNNER_OS" = Windows ] && { cp wn.com wn.exe; RUN=./wn.exe; } || RUN="sh ./wn.com"
+          echo "cpu: $(grep -m1 -i 'model name' /proc/cpuinfo 2>/dev/null || sysctl -n machdep.cpu.brand_string 2>/dev/null || echo '(unknown)')"; grep -m1 -o -E 'avx512f|avx2' /proc/cpuinfo 2>/dev/null | sort -u | tr '\n' ' '; echo
+          for cfg in "A-baseline-module-baseline-kernels|base|0" "B-baseline-module-best-kernels|base|9" "C-v3-module-best-kernels|auto|9" "D-v3-module-avx2-kernels|auto|1"; do
+            IFS='|' read -r label mod kl <<< "$cfg"; : > kern.$label.txt
+            for r in 1 2; do WN_CWASM_LEVEL=$mod WN_KERNEL_LEVEL=$kl $RUN sig kern >> kern.$label.txt 2>&1; done
+            echo "== $label: exit $? ($(grep -m1 'module level' kern.$label.txt))"
+          done
+          $PY wasmtime-nostd/tools/kern-table.py A-baseline-module-baseline-kernels=kern.A-baseline-module-baseline-kernels.txt B-baseline-module-best-kernels=kern.B-baseline-module-best-kernels.txt C-v3-module-best-kernels=kern.C-v3-module-best-kernels.txt D-v3-module-avx2-kernels=kern.D-v3-module-avx2-kernels.txt
+          echo "=== the shootout kernels, baseline module vs v3 module (best of 3, ms)"
+          for g in so-simd so-scalar; do for mod in base auto; do for r in 1 2 3; do WN_CWASM_LEVEL=$mod $RUN sig $g 2>&1 | grep -E "^KERNEL|module level" | sed "s/^KERNEL /KERNEL $g-$mod /"; done; done; done | $PY wasmtime-nostd/tools/best-table.py
       - uses: actions/download-artifact@v4
         with: { name: guests, path: guests }
       - name: Fault address and trap classification (out-of-bounds, guard region, end of memory, divide by zero, unreachable, stack overflow)
