@@ -18,6 +18,7 @@
 #include <mutex>
 #include <string>
 #include <thread>
+#include <pthread.h>
 #ifdef __COSMOPOLITAN__
 extern "C" void DawnCosmoGpuThreadEnter();
 #endif
@@ -317,5 +318,10 @@ static int bench_main(int argc, char **argv) {
 // that the C library of this program created. Used to check that foreign (driver) code works on such threads.
 int main(int argc, char **argv) {
     if (!getenv("BENCH_IN_THREAD")) return bench_main(argc, argv);
-    int rc = 1; std::thread t([&] { rc = bench_main(argc, argv); }); t.join(); return rc;
+    int rc = 1;
+    if (const char *mb = getenv("BENCH_THREAD_STACK_MB")) {   // the same, on a thread with an explicit stack size (to tell a too-small default stack from other causes)
+        struct A { int c; char **v; int *rc; } a = {argc, argv, &rc}; pthread_attr_t at; pthread_attr_init(&at); pthread_attr_setstacksize(&at, (size_t)atoi(mb) << 20);
+        pthread_t th; pthread_create(&th, &at, [](void *p) -> void * { A *x = (A *)p; *x->rc = bench_main(x->c, x->v); return nullptr; }, &a); pthread_join(th, nullptr); return rc;
+    }
+    std::thread t([&] { rc = bench_main(argc, argv); }); t.join(); return rc;
 }

@@ -1,0 +1,29 @@
+name: dawn-thread-diag
+# The Cosmopolitan Dawn build crashes when the driver is called from a thread the C library created (the whole benchmark in a thread, or Dawn's async pipeline creation on its worker threads), on every OS.
+# This prints the crash report (fault address, registers) and tries variants: bigger thread stack, trampolined calls on arm64.
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'dawn-cosmo run with artifact wgt-dawn', required: true }
+jobs:
+  diag:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - name: Dependencies and the file
+        run: |
+          sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D c && chmod +x c/dawn-bench.com
+          echo "default thread stack (ulimit -s): $(ulimit -s) KiB"
+      - name: Runs
+        run: |
+          set +e; export WGT_BACKEND=vulkan
+          for v in "BENCH_IN_THREAD=1" "BENCH_IN_THREAD=1 DAWN_COSMO_DIRECT=0" "BENCH_ASYNC_PIPELINE=1" "BENCH_ASYNC_PIPELINE=1 DAWN_COSMO_DIRECT=0" "BENCH_IN_THREAD=1 BENCH_THREAD_STACK_MB=64"; do
+            echo "=================== $v"; env $v sh ./c/dawn-bench.com > out.txt 2>&1; echo "exit $?"; grep -v "^BENCH" out.txt | head -45 | cut -c1-250
+          done
