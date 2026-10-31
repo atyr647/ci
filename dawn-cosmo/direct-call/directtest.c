@@ -22,6 +22,7 @@
 #include <time.h>
 
 typedef long (*fn_t)(long);
+static void *g_h;
 static fn_t f_spin, f_nop, f_tls, t_spin, t_nop, t_tls;   // f_* raw, t_* through the trampoline
 static _Thread_local volatile long tl_handled;            // thread-local through x28
 static atomic_long g_handled;
@@ -56,9 +57,11 @@ static void *thr(void *arg) {
   return 0;
 }
 
+static const char *g_test; static int g_result = -99;
+static void *battery_thr(void *arg) { (void)arg; fn_t f = cosmo_dlsym(g_h, g_test); g_result = (int)f(2000); return 0; }
 int main(int argc, char **argv) {
   const char *mode = argc > 1 ? argv[1] : "tramp";
-  void *h = cosmo_dlopen("./libclobber.so", RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 2; }
+  void *h = g_h = cosmo_dlopen("./libclobber.so", RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 2; }
   f_spin = cosmo_dlsym(h, "clobber_spin"); f_nop = cosmo_dlsym(h, "clobber_nop"); f_tls = cosmo_dlsym(h, "clobber_tls");
   if (!f_spin || !f_nop || !f_tls) { printf("dlsym failed\n"); return 2; }
   t_spin = cosmo_dltramp(f_spin); t_nop = cosmo_dltramp(f_nop); t_tls = cosmo_dltramp(f_tls);
@@ -85,6 +88,11 @@ int main(int argc, char **argv) {
     long a = f_tls(1), b = f_tls(1), c = t_tls(1); printf("THREAD main foreign_tls_values_raw=%ld,%ld trampolined=%ld (expected 1,2,3)\n", a, b, c); fflush(stdout);
     for (long i = 1; i <= 3; i++) { pthread_t t; pthread_create(&t, 0, thr, (void *)i); pthread_join(t, 0); }
     printf("RESULT threads done\n"); return 0;
+  }
+  if (!strcmp(mode, "battery")) {   // battery <fb_test> <main|thread|thread-ctype-init>: foreign C library use from the main thread or from a thread the C library created
+    setvbuf(stdout, 0, _IONBF, 0); g_test = argc > 2 ? argv[2] : "fb_ctype"; const char *where = argc > 3 ? argv[3] : "main";
+    if (!strncmp(where, "thread", 6)) { pthread_t t; pthread_create(&t, 0, battery_thr, 0); pthread_join(t, 0); } else { fn_t f = cosmo_dlsym(h, g_test); g_result = (int)f(2000); }
+    printf("RESULT battery %s on %s: %s (misbehaviours %d)\n", g_test, where, g_result == 0 ? "ok" : "WRONG", g_result); return g_result == 0 ? 0 : 1;
   }
   printf("unknown mode\n"); return 2;
 }
