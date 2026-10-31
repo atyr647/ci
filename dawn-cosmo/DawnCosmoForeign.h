@@ -62,6 +62,8 @@ struct DawnCosmoForeignScope {
 #include <pthread.h>
 #include <signal.h>
 #include <sys/auxv.h>
+#include <sys/mman.h>
+#include <string.h>
 #include <time.h>
 #include <unistd.h>
 int gDawnCosmoFsgsbase = 0;
@@ -102,13 +104,33 @@ extern "C" void DawnCosmoForeignInit() {
     auto pself = reinterpret_cast<unsigned long (*)()>(cosmo_dltramp(cosmo_dlsym(libc, "pthread_self")));
     void* pauseFn = cosmo_dlsym(libc, "pause");   // runs inside the library only; called directly, not through a thunk
     if (!pcreate || !pself || !pauseFn) return;
-    unsigned long off = ReadTp() - pself();       // 0 on x86-64; the size of the library's struct pthread on arm64
     sigset_t all, old; sigfillset(&all); pthread_sigmask(SIG_SETMASK, &all, &old);
+#if defined(__x86_64__)
+    // pthread_self() of the library is the thread pointer on x86-64
     for (int i = 0; i < kPool; i++) {
         unsigned long t = 0;
         if (pcreate(&t, nullptr, reinterpret_cast<void* (*)(void*)>(pauseFn), nullptr)) break;
-        gPool[gCount++] = t + off;
+        gPool[gCount++] = t;
     }
+    unsigned long off = 0; (void)pself;
+#else
+    // arm64: the thread pointer is not pthread_self() and Cosmopolitan code cannot read the library's value, so each parked thread runs a few instructions that publish its own thread pointer and then
+    // block in ppoll() for good:   mrs x1, tpidr_el0 ; str x1, [x0] ; loop: mov x8, #73 ; mov x0, #0 ; mov x1, #0 ; mov x2, #0 ; mov x3, #0 ; svc #0 ; b loop
+    static const unsigned int code[] = {0xd53bd041, 0xf9000001, 0xd2800928, 0xd2800000, 0xd2800001, 0xd2800002, 0xd2800003, 0xd4000001, 0x17fffffa};
+    unsigned int* page = static_cast<unsigned int*>(mmap(nullptr, 4096, PROT_READ | PROT_WRITE | PROT_EXEC, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0));
+    unsigned long off = 0; (void)pself; (void)pauseFn;
+    if (page != MAP_FAILED) {
+        memcpy(page, code, sizeof code); __builtin___clear_cache(reinterpret_cast<char*>(page), reinterpret_cast<char*>(page) + sizeof code);
+        static unsigned long published[kPool];
+        for (int i = 0; i < kPool; i++) {
+            published[i] = 0; unsigned long t = 0;
+            if (pcreate(&t, nullptr, reinterpret_cast<void* (*)(void*)>(page), &published[i])) break;
+            for (int k = 0; k < 5000 && !*reinterpret_cast<volatile unsigned long*>(&published[i]); k++) { struct timespec z = {0, 200000}; nanosleep(&z, nullptr); }
+            if (!published[i]) break;
+            gPool[gCount++] = published[i];
+        }
+    }
+#endif
     pthread_sigmask(SIG_SETMASK, &old, nullptr);
     if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d), main thread pointer %#lx, offset %#lx, first block %#lx\n", gCount, gDawnCosmoFsgsbase, ReadTp(), off, gCount ? gPool[0] : 0UL);
 }
