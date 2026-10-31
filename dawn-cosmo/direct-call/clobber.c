@@ -36,3 +36,13 @@ long fb_spawn_join(long n) { long bad = 0; for (long i = 0; i < n; i++) { pthrea
 static pthread_once_t fo = PTHREAD_ONCE_INIT; static int fonce; static void foinit(void) { fonce++; }
 long fb_once(long n) { for (long i = 0; i < n; i++) pthread_once(&fo, foinit); return fonce == 1 ? 0 : 1; }
 long fb_self(long n) { long bad = 0; pthread_t me = pthread_self(); for (long i = 0; i < n; i++) if (!pthread_equal(me, pthread_self())) bad++; return bad; }
+/* where this library's thread-local storage of the calling thread lives, relative to the thread pointer */
+long fb_tlsinfo(long *out) {
+  long tp;
+#if defined(__aarch64__)
+  __asm__("mrs %0, tpidr_el0" : "=r"(tp));
+#else
+  __asm__("mov %%fs:0, %0" : "=r"(tp));
+#endif
+  out[0] = tp; out[1] = (long)&tls_value; out[2] = (long)&errno; return 0;
+}

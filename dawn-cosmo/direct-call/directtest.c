@@ -70,6 +70,14 @@ static void *foreign_made(void *arg) {
     void *p = malloc(100); free(p); errno = 5; int e = errno; printf("cosmo malloc/errno/printf there: errno %d\n", e);
     fn_t f = cosmo_dlsym(g_h, g_test); g_result = (int)f(2000); return 0;
 }
+static void tlsinfo(const char *where) {
+    long o[3] = {0, 0, 0}; typedef long (*ti_t)(long *); ti_t ti = cosmo_dltramp(cosmo_dlsym(g_h, "fb_tlsinfo")); ti(o);
+    void *sa = 0; size_t ss = 0; pthread_attr_t at; pthread_getattr_np(pthread_self(), &at); pthread_attr_getstack(&at, &sa, &ss);
+    static _Thread_local volatile long mine;
+    printf("TLSINFO %-8s foreign: tp=%#lx &tls_var=%#lx (tp%+ld) &errno=%#lx (tp%+ld) | cosmo: __get_tls=%p &mine=%p (tib%+ld) | stack %p..%p\n", where, o[0], o[1], o[1] - o[0], o[2], o[2] - o[0],
+           (void *)__get_tls(), (void *)&mine, (long)((char *)&mine - (char *)__get_tls()), sa, (char *)sa + ss);
+}
+static void *tlsinfo_thr(void *a) { (void)a; tlsinfo("thread"); return 0; }
 int main(int argc, char **argv) {
   const char *mode = argc > 1 ? argv[1] : "tramp";
   void *h = g_h = cosmo_dlopen("./libclobber.so", RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 2; }
@@ -100,6 +108,7 @@ int main(int argc, char **argv) {
     for (long i = 1; i <= 3; i++) { pthread_t t; pthread_create(&t, 0, thr, (void *)i); pthread_join(t, 0); }
     printf("RESULT threads done\n"); return 0;
   }
+  if (!strcmp(mode, "tlsinfo")) { setvbuf(stdout, 0, _IONBF, 0); tlsinfo("main"); pthread_t t; pthread_create(&t, 0, tlsinfo_thr, 0); pthread_join(t, 0); return 0; }
   if (!strcmp(mode, "battery")) {   // battery <fb_test> <main|thread|thread-ctype-init>: foreign C library use from the main thread or from a thread the C library created
     setvbuf(stdout, 0, _IONBF, 0); g_test = argc > 2 ? argv[2] : "fb_ctype"; const char *where = argc > 3 ? argv[3] : "main";
     g_pre = strstr(where, "uselocale") ? 1 : 0;

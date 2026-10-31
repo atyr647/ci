@@ -32,13 +32,13 @@ jobs:
       - name: Modes (each in its own process; exit status and signal printed)
         run: |
           set +e; cd out
-          for m in tramp direct-open direct-blocked direct-poll cost threads-nop threads; do
+          for m in tlsinfo tramp direct-open direct-blocked direct-poll cost threads-nop threads; do
             echo "=== $m"; sh ./directtest.com $m > r.$m.txt 2>&1; rc=$?; cat r.$m.txt | cut -c1-300 | tail -n 8; echo "exit status $rc$( [ $rc -gt 128 ] && echo " (killed by signal $((rc-128)))" )"
           done
       - name: Result (last)
         if: always()
         run: |
-          cd out; echo "### ${{ matrix.label }}"; for m in tramp direct-open direct-blocked direct-poll cost threads-nop threads; do echo "--- $m"; grep -E "^(RESULT|THREAD)" r.$m.txt 2>/dev/null || echo "(no result line: process did not finish)"; done
+          cd out; echo "### ${{ matrix.label }}"; for m in tlsinfo tramp direct-open direct-blocked direct-poll cost threads-nop threads; do echo "--- $m"; grep -E "^(RESULT|THREAD)" r.$m.txt 2>/dev/null || echo "(no result line: process did not finish)"; done
       - name: Battery - ordinary C library use by foreign code, from the main thread and from a thread the C library created (each test its own process, 20 s limit)
         run: |
           set +e; cd out
