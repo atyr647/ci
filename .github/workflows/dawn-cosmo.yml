@@ -3,6 +3,8 @@ name: dawn-cosmo
 # into ONE fat executable, then run on Linux x64/arm64, Windows x64/arm64 and macOS arm64.
 on:
   workflow_dispatch:
+    inputs:
+      compiler: { description: 'compiler for Dawn: gcc (the Cosmopolitan driver default) or clang (cosmocc clang through dawn-cosmo/clang-wrap.sh, frame pointers and NOP padding off)', required: false, default: 'gcc' }
 env:
   DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
   COSMOCC: 4.0.2
@@ -17,6 +19,7 @@ jobs:
     timeout-minutes: 340
     env:
       COSMO_ARCH: ${{ matrix.arch }}
+      DAWN_CC: ${{ inputs.compiler || 'gcc' }}
     steps:
       - uses: actions/checkout@v4
       - name: Tools
@@ -31,7 +34,7 @@ jobs:
           sh backend-spikes/setup-wine-headers.sh $PWD/wine
           mkdir dxh && git -C dxh init -q && git -C dxh fetch -q --depth 1 https://github.com/microsoft/DirectX-Headers $DXH_SHA && git -C dxh checkout -q FETCH_HEAD
           W=$PWD/wine/x/usr/include/wine/wine
-          python3 dawn-cosmo/fix_com_struct_returns.py dxh/include/directx   # result pointer order of struct-returning COM methods (GCC vs Microsoft)
+          [ "$DAWN_CC" = clang ] || python3 dawn-cosmo/fix_com_struct_returns.py dxh/include/directx   # result pointer order (GCC only: clang's ms_abi already uses the Microsoft order) of struct-returning COM methods (GCC vs Microsoft)
           python3 backend-spikes/make_sal_shim.py dawn-cosmo/d3d12-shims/sal_shim.h dxh/include/directx/*.h dawn-cosmo/d3d12-shims/dxcapi.h
           python3 backend-spikes/make_uuid_decls.py dawn-cosmo/d3d12-shims/uuid_decls.h $W/windows dxh/include/directx dawn-cosmo/d3d12-shims
       - name: Restore the Dawn checkout and build directory from the last run
@@ -40,8 +43,8 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3-${{ github.run_id }}
-          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3-
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ inputs.compiler == 'clang' && '-clang' || '' }}-${{ github.run_id }}
+          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ inputs.compiler == 'clang' && '-clang' || '' }}-
       - name: Fetch Dawn at the pinned commit (unless restored)
         run: |
           if [ ! -d dawn/.git ]; then
@@ -60,6 +63,12 @@ jobs:
       - name: Configure
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
+          OVR=""
+          if [ "$DAWN_CC" = clang ]; then
+            printf '#!/bin/sh\nexec sh %s/dawn-cosmo/clang-wrap.sh %s cc "$@"\n' "$PWD" "$COSMO_ARCH" > $HOME/wrap-cc; printf '#!/bin/sh\nexec sh %s/dawn-cosmo/clang-wrap.sh %s c++ "$@"\n' "$PWD" "$COSMO_ARCH" > $HOME/wrap-cxx
+            chmod +x $HOME/wrap-cc $HOME/wrap-cxx; export DAWN_COSMO_CC=$HOME/wrap-cc DAWN_COSMO_CXX=$HOME/wrap-cxx
+            OVR="-fomit-frame-pointer -fpatchable-function-entry=0"
+          fi
           d3d=""
           [ "$COSMO_ARCH" = aarch64 ] && d3d="-DTINT_BUILD_MSL_WRITER=ON"   # the Metal objects (built on macOS, linked into the arm64 half) use Tint's MSL writer
           if [ "$COSMO_ARCH" = x86_64 ]; then
@@ -67,7 +76,7 @@ jobs:
             FLAGS="-DDAWN_COSMO_AS_WINDOWS=1;-DNOMINMAX;-DWIN32_LEAN_AND_MEAN;-DWINE_UNICODE_NATIVE;-fshort-wchar;-Dwcslen=dawn_wcslen16;-w;-include$FILES/win32_rename.h;-include$SH/pre.h;-I$SH;-I$DXH/directx;-I$DXH;-I$WINE/windows;-I$WINE"
             d3d="-DDAWN_ENABLE_D3D12=ON -DTINT_BUILD_HLSL_WRITER=ON -DDAWN_COSMO_D3D12=ON -DDAWN_COSMO_FILES_DIR=$FILES"   # (the Tint option is cached from the earlier Vulkan-only configure, so it is set explicitly)
           fi
-          cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release \
+          cmake -S dawn -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release ${OVR:+"-DCMAKE_C_FLAGS=$OVR" "-DCMAKE_CXX_FLAGS=$OVR"} \
             -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF \
             -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF -DDAWN_ENABLE_NULL=ON -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF \
             -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF \
@@ -93,7 +102,7 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3-${{ github.run_id }}
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ inputs.compiler == 'clang' && '-clang' || '' }}-${{ github.run_id }}
       - name: Package the library and headers (linked in the link job, together with the Metal objects for arm64)
         run: |
           mkdir -p dist/inc1 dist/inc2
