@@ -31,14 +31,14 @@ jobs:
         run: |
           C=$(find "$PWD/capi" -maxdepth 1 -type d -name 'wasmtime-*' | head -1)
           export MSYS_NO_PATHCONV=1   # Git bash would turn /O2 into a path
-          INC="$(cygpath -w $C/include)"; LIB="$(cygpath -w $C/lib/wasmtime.dll.lib)"
+          INC="$(cygpath -w $C/include)"; WTLIB="$(cygpath -w $C/lib/wasmtime.dll.lib)"   # not LIB: that is the compiler environment's library search path
           # clang-cl defines __aarch64__ (so the NEON kernels are compiled in); fall back to cl.exe with that define if clang-cl is not on this image
           # clang-cl (defines __aarch64__, so the NEON kernels are compiled in) makes the objects, the Visual Studio linker links them (the clang on this image does not find the C runtime libraries by itself)
           if command -v clang-cl >/dev/null 2>&1; then echo "compiler: $(clang-cl --version | head -1)"
             clang-cl --target=aarch64-pc-windows-msvc -MD -nologo -O2 -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" -c winarm/host.c wasmtime-nostd/host/native_kernels.c 2>&1 | tail -8
             MSVCLINK=$(which -a link.exe link 2>/dev/null | grep -i "Visual Studio" | head -1); [ -z "$MSVCLINK" ] && MSVCLINK="$(cygpath -u "$VCToolsInstallDir")bin/HostARM64/arm64/link.exe"; echo "linker: $MSVCLINK"   # Git bash has a coreutils link.exe in front of it
-            MSYS_NO_PATHCONV=1 "$MSVCLINK" -nologo host.obj native_kernels.obj "$LIB" -out:wt-host.exe 2>&1 | tail -6
-          else echo "compiler: cl.exe (clang-cl not found)"; cl.exe -nologo -O2 -D__aarch64__ -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" winarm/host.c wasmtime-nostd/host/native_kernels.c -Fe:wt-host.exe -link "$LIB" 2>&1 | tail -8; fi
+            MSYS_NO_PATHCONV=1 "$MSVCLINK" -nologo host.obj native_kernels.obj "$WTLIB" -out:wt-host.exe 2>&1 | tail -6
+          else echo "compiler: cl.exe (clang-cl not found)"; cl.exe -nologo -O2 -D__aarch64__ -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" winarm/host.c wasmtime-nostd/host/native_kernels.c -Fe:wt-host.exe -link "$WTLIB" 2>&1 | tail -8; fi
           cp $C/lib/wasmtime.dll . 2>/dev/null || cp $C/bin/wasmtime.dll . ; ls -la wt-host.exe wasmtime.dll
           dumpbin.exe -headers wt-host.exe 2>/dev/null | grep -i -E "machine|AA64|ARM" | head -2
       - name: Same kernels - native arm64 official CLI, native arm64 host, Cosmopolitan file (x86-64 under emulation)
