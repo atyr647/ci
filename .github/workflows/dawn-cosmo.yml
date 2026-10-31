@@ -136,8 +136,54 @@ jobs:
       - uses: actions/upload-artifact@v4
         with: { name: metal-objs, path: "out/objs\nout/objc_shim.c\nout/undefined.txt" }
 
+  winarm:
+    # Windows on ARM: a native arm64 build of the benchmark against native Dawn/D3D12 (same source as the file's x86-64 and arm64 halves). It is stored in the fat file as a zip entry
+    # and started by the file's x86-64 half when it finds itself on an ARM64 machine (ci-webgpu-test/win_arm_native.h), so that machine does not run Dawn under x86-64 emulation.
+    runs-on: windows-11-arm
+    timeout-minutes: 240
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with: { arch: arm64 }
+      - name: Dependencies
+        run: command -v ninja >/dev/null || pip install ninja
+      - name: Restore native Dawn (static library, headers, CMake package; cache written by the dawn-bench workflow)
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: dawn-native-static-win-arm64-${{ env.DAWN_SHA }}-v1
+      - name: Fetch, configure and build native Dawn (only when not cached)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git && git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD && cd ..
+          cmake -S dawn -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=ON \
+            -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF \
+            -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF -DDAWN_ENABLE_NULL=ON -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DDAWN_SUPPORTS_CXX_MODULES=OFF \
+            -DDAWN_ENABLE_D3D12=ON -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_VULKAN=OFF -DDAWN_ENABLE_METAL=OFF
+          cmake --build out
+          cmake --install out --prefix "$PWD/dist"
+      - name: Save native Dawn
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: dist
+          key: dawn-native-static-win-arm64-${{ env.DAWN_SHA }}-v1
+      - name: Build the benchmark (native arm64, D3D12) and check that it runs
+        run: |
+          cmake -S ci-webgpu-test/bench -B benchout -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist"
+          cmake --build benchout --target dawn-bench
+          mkdir winarm-out && cp benchout/dawn-bench.exe winarm-out/
+          dumpbin.exe -headers winarm-out/dawn-bench.exe 2>/dev/null | grep -i -E "machine" | head -1
+          ls -la winarm-out
+          cp /c/Windows/System32/d3dcompiler_47.dll benchout/ 2>/dev/null || cp "$SYSTEMROOT/System32/d3dcompiler_47.dll" benchout/
+          WGT_BACKEND=d3d12 BENCH_SCALE=0.05 ./benchout/dawn-bench.exe 2>&1 | tr '\r' '\n' | grep -E "BENCH (process_total|buffer_create)|backend|adapter" | head -8
+      - uses: actions/upload-artifact@v4
+        with: { name: winarm-dawn, path: winarm-out }
+
   link:
-    needs: [build, metal]
+    needs: [build, metal, winarm]
     if: ${{ !cancelled() && needs.build.result == 'success' }}
     runs-on: ubuntu-latest
     steps:
@@ -154,6 +200,9 @@ jobs:
       - uses: actions/download-artifact@v4
         continue-on-error: true
         with: { name: metal-objs, path: metal }
+      - uses: actions/download-artifact@v4
+        continue-on-error: true
+        with: { name: winarm-dawn, path: winarm }
       - name: Link the WebGPU test and the GPU probe for each architecture (arm64 also gets the Metal objects and the Objective-C shim)
         run: |
           B=$PWD/cosmo/bin
@@ -188,6 +237,8 @@ jobs:
           for n in wgt gpu-probe dawn-bench dawn-bench-mf dawn-bench-nf; do
             $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o $( [ $n = wgt ] && echo wgt-dawn || echo $n ).com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg
           done
+          # the native Windows on ARM build rides along as a zip entry of the benchmark file (started by the x86-64 half on ARM64 machines)
+          if [ -f winarm/dawn-bench.exe ]; then mkdir -p stage/winarm && cp winarm/dawn-bench.exe stage/winarm/ && (cd stage && zip -q -9 ../dawn-bench.com winarm/dawn-bench.exe); unzip -l dawn-bench.com | grep winarm; fi
           $B/cosmocc -O1 -Ici-webgpu-test ci-webgpu-test/d3d12min.c -o d3d12min.com
           ls -la wgt-dawn.com gpu-probe.com dawn-bench.com d3d12min.com
       - uses: actions/upload-artifact@v4
@@ -232,6 +283,13 @@ jobs:
           chmod +x ci-webgpu-test/run-one.sh
           if [ "$RUNNER_OS" = Windows ]; then cp wgt-dawn.com wgt-dawn.exe; ci-webgpu-test/run-one.sh "dawn built by cosmocc ($WGT_BACKEND)" ./wgt-dawn.exe
           else chmod +x wgt-dawn.com; ci-webgpu-test/run-one.sh "dawn built by cosmocc ($WGT_BACKEND)" sh ./wgt-dawn.com; fi
+      - name: Windows on ARM only - the benchmark file starts its native arm64 build (D3D12, no emulation); WN_NO_NATIVE=1 runs the x86-64 half under emulation instead
+        if: matrix.label == 'win-arm64'
+        run: |
+          cp dawn-bench.com dawn-bench.exe; unzip -l dawn-bench.exe | grep winarm || echo "::error::no native arm64 entry in the file"
+          export WGT_BACKEND=d3d12 BENCH_SCALE=0.2; set +e
+          echo "--- default (expected: native arm64 build)"; ( ./dawn-bench.exe 2>&1 | cat ) | tr '\r' '\n' | grep -E "native arm64|\[|BENCH (adapter|process_total|buffer_create|encode)|^backend|adapter" | head -12; echo "exit ${PIPESTATUS[0]}"
+          echo "--- WN_NO_NATIVE=1 (emulated x86-64 half)"; ( WN_NO_NATIVE=1 ./dawn-bench.exe 2>&1 | cat ) | tr '\r' '\n' | grep -E "native arm64|\[|BENCH (adapter|process_total|buffer_create|encode)|^backend|adapter" | head -12; echo "exit ${PIPESTATUS[0]}"
       - name: Which GPU would the game use (policy self-test + every adapter Dawn sees)
         continue-on-error: true
         run: |

@@ -31,6 +31,7 @@ extern "C" void DawnCosmoForeignInit();
 #include <cosmo.h>
 #define WIN_SHIELD_WRAP_THREADS 1
 #include "win_shield.h"
+#include "win_arm_native.h"
 #endif
 #if defined(__COSMOPOLITAN__) && defined(__aarch64__)
 #define RUNNING_AS "  [the aarch64 half of the file]"
@@ -332,6 +333,7 @@ static int bench_main(int argc, char **argv) {
 // that the C library of this program created. Used to check that foreign (driver) code works on such threads.
 int main(int argc, char **argv) {
 #ifdef __COSMOPOLITAN__
+    { int rc = WinArmRunNative("dawn-bench", argv); if (rc >= 0) return rc; }   // Windows on ARM: the file carries a native arm64 build and starts it instead of running this x86-64 half under emulation
     DawnCosmoForeignInit();   // on the main thread, before any other thread calls the driver (what a game host does at start-up)
 #endif
     if (!getenv("BENCH_IN_THREAD")) return bench_main(argc, argv);
