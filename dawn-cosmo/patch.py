@@ -115,7 +115,8 @@ struct VkFnImpl<R(VKAPI_PTR*)(Args...)> {
     s = s.replace('    PFN_vkGetInstanceProcAddr GetInstanceProcAddr = nullptr;', '    VkFn<PFN_vkGetInstanceProcAddr> GetInstanceProcAddr = nullptr;', 1)
     return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cstddef>\n#include "src/dawn/native/vulkan/DawnCosmoForeign.h"\n#endif')
 import shutil
-shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), 'DawnCosmoForeign.h'), os.path.join(root, 'src/dawn/native/vulkan/DawnCosmoForeign.h'))   # always refreshed
+for hdr in ('DawnCosmoForeign.h', 'DawnCosmoDlopenHelper.h'):
+    shutil.copy(os.path.join(os.path.dirname(os.path.abspath(__file__)), hdr), os.path.join(root, 'src/dawn/native/vulkan', hdr))   # always refreshed
 edit('src/dawn/native/vulkan/VulkanFunctions.h', vkfns_h)
 
 def vkfns_cpp(s):

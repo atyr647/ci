@@ -14,6 +14,7 @@ extern "C" {
 unsigned long DawnCosmoForeignTcb();   // thread block to run foreign calls on for THIS thread; 0 = none needed (main thread, or not Linux)
 void DawnCosmoForeignInit();           // call on the main thread before other threads call foreign code (idempotent)
 extern int gDawnCosmoFsgsbase;         // x86-64: wrfsbase/rdfsbase can be used instead of arch_prctl
+void DawnCosmoSeedDlopenHelper();   // Linux: put the pre-built dlopen helper where Cosmopolitan looks for it, so no C compiler is needed on the user's machine
 void* DawnCosmoDlopen(const char* file, int mode);   // cosmo_dlopen, except that the Vulkan loader loaded ahead of time by the main thread is handed out without a foreign call
 void* DawnCosmoDlsym(void* handle, const char* name);   // likewise for vkGetInstanceProcAddr (a foreign dlsym on a created thread would need the library's thread block, and cosmo_dlsym cannot be wrapped: most of it is Cosmopolitan code)
 }
@@ -94,11 +95,42 @@ thread_local Slot gSlot;
 thread_local bool gChecked = false;
 }  // namespace
 
+#include "src/dawn/native/vulkan/DawnCosmoDlopenHelper.h"
+#include <fcntl.h>
+#include <sys/stat.h>
+extern "C" void DawnCosmoSeedDlopenHelper() {
+    static bool done = false;
+    if (done) return;
+    done = true;
+    if (!IsLinux()) return;
+    const char* dir = getenv("TMPDIR");
+    if (!dir || !*dir) dir = getenv("HOME");
+    if (!dir || !*dir) dir = ".";
+    char d[4096], exe[4096], src[4096], tmp[4096];
+    snprintf(d, sizeof d, "%s/.cosmo", dir); snprintf(exe, sizeof exe, "%s/dlopen-helper", d); snprintf(src, sizeof src, "%s.c", exe);
+    struct stat st;
+    if (stat(exe, &st) == 0 && stat(src, &st) == 0) return;   // already there (built by Cosmopolitan with cc, or seeded earlier)
+    mkdir(d, 0755);
+    auto put = [&](const char* path, const unsigned char* data, unsigned long n, int mode) {
+        snprintf(tmp, sizeof tmp, "%s.seed%d", path, (int)getpid());
+        int fd = open(tmp, O_WRONLY | O_CREAT | O_TRUNC | O_CLOEXEC, mode);
+        if (fd < 0) return false;
+        bool ok = write(fd, data, n) == (ssize_t)n;
+        ok = (close(fd) == 0) && ok;
+        if (!ok || rename(tmp, path) != 0) { unlink(tmp); return false; }
+        return true;
+    };
+    bool a = IsAarch64() ? put(exe, kDlopenHelperArm64, kDlopenHelperArm64Size, 0755) : put(exe, kDlopenHelperX64, kDlopenHelperX64Size, 0755);
+    bool b = put(src, kDlopenHelperSrc, kDlopenHelperSrcSize, 0600);
+    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: seeded the dlopen helper in %s (%d %d)\n", d, (int)a, (int)b);
+}
+
 namespace {
 void* gVkHandle = nullptr;
 void* gVkGipa = nullptr;
 }
 extern "C" void* DawnCosmoDlopen(const char* file, int mode) {
+    DawnCosmoSeedDlopenHelper();
     if (gVkHandle && file && strstr(file, "libvulkan")) return gVkHandle;
     return cosmo_dlopen(file, mode);
 }
@@ -110,6 +142,7 @@ extern "C" void DawnCosmoForeignInit() {
     if (gInitDone) return;
     gInitDone = true;
     if (!IsLinux()) return;
+    DawnCosmoSeedDlopenHelper();
     if (gettid() != getpid()) { if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: DawnCosmoForeignInit was not called on the main thread; threads cannot call the driver\n"); return; }   // only the main thread has the library's own thread block to ask for pthread_self and to call pthread_create with
 #if defined(__x86_64__)
     gDawnCosmoFsgsbase = (getauxval(AT_HWCAP2) & 2) ? 1 : 0;   // HWCAP2_FSGSBASE
