@@ -154,10 +154,11 @@ extern "C" void DawnCosmoForeignInit() {
     auto pself = reinterpret_cast<unsigned long (*)()>(cosmo_dltramp(cosmo_dlsym(libc, "pthread_self")));
     void* pauseFn = cosmo_dlsym(libc, "pause");   // runs inside the library only; called directly, not through a thunk
     if (!pcreate || !pself || !pauseFn) return;
+    int poolN = kPool; if (const char* pe = getenv("DAWN_COSMO_POOL")) { poolN = atoi(pe); if (poolN < 0) poolN = 0; if (poolN > kPool) poolN = kPool; }   // diagnostic: how many parked blocks to make (0 = none: a thread other than the main one cannot then call the driver)
     sigset_t all, old; sigfillset(&all); pthread_sigmask(SIG_SETMASK, &all, &old);
 #if defined(__x86_64__)
     // pthread_self() of the library is the thread pointer on x86-64
-    for (int i = 0; i < kPool; i++) {
+    for (int i = 0; i < poolN; i++) {
         unsigned long t = 0;
         if (pcreate(&t, nullptr, reinterpret_cast<void* (*)(void*)>(pauseFn), nullptr)) break;
         gPool[gCount++] = t;
@@ -172,7 +173,7 @@ extern "C" void DawnCosmoForeignInit() {
     if (page != MAP_FAILED) {
         memcpy(page, code, sizeof code); __builtin___clear_cache(reinterpret_cast<char*>(page), reinterpret_cast<char*>(page) + sizeof code);
         static unsigned long published[kPool];
-        for (int i = 0; i < kPool; i++) {
+        for (int i = 0; i < poolN; i++) {
             published[i] = 0; unsigned long t = 0;
             if (pcreate(&t, nullptr, reinterpret_cast<void* (*)(void*)>(page), &published[i])) break;
             for (int k = 0; k < 5000 && !*reinterpret_cast<volatile unsigned long*>(&published[i]); k++) { struct timespec z = {0, 200000}; nanosleep(&z, nullptr); }

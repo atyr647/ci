@@ -216,23 +216,23 @@ static int bench_main(int argc, char **argv) {
         {   // the same with the device ticked every 64 iterations: Dawn frees a released buffer's memory only when the queue is ticked, so the loop above makes memory grow (page faults on fresh pages);
             // this one stays at a steady state. Also the resident memory growth per iteration of each loop.
             auto rss = []() -> double { FILE *f = fopen("/proc/self/statm", "r"); long a = 0, r = 0; if (f) { if (fscanf(f, "%ld %ld", &a, &r) != 2) r = 0; fclose(f); } return (double)r * 4096.0; };
-            double r0 = rss(); const int n2 = scaled(40000);
+            double r0 = rss(); const int n2 = scaled(40000); const int n2s = scaled(200000);   // n2s: the timed loop is long enough for the kernel's tick-based user/system accounting
 #ifndef _WIN32
             struct rusage ru0, ru1; getrusage(RUSAGE_SELF, &ru0);
 #endif
-            auto t1 = Clock::now(); for (int i = 0; i < n2; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); if ((i & 63) == 63) wgpuDeviceTick(dev); }
-            double us = ms_since(t1) * 1e3 / n2; bench("buffer_create_release_steady_us", us, "us/op");
+            auto t1 = Clock::now(); for (int i = 0; i < n2s; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); if ((i & 63) == 63) wgpuDeviceTick(dev); }
+            double us = ms_since(t1) * 1e3 / n2s; bench("buffer_create_release_steady_us", us, "us/op");
 #ifndef _WIN32
             // where the time of that loop goes, from the kernel's own accounting of this process: user and system CPU time, page faults, context switches, per iteration
             getrusage(RUSAGE_SELF, &ru1);
             auto tv = [](const timeval &a, const timeval &b) { return ((b.tv_sec - a.tv_sec) * 1e6 + (b.tv_usec - a.tv_usec)); };
-            bench("steady_user_us", tv(ru0.ru_utime, ru1.ru_utime) / n2, "us/iter"); bench("steady_sys_us", tv(ru0.ru_stime, ru1.ru_stime) / n2, "us/iter");
-            bench("steady_minflt_per_iter", (double)(ru1.ru_minflt - ru0.ru_minflt) / n2, "faults/iter");
-            bench("steady_ctxsw_per_iter", (double)((ru1.ru_nvcsw - ru0.ru_nvcsw) + (ru1.ru_nivcsw - ru0.ru_nivcsw)) / n2, "switches/iter");
+            bench("steady_user_us", tv(ru0.ru_utime, ru1.ru_utime) / n2s, "us/iter"); bench("steady_sys_us", tv(ru0.ru_stime, ru1.ru_stime) / n2s, "us/iter");
+            bench("steady_minflt_per_iter", (double)(ru1.ru_minflt - ru0.ru_minflt) / n2s, "faults/iter");
+            bench("steady_ctxsw_per_iter", (double)((ru1.ru_nvcsw - ru0.ru_nvcsw) + (ru1.ru_nivcsw - ru0.ru_nivcsw)) / n2s, "switches/iter");
             if (ru1.ru_minflt > ru0.ru_minflt) bench("steady_sys_us_per_fault", tv(ru0.ru_stime, ru1.ru_stime) / (double)(ru1.ru_minflt - ru0.ru_minflt), "us/fault");
             { int vmas = 0; if (FILE *m = fopen("/proc/self/maps", "r")) { int c; while ((c = fgetc(m)) != EOF) if (c == '\n') vmas++; fclose(m); } if (vmas) bench("process_vmas_after_steady", vmas, "count"); }
 #endif
-            double r1 = rss(); if (r0 > 0) bench("buffer_loop_steady_rss_bytes_per_iter", (r1 - r0) / n2, "B/iter");
+            double r1 = rss(); if (r0 > 0) bench("buffer_loop_steady_rss_bytes_per_iter", (r1 - r0) / n2s, "B/iter");
             double r2 = rss(); auto t2 = Clock::now(); for (int i = 0; i < n2; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); } (void)t2;
             double r3 = rss(); if (r2 > 0) bench("buffer_loop_untick_rss_bytes_per_iter", (r3 - r2) / n2, "B/iter");
         }
