@@ -121,7 +121,7 @@ static std::string big_wgsl(int funcs, int salt) {
     s += "  d[g.x] = v;\n}\n"; return s;
 }
 
-int main(int argc, char **argv) {
+static int bench_main(int argc, char **argv) {
 #if defined(__COSMOPOLITAN__)
     ShowCrashReports(); win_shield_install();
 #endif
@@ -297,4 +297,11 @@ int main(int argc, char **argv) {
     }
     bench("process_total_ms", ms_since(tProc), "ms");
     return 0;
+}
+
+// BENCH_IN_THREAD=1: the whole benchmark runs on a thread this program creates instead of on the main thread (a game's render thread is not the main thread); the driver is then called from a thread
+// that the C library of this program created. Used to check that foreign (driver) code works on such threads.
+int main(int argc, char **argv) {
+    if (!getenv("BENCH_IN_THREAD")) return bench_main(argc, argv);
+    int rc = 1; std::thread t([&] { rc = bench_main(argc, argv); }); t.join(); return rc;
 }
