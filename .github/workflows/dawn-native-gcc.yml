@@ -1,0 +1,70 @@
+name: dawn-native-gcc
+# Is the Tint / driver-call gap between Dawn compiled by Cosmopolitan (GCC 14.1) and native Dawn (clang 20) a Cosmopolitan effect or a compiler effect?
+# Native Dawn is also built with GCC 14 (plain Release flags, no Cosmopolitan driver), then clang-native, gcc-native and the Cosmopolitan build run interleaved on the same machine.
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'run id of a dawn-cosmo run whose artifact wgt-dawn contains dawn-bench.com', required: true }
+      rounds: { description: 'interleaved rounds', required: false, default: '7' }
+env:
+  DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
+jobs:
+  gcc:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+    runs-on: ${{ matrix.os }}
+    timeout-minutes: 300
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Dependencies
+        run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build clang gcc-14 g++-14 mesa-vulkan-drivers libvulkan1
+          g++-14 --version | head -1; clang++ --version | head -1
+      - name: Restore native Dawn built with clang (cache written by dawn-bench)
+        uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: dawn-native-static-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+          fail-on-cache-miss: true
+      - name: Restore native Dawn built with GCC
+        id: cache
+        uses: actions/cache/restore@v4
+        with:
+          path: dist-gcc
+          key: dawn-native-gcc14-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+      - name: Build native Dawn with GCC 14 (only when not cached)
+        if: steps.cache.outputs.cache-hit != 'true'
+        run: |
+          mkdir dawn && cd dawn && git init -q && git remote add origin https://github.com/google/dawn.git && git fetch -q --depth 1 origin $DAWN_SHA && git checkout -q FETCH_HEAD && cd ..
+          cmake -S dawn -B out -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_C_COMPILER=gcc-14 -DCMAKE_CXX_COMPILER=g++-14 -DDAWN_FETCH_DEPENDENCIES=ON -DDAWN_BUILD_MONOLITHIC_LIBRARY=STATIC -DDAWN_ENABLE_INSTALL=ON \
+            -DDAWN_BUILD_SAMPLES=OFF -DDAWN_BUILD_TESTS=OFF -DDAWN_BUILD_BENCHMARKS=OFF -DTINT_BUILD_TESTS=OFF -DTINT_BUILD_CMD_TOOLS=OFF -DDAWN_ENABLE_DESKTOP_GL=OFF -DDAWN_ENABLE_OPENGLES=OFF \
+            -DDAWN_USE_X11=OFF -DDAWN_USE_WAYLAND=OFF -DDAWN_USE_GLFW=OFF -DDAWN_ENABLE_NULL=ON -DCMAKE_CXX_SCAN_FOR_MODULES=OFF -DDAWN_SUPPORTS_CXX_MODULES=OFF \
+            -DDAWN_ENABLE_VULKAN=ON -DDAWN_ENABLE_D3D12=OFF -DDAWN_ENABLE_D3D11=OFF -DDAWN_ENABLE_METAL=OFF
+          cmake --build out && cmake --install out --prefix "$PWD/dist-gcc"
+      - name: Save native Dawn built with GCC
+        if: steps.cache.outputs.cache-hit != 'true'
+        uses: actions/cache/save@v4
+        with:
+          path: dist-gcc
+          key: dawn-native-gcc14-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+      - name: Benchmarks (clang against the clang Dawn, GCC against the GCC Dawn)
+        run: |
+          cmake -S ci-webgpu-test/bench -B b-clang -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist" -DCMAKE_CXX_COMPILER=clang++ && cmake --build b-clang
+          cmake -S ci-webgpu-test/bench -B b-gcc -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist-gcc" -DCMAKE_CXX_COMPILER=g++-14 && cmake --build b-gcc
+          mkdir bins && cp b-clang/dawn-bench bins/bench-clang && cp b-gcc/dawn-bench bins/bench-gcc
+      - name: The Cosmopolitan build
+        run: gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D cosmo && chmod +x cosmo/dawn-bench.com
+      - name: Run (interleaved)
+        run: |
+          args=(--rounds ${{ inputs.rounds }} --title "${{ matrix.label }}: native clang / native GCC 14 / Cosmopolitan (GCC 14.1)" --json out.json
+                --variant "native-clang|WGT_BACKEND=vulkan|./bins/bench-clang" --variant "native-gcc|WGT_BACKEND=vulkan|./bins/bench-gcc"
+                --variant "cosmo|WGT_BACKEND=vulkan|sh ./cosmo/dawn-bench.com" --variant "native-clang-again|WGT_BACKEND=vulkan|./bins/bench-clang")
+          python3 ci-webgpu-test/bench_ab.py "${args[@]}" 2>&1 | tee bench-out.txt
+      - name: Result (last)
+        if: always()
+        run: tail -n 45 bench-out.txt 2>/dev/null | cut -c1-260
