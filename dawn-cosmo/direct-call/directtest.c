@@ -79,6 +79,13 @@ static void tlsinfo(const char *where) {
            (void *)__get_tls(), (void *)&mine, (long)((char *)&mine - (char *)__get_tls()), sa, (char *)sa + ss);
 }
 static void *tlsinfo_thr(void *a) { (void)a; tlsinfo("thread"); return 0; }
+// Cosmopolitan thread-locals on threads made by the foreign pthread_create: are they per thread, and is the thread pointer something Cosmopolitan understands?
+static _Thread_local volatile long tlv; static atomic_long tl_bad;
+static void *tl_check_thr(void *arg) {
+    long id = (long)arg; tlv = id * 1000000; for (long i = 0; i < 3000000; i++) tlv++; if (tlv != id * 1000000 + 3000000) atomic_fetch_add(&tl_bad, 1);
+    void *p = malloc(64); if (!p) atomic_fetch_add(&tl_bad, 1); free(p); errno = 7; if (errno != 7) atomic_fetch_add(&tl_bad, 1);
+    printf("  thread %ld: __get_tls=%p tlv=%ld pthread_self=%#lx\n", id, (void *)__get_tls(), (long)tlv, (unsigned long)pthread_self()); return 0;
+}
 int main(int argc, char **argv) {
   const char *mode = argc > 1 ? argv[1] : "tramp";
   void *h = g_h = cosmo_dlopen("./libclobber.so", RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 2; }
@@ -108,6 +115,14 @@ int main(int argc, char **argv) {
     long a = f_tls(1), b = f_tls(1), c = t_tls(1); printf("THREAD main foreign_tls_values_raw=%ld,%ld trampolined=%ld (expected 1,2,3)\n", a, b, c); fflush(stdout);
     for (long i = 1; i <= 3; i++) { pthread_t t; pthread_create(&t, 0, thr, (void *)i); pthread_join(t, 0); }
     printf("RESULT threads done\n"); return 0;
+  }
+  if (!strcmp(mode, "tlscheck")) {   // tlscheck <cosmo|foreign>: four threads, each with its own _Thread_local counter
+    setvbuf(stdout, 0, _IONBF, 0); int foreign = argc > 2 && !strcmp(argv[2], "foreign");
+    typedef int (*pc_t)(unsigned long *, const void *, void *(*)(void *), void *); typedef int (*pj_t)(unsigned long, void **);
+    pc_t pc = cosmo_dltramp(cosmo_dlsym(h, "pthread_create")); pj_t pj = cosmo_dltramp(cosmo_dlsym(h, "pthread_join")); unsigned long ft[4]; pthread_t ct[4];
+    for (long i = 0; i < 4; i++) { if (foreign) pc(&ft[i], 0, tl_check_thr, (void *)(i + 1)); else pthread_create(&ct[i], 0, tl_check_thr, (void *)(i + 1)); }
+    for (int i = 0; i < 4; i++) { if (foreign) pj(ft[i], 0); else pthread_join(ct[i], 0); }
+    printf("RESULT tlscheck %s: violations=%ld\n", foreign ? "foreign-created threads" : "cosmo-created threads", (long)atomic_load(&tl_bad)); return tl_bad ? 1 : 0;
   }
   if (!strcmp(mode, "tlsinfo")) { setvbuf(stdout, 0, _IONBF, 0); tlsinfo("main"); pthread_t t; pthread_create(&t, 0, tlsinfo_thr, 0); pthread_join(t, 0); return 0; }
   if (!strcmp(mode, "battery")) {   // battery <fb_test> <main|thread|thread-ctype-init>: foreign C library use from the main thread or from a thread the C library created

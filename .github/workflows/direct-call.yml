@@ -45,3 +45,6 @@ jobs:
           for tst in fb_ctype fb_malloc fb_errno fb_format fb_mutex fb_once fb_self fb_spawn_join; do for where in main thread thread-uselocale foreign-thread; do
             timeout -s KILL 20 sh ./directtest.com battery $tst $where > b.txt 2>&1; rc=$?; r=$(grep -m1 "^RESULT" b.txt | cut -c1-110); [ $rc = 137 ] && r="HANG (killed after 20 s)"; [ $rc -gt 128 ] && [ $rc != 137 ] && r="CRASH (signal $((rc-128)))"; printf "%-14s %-16s exit %-3s %s\n" $tst $where $rc "$r"
           done; done
+      - name: Cosmopolitan thread-locals on cosmo-created and on foreign-created threads (are they per thread?)
+        run: |
+          set +e; cd out; for k in cosmo foreign; do timeout -s KILL 30 sh ./directtest.com tlscheck $k > tc.txt 2>&1; rc=$?; echo "--- $k-created threads: exit $rc"; cat tc.txt | cut -c1-200 | tail -7; done
