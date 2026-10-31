@@ -1,0 +1,57 @@
+name: packing-fs
+# Compression that costs nothing at start-up: transparent file-system compression applied by an installer after the download (NTFS on Windows, APFS on macOS). The file stays byte-identical to the
+# program (the file system decompresses pages when they are read), so signatures and the single-file design are unaffected. Measured: on-disk size and the time of a fresh start of the Dawn test.
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'dawn-cosmo run whose artifact wgt-dawn holds the fat file', required: true, default: '41082029863' }
+      trials: { description: 'trials per variant', required: false, default: '8' }
+jobs:
+  fs:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: win-x64,   os: windows-latest }
+          - { label: win-arm64, os: windows-11-arm }
+          - { label: mac-arm64, os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - name: The fat file
+        run: gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D in && ls -la in
+      - name: Windows - NTFS compression of an executable (compact /c /exe:...)
+        if: runner.os == 'Windows'
+        run: |
+          set +e; SRC=in/wgt-dawn.com; mkdir t; echo "size on disk of the original: $(stat -c %s $SRC)"
+          run1() { local f=$1; local t0=$(date +%s%N); ./$f > /dev/null 2>&1; local rc=$?; echo "$(( ($(date +%s%N) - t0) / 1000000 )) $rc"; }
+          for v in none lzx xpress16k xpress4k; do
+            : > res.$v
+            for i in $(seq 1 ${{ inputs.trials }}); do
+              f=t/f-$v-$i.exe; cp $SRC $f
+              if [ $v != none ]; then compact //c //exe:$v $f > compact.$v.txt 2>&1; fi
+              run1 $f >> res.$v
+            done
+            ms=$(awk '{print $1}' res.$v | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}'); rcs=$(awk '{print $2}' res.$v | sort -u | tr '\n' ' ')
+            echo "variant $v: fresh start median $ms ms (exit codes: $rcs); $(grep -i -E 'compressed|ratio' compact.$v.txt 2>/dev/null | tail -2 | tr '\n' ' ')"
+          done
+          echo "--- compact /q (size on disk and ratio) for the last copy of each variant"; for v in lzx xpress16k xpress4k; do compact //q t/f-$v-1.exe 2>&1 | tail -3; done
+      - name: macOS - APFS transparent compression (ditto --hfsCompression)
+        if: runner.os == 'macOS'
+        run: |
+          set +e; SRC=in/wgt-dawn.com; mkdir t; chmod +x $SRC; sh $SRC > /dev/null 2>&1   # primes the loader the file builds on first run
+          echo "original: $(stat -f %z $SRC) bytes, blocks on disk: $(ls -ls $SRC | awk '{print $1*512}')"
+          run1() { local f=$1; local t0=$(python3 -c 'import time;print(time.time_ns())'); sh ./$f > /dev/null 2>&1; local rc=$?; echo "$(( ($(python3 -c 'import time;print(time.time_ns())') - t0) / 1000000 )) $rc"; }
+          for v in none hfs; do
+            : > res.$v
+            for i in $(seq 1 ${{ inputs.trials }}); do
+              f=t/f-$v-$i.com; if [ $v = hfs ]; then ditto --hfsCompression $SRC $f; else cp $SRC $f; fi; chmod +x $f
+              run1 $f >> res.$v
+            done
+            ms=$(awk '{print $1}' res.$v | sort -n | awk '{a[NR]=$1} END{print a[int((NR+1)/2)]}')
+            echo "variant $v: fresh start median $ms ms; last copy: $(ls -lsO t/f-$v-1.com | awk '{print "blocks on disk " $1*512 " bytes, flags " $6}')"
+          done
+      - name: Result (last)
+        if: always()
+        run: echo done
