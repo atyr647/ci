@@ -10,7 +10,7 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
-          mkdir out; cosmo/bin/cosmoc++ -O2 -std=c++17 alloc-probe/xthread_alloc.cpp -o out/xthread.com && ls -la out
+          mkdir out; cosmo/bin/cosmoc++ -O2 -std=c++17 alloc-probe/xthread_alloc.cpp -o out/xthread.com && cosmo/bin/cosmoc++ -O2 -std=c++17 alloc-probe/static_init_race.cpp -o out/staticinit.com && ls -la out
       - uses: actions/upload-artifact@v4
         with: { name: alloc-race-bin, path: out }
   run:
@@ -31,7 +31,10 @@ jobs:
         with: { name: alloc-race-bin, path: out }
       - name: Runs
         run: |
-          set +e; cd out; chmod +x xthread.com; [ "$RUNNER_OS" = Windows ] && cp xthread.com xthread.exe
-          run() { if [ "$RUNNER_OS" = Windows ]; then timeout 60 ./xthread.exe "$@"; else timeout -s KILL 60 sh ./xthread.com "$@"; fi; }
+          set +e; cd out; chmod +x xthread.com staticinit.com; [ "$RUNNER_OS" = Windows ] && { cp xthread.com xthread.exe; cp staticinit.com staticinit.exe; }
+          run() { if [ "$RUNNER_OS" = Windows ]; then ./xthread.exe "$@"; else sh ./xthread.com "$@"; fi; }
+          runs() { if [ "$RUNNER_OS" = Windows ]; then ./staticinit.exe "$@"; else sh ./staticinit.com "$@"; fi; }
+          for i in 1 2 3 4 5 6 7 8 9 10; do echo "=== Cosmopolitan static-initialisation race, 12 threads, run $i"; runs 12 2>&1 | tail -2; done
+          $( [ "$RUNNER_OS" = Windows ] && echo g++ || echo c++ ) -O2 -std=c++17 ../alloc-probe/static_init_race.cpp -o nativesi -pthread $( [ "$RUNNER_OS" = Windows ] && echo -static ) && for i in 1 2 3; do echo "=== native static-initialisation race, run $i"; ./nativesi 12 2>&1 | tail -2; done
           for t in 2 6 12; do echo "=== Cosmopolitan, $t threads"; run $t 4 2>&1 | tail -3; echo "exit $?"; done
           CXX=c++; [ "$RUNNER_OS" = Windows ] && CXX=g++; $CXX -O2 -std=c++17 ../alloc-probe/xthread_alloc.cpp -o native -pthread $( [ "$RUNNER_OS" = Windows ] && echo -static ) && for t in 6 12; do echo "=== native, $t threads"; ./native $t 4 2>&1 | tail -2; done
