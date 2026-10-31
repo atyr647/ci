@@ -64,6 +64,7 @@ struct DawnCosmoForeignScope {
 #include <pthread.h>
 #include <signal.h>
 #include <sys/auxv.h>
+#include <initializer_list>
 #include <sys/mman.h>
 #include <string.h>
 #include <time.h>
