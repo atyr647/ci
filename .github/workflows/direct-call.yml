@@ -1,0 +1,41 @@
+name: direct-call
+# Is it safe to call a foreign (driver) library on arm64 Linux without cosmo_dltramp's signal-blocking trampoline?  See dawn-cosmo/direct-call/directtest.c for what each mode shows.
+on:
+  workflow_dispatch:
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fat executable
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          mkdir out; cosmo/bin/cosmocc -O2 dawn-cosmo/direct-call/directtest.c -o out/directtest.com && ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: direct-call-bin, path: out }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: linux-x64,   os: ubuntu-latest }
+    runs-on: ${{ matrix.os }}
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: direct-call-bin, path: out }
+      - name: Foreign library (platform compiler)
+        run: cd out && gcc -O2 -shared -fPIC ../dawn-cosmo/direct-call/clobber.c -o libclobber.so && chmod +x directtest.com && ls -la
+      - name: Modes (each in its own process; exit status and signal printed)
+        run: |
+          set +e; cd out
+          for m in tramp direct-open direct-blocked direct-poll cost threads; do
+            echo "=== $m"; sh ./directtest.com $m > r.$m.txt 2>&1; rc=$?; cat r.$m.txt | cut -c1-300 | tail -n 8; echo "exit status $rc$( [ $rc -gt 128 ] && echo " (killed by signal $((rc-128)))" )"
+          done
+      - name: Result (last)
+        if: always()
+        run: |
+          cd out; echo "### ${{ matrix.label }}"; for m in tramp direct-open direct-blocked direct-poll cost threads; do echo "--- $m"; grep -E "^(RESULT|THREAD)" r.$m.txt 2>/dev/null || echo "(no result line: process did not finish)"; done
