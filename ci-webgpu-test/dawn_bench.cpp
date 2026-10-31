@@ -207,6 +207,16 @@ static int bench_main(int argc, char **argv) {
         const int n = scaled(4000); WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT; b.size = 65536; b.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
         auto t0 = Clock::now(); for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); }
         bench("buffer_create_release_us", ms_since(t0) * 1e3 / n, "us/op");
+        {   // the same with the device ticked every 64 iterations: Dawn frees a released buffer's memory only when the queue is ticked, so the loop above makes memory grow (page faults on fresh pages);
+            // this one stays at a steady state. Also the resident memory growth per iteration of each loop.
+            auto rss = []() -> double { FILE *f = fopen("/proc/self/statm", "r"); long a = 0, r = 0; if (f) { if (fscanf(f, "%ld %ld", &a, &r) != 2) r = 0; fclose(f); } return (double)r * 4096.0; };
+            double r0 = rss(); const int n2 = scaled(40000);
+            auto t1 = Clock::now(); for (int i = 0; i < n2; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); if ((i & 63) == 63) wgpuDeviceTick(dev); }
+            double us = ms_since(t1) * 1e3 / n2; bench("buffer_create_release_steady_us", us, "us/op");
+            double r1 = rss(); if (r0 > 0) bench("buffer_loop_steady_rss_bytes_per_iter", (r1 - r0) / n2, "B/iter");
+            double r2 = rss(); auto t2 = Clock::now(); for (int i = 0; i < n2; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); } (void)t2;
+            double r3 = rss(); if (r2 > 0) bench("buffer_loop_untick_rss_bytes_per_iter", (r3 - r2) / n2, "B/iter");
+        }
         const int m = scaled(1500); t0 = Clock::now();
         for (int i = 0; i < m; i++) { WGPUBindGroup x = wgpuDeviceCreateBindGroup(dev, &bgd); wgpuBindGroupRelease(x); }
         bench("bindgroup_create_release_us", ms_since(t0) * 1e3 / m, "us/op");
