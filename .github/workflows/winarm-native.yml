@@ -38,13 +38,15 @@ jobs:
         run: |
           set +e; SO=$(ls so/so-simd.wasm so/*/so-simd.wasm 2>/dev/null | head -1); SC=$(ls so/so-scalar.wasm so/*/so-scalar.wasm 2>/dev/null | head -1); echo "simd=$SO scalar=$SC"
           "$WT_EXE" compile "$SO" -o simd.cwasm && "$WT_EXE" compile "$SC" -o scalar.cwasm
-          echo "--- raw: native host"; ./wt-host.exe simd.cwasm 1 2>&1 | head -8; echo "exit $?"; echo "--- raw: Cosmopolitan file"; ./wn.exe sig so-simd 2>&1 | head -8; echo "--- raw: wasm with the host (JIT from wasm)"; ./wt-host.exe $SO 1 2>&1 | head -8
+          # the C API host uses the deferred reference-counting collector by default and the CLI the copying one: a module is only loadable by the collector it was compiled for, so the host gets its own copies
+          "$WT_EXE" compile -O collector=drc "$SO" -o simd.drc.cwasm && "$WT_EXE" compile -O collector=drc "$SC" -o scalar.drc.cwasm
+          echo "--- raw: native host"; ./wt-host.exe simd.drc.cwasm 1 2>&1 | head -8; echo "exit $?"; echo "--- raw: Cosmopolitan file"; ./wn/wn.exe sig so-simd 2>&1 | head -8; echo "--- raw: wasm with the host (JIT from wasm)"; ./wt-host.exe $SO 1 2>&1 | head -8
           for g in simd scalar; do
             for r in $(seq 1 ${{ inputs.rounds }}); do
               W=$( [ $g = simd ] && echo $SO || echo $SC )
               "$WT_EXE" run --allow-precompiled $g.cwasm 2>&1 | sed "s/^KERNEL /KERNEL native-cli-$g /" | grep KERNEL
-              ./wt-host.exe $g.cwasm 1 2>&1 | grep -E "KERNEL" | sed "s/^KERNEL /KERNEL native-host-$g /"
-              ./wn.exe sig so-$g 2>&1 | grep KERNEL | sed "s/^KERNEL /KERNEL cosmo-emulated-$g /"
+              ./wt-host.exe $g.drc.cwasm 1 2>&1 | grep -E "KERNEL" | sed "s/^KERNEL /KERNEL native-host-$g /"
+              ./wn/wn.exe sig so-$g 2>&1 | grep KERNEL | sed "s/^KERNEL /KERNEL cosmo-emulated-$g /"
             done
           done | tee kernels.txt
           python3 - <<'PY'
