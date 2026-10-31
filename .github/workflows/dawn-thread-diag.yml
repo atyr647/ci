@@ -16,9 +16,10 @@ jobs:
     runs-on: ${{ matrix.os }}
     env: { GH_TOKEN: '${{ github.token }}' }
     steps:
+      - uses: actions/checkout@v4
       - name: Dependencies and the files (the linker's .dbg ELF carries the symbols)
         run: |
-          sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 gdb
+          sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 gdb strace
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D d && chmod +x d/*; gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D c
           A=$(uname -m); echo "DBG=$PWD/d/dawn-bench.$A.com.dbg" >> $GITHUB_ENV; ls -la d
       - name: The benchmark on a created thread - where is every thread when the process does not end (the .dbg ELF, run as the normal user, attached to with gdb)
@@ -26,7 +27,7 @@ jobs:
           set +e; export WGT_BACKEND=vulkan BENCH_IN_THREAD=1 DAWN_COSMO_DIAG=1
           $DBG > hang.txt 2>&1 & P=$!
           for i in $(seq 1 60); do sleep 1; grep -q process_total_ms hang.txt && break; done; echo "benchmark output complete after ~$i s"; sleep 12
-          if kill -0 $P 2>/dev/null; then echo "THE PROCESS IS STILL THERE 12 s after it printed its last line"; echo "--- last lines of its output"; tail -n 12 hang.txt | cut -c1-160; echo "--- threads 1 to 4 (the others are parked and library threads)"; sudo gdb -p $P -batch -ex "thread apply 1 2 3 4 bt 30" -ex "thread 2" -ex "info symbol \$pc" -ex "info symbol \$x30" -ex "x/6i \$pc-12" -ex "thread 3" -ex "info symbol \$pc" -ex "info symbol \$x30" -ex "thread 4" -ex "info symbol \$pc" -ex "info symbol \$x30" -ex "info proc mappings" 2>&1 | grep -v "^\[New\|^\[Thread\|^warning\|^Reading\|^Using\|^\[Inferior" | grep -v "^  *0x[0-9a-f]* *0x[0-9a-f]* *0x[0-9a-f]* *0x[0-9a-f]* *[rwx-]*[sp]* *$" | head -150 | cut -c1-240; sudo cat /proc/$P/status | grep -E "State|Threads"; ls /proc/$P/task | wc -l; for t in /proc/$P/task/*; do echo "$(basename $t) $(cat $t/comm) $(cat $t/wchan 2>/dev/null) $(cat $t/stat | cut -d' ' -f3)"; done | head -30; kill -9 $P; else echo "ended by itself"; fi
+          if kill -0 $P 2>/dev/null; then echo "THE PROCESS IS STILL THERE 12 s after it printed its last line"; echo "--- last lines of its output"; tail -n 12 hang.txt | cut -c1-160; echo "--- threads 1 to 4 (the others are parked and library threads)"; sudo gdb -p $P -batch -ex "thread apply 1 2 3 4 bt 30" -ex "thread 2" -ex "info symbol \$pc" -ex "info symbol \$x30" -ex "x/6i \$pc-12" -ex "thread 3" -ex "info symbol \$pc" -ex "info symbol \$x30" -ex "thread 4" -ex "info symbol \$pc" -ex "info symbol \$x30" -ex "info proc mappings" 2>&1 | grep -v "^\[New\|^\[Thread\|^warning\|^Reading\|^Using\|^\[Inferior" | grep -v "^  *0x[0-9a-f]* *0x[0-9a-f]* *0x[0-9a-f]* *0x[0-9a-f]* *[rwx-]*[sp]* *$" | head -150 | cut -c1-240; sudo cat /proc/$P/status | grep -E "State|Threads"; ls /proc/$P/task | wc -l; for t in /proc/$P/task/*; do echo "$(basename $t) $(cat $t/comm) $(cat $t/wchan 2>/dev/null) $(cat $t/stat | cut -d' ' -f3)"; done | head -30; echo "--- futex calls the three newest threads are blocked in (strace attach), and what holds the futex words"; for T in $(ls /proc/$P/task | sort -n | tail -3); do echo "thread $T: $(sudo timeout 3 strace -p $T -e trace=futex 2>&1 | head -2 | tr '\n' ' ' | cut -c1-200)"; done; sudo cat /proc/$P/maps | awk '{print $1, $6}' > maps.txt; for A in $(for T in $(ls /proc/$P/task | sort -n | tail -3); do sudo timeout 3 strace -p $T -e trace=futex 2>&1 | grep -o "futex(0x[0-9a-f]*" | head -1 | sed 's/futex(//'; done); do python3 dawn-cosmo/direct-call/futexmap.py "$A" maps.txt; done; kill -9 $P; else echo "ended by itself"; fi
       - name: Async pipeline creation - where it crashes and in what state
         run: |
           set +e; export WGT_BACKEND=vulkan BENCH_ASYNC_PIPELINE=1 DAWN_COSMO_INLINE_WORKERS=0 DAWN_COSMO_DIAG=1
