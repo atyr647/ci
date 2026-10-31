@@ -48,7 +48,7 @@ jobs:
       - name: The helper itself on the old distributions - a plain foreign library (no Mesa, no Vulkan) loaded by cosmo_dlopen with the pre-built helper in the cache, no compiler
         run: |
           set +e; mkdir -p dc; gh run download 41212426566 -R ${{ github.repository }} -n direct-call-bin -D dc && chmod +x dc/directtest.com
-          docker run --rm -v $PWD:/src ubuntu:20.04 bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc libc6-dev >/dev/null && cc -O2 -shared -fPIC /src/dawn-cosmo/direct-call/clobber.c -o /src/dc/libclobber.so && echo built' && ls -la dc/libclobber.so
+          docker run --rm -v $PWD:/src ubuntu:20.04 bash -c 'apt-get update -qq && DEBIAN_FRONTEND=noninteractive apt-get install -y -qq gcc libc6-dev >/dev/null && cc -O2 -shared -fPIC /src/dawn-cosmo/direct-call/clobber.c -o /src/dc/libclobber.so -lpthread && echo built' && ls -la dc/libclobber.so
           for img in ubuntu:20.04 debian:11 ubuntu:24.04; do
             sudo rm -rf t; mkdir -p t/.cosmo; cp out/dlopen-helper out/dlopen-helper.c t/.cosmo/; touch t/.cosmo/dlopen-helper t/.cosmo/dlopen-helper.c
             echo "=== $img (no compiler): cosmo_dlopen of a plain library, then 3 foreign calls through the trampoline"
