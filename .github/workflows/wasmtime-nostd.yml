@@ -139,8 +139,31 @@ jobs:
           PY
       - uses: actions/upload-artifact@v4
         with: { name: guests, path: "out\nout-stock\nwasm" }
+  winarm:
+    needs: guests
+    runs-on: windows-11-arm
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        with: { arch: arm64 }
+      - uses: actions/download-artifact@v4
+        with: { name: guests, path: guests }
+      - name: Native arm64 host (official Wasmtime C API; clang-cl objects, Visual Studio linker) and the guests precompiled by it
+        run: |
+          curl -fsSL -o capi.zip https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-aarch64-windows-c-api.zip && mkdir capi && unzip -q capi.zip -d capi
+          C=$(find "$PWD/capi" -maxdepth 1 -type d -name 'wasmtime-*' | head -1); export MSYS_NO_PATHCONV=1
+          INC="$(cygpath -w $C/include)"; WTLIB="$(cygpath -w $C/lib/wasmtime.dll.lib)"   # not LIB: that is the compiler environment's library search path
+          clang-cl --target=aarch64-pc-windows-msvc -MD -nologo -O2 -DWASM_API_EXTERN= -DWASI_API_EXTERN= -I"$INC" -c winarm/host.c wasmtime-nostd/host/native_kernels.c 2>&1 | tail -5
+          MSVCLINK=$(which -a link.exe link 2>/dev/null | grep -i "Visual Studio" | head -1); [ -z "$MSVCLINK" ] && MSVCLINK="$(cygpath -u "$VCToolsInstallDir")bin/HostARM64/arm64/link.exe"
+          "$MSVCLINK" -nologo host.obj native_kernels.obj "$WTLIB" -out:wt-host.exe 2>&1 | tail -5
+          mkdir winarm-out; cp wt-host.exe winarm-out/; cp $C/lib/wasmtime.dll winarm-out/ 2>/dev/null || cp $C/bin/wasmtime.dll winarm-out/
+          for g in kern so-simd so-scalar; do ./wt-host.exe --precompile guests/wasm/$g.wasm winarm-out/$g.cwasm; done
+          ls -la winarm-out
+      - uses: actions/upload-artifact@v4
+        with: { name: winarm, path: winarm-out }
   link:
-    needs: [rust, guests]
+    needs: [rust, guests, winarm]
     runs-on: ubuntu-latest
     steps:
       - uses: actions/checkout@v4
@@ -150,6 +173,8 @@ jobs:
         with: { name: lib-aarch64, path: lib/aarch64 }
       - uses: actions/download-artifact@v4
         with: { name: guests, path: guests }
+      - uses: actions/download-artifact@v4
+        with: { name: winarm, path: winarm }
       - name: Link both architectures with Cosmopolitan, make ONE file, embed the .cwasm files
         run: |
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
@@ -168,6 +193,7 @@ jobs:
           $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o par-native.com parts/par.x86_64.com.dbg parts/par.aarch64.com.dbg
           cp wn.com wn-bare.com
           (cd guests/out && zip -q ../../wn.com *.cwasm)
+          mkdir -p stage/winarm && cp winarm/* stage/winarm/ && (cd stage && zip -q -9 ../wn.com winarm/*)   # the native Windows on ARM host: unpacked and run by the file on such machines
           ls -la wn.com wn-bare.com; echo "libs: $(ls -la lib/x86_64/libwn_embedding.a lib/aarch64/libwn_embedding.a | awk '{print $5}' | tr '\n' ' ')"
       - uses: actions/upload-artifact@v4
         with: { name: wn, path: "wn.com\nwn-bare.com\npar-native.com" }
@@ -234,6 +260,18 @@ jobs:
         continue-on-error: true
         run: |
           for mode in sig nosig pulley; do echo "=== stress guest traps, mode $mode"; WN_TRACE=1 $RUN $mode stress --invoke=ok,oob,oob2,oob3,ok,div0,ok,unreach,ok,recurse,ok --expect-fault; echo "exit: $?"; done
+      - name: Windows on ARM - the file starts the native arm64 host (same file, native against emulated)
+        if: matrix.label == 'win-arm64'
+        continue-on-error: true
+        run: |
+          set +e; cp wn.com wn.exe; ls -la wn.exe
+          for g in kern so-simd; do
+            echo "=== $g: default"; ./wn.exe sig $g > nat.$g.txt 2>&1; echo "exit $?"; grep -E "^host :" nat.$g.txt | cut -c1-150 | head -4
+            echo "=== $g: WN_NO_NATIVE=1 (emulated x86-64 half)"; WN_NO_NATIVE=1 ./wn.exe sig $g > emu.$g.txt 2>&1; echo "exit $?"; grep -E "^host :" emu.$g.txt | cut -c1-150 | head -3
+          done
+          for r in 2 3; do ./wn.exe sig kern >> nat.kern.txt 2>&1; WN_NO_NATIVE=1 ./wn.exe sig kern >> emu.kern.txt 2>&1; done
+          PY=$(command -v python3 || command -v python); $PY wasmtime-nostd/tools/kern-table.py native-arm64-from-the-file=nat.kern.txt emulated-from-the-file=emu.kern.txt | grep -E "^(###|\| matmul \| (64|256)|\| dot \| 16384)" | cut -c1-170
+          for r in 1 2 3; do ./wn.exe sig so-simd | grep KERNEL | sed "s/^KERNEL /KERNEL native /"; WN_NO_NATIVE=1 ./wn.exe sig so-simd | grep KERNEL | sed "s/^KERNEL /KERNEL emulated /"; done | $PY wasmtime-nostd/tools/best-table.py
       - name: Stress - N OS threads x (wasm compute, host calls, memory.grow, deliberate traps), results checked
         timeout-minutes: 8
         continue-on-error: true

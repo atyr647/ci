@@ -15,6 +15,9 @@
 #include <time.h>
 #include <cosmo.h>
 #include <dlfcn.h>
+#include <spawn.h>
+#include <sys/stat.h>
+#include <sys/wait.h>
 #include "wn-platform.h"
 #include "kernels.h"
 #include "native_kernels.h"
@@ -111,6 +114,33 @@ static int under_arm_emulation(void) {
     w2_t f = (w2_t)cosmo_dlsym(k, "IsWow64Process2"); if (!f) return 0;
     unsigned short proc = 0, native = 0; if (!f((void *)(intptr_t)-1, &proc, &native)) return 0;
     return native == 0xAA64;
+}
+
+/* Windows on ARM: the x86-64 half of this file runs under emulation. If the file carries a native arm64 build of the host (zip entries winarm/wt-host.exe, winarm/wasmtime.dll and winarm/<guest>.cwasm, made by the
+ * "winarm" job from winarm/host.c and the official Wasmtime C API), it is unpacked once into %TEMP% and run instead, with the same output and exit status. Returns the exit status, or -1 if there is nothing native to run.
+ * WN_NO_NATIVE=1 keeps the emulated path (for comparisons). */
+static int run_native_arm64(const char *guest) {
+    char p[512]; size_t n1 = 0, n2 = 0, n3 = 0;
+    uint8_t *he = read_all("/zip/winarm/wt-host.exe", &n1), *hd = read_all("/zip/winarm/wasmtime.dll", &n2);
+    snprintf(p, sizeof p, "/zip/winarm/%s.cwasm", guest); uint8_t *hm = read_all(p, &n3);
+    if (!he || !hd || !hm) { free(he); free(hd); free(hm); return -1; }
+    const char *tmp = getenv("TEMP"); if (!tmp || !*tmp) tmp = getenv("TMP"); if (!tmp || !*tmp) tmp = ".";
+    uint64_t key = 1469598103934665603ull; for (size_t i = 0; i < n1; i += 997) key = (key ^ he[i]) * 1099511628211ull; for (size_t i = 0; i < n2; i += 4093) key = (key ^ hd[i]) * 1099511628211ull;
+    char dir[600], exe[700], dll[700], mod[700];
+    snprintf(dir, sizeof dir, "%s/celori-native-%llx", tmp, (unsigned long long)key); mkdir(dir, 0755);
+    snprintf(exe, sizeof exe, "%s/wt-host.exe", dir); snprintf(dll, sizeof dll, "%s/wasmtime.dll", dir); snprintf(mod, sizeof mod, "%s/%s.cwasm", dir, guest);
+    struct { const char *path; uint8_t *data; size_t n; } f[3] = {{exe, he, n1}, {dll, hd, n2}, {mod, hm, n3}};
+    for (int i = 0; i < 3; i++) {
+        struct stat st; if (stat(f[i].path, &st) == 0 && (size_t)st.st_size == f[i].n) continue;
+        char t[800]; snprintf(t, sizeof t, "%s.%d", f[i].path, (int)getpid()); FILE *o = fopen(t, "wb");
+        if (!o || fwrite(f[i].data, 1, f[i].n, o) != f[i].n || fclose(o) != 0 || rename(t, f[i].path) != 0) { remove(t); fprintf(stderr, "host : cannot unpack the native host to %s\n", dir); return -1; }
+    }
+    free(he); free(hd); free(hm);
+    printf("host : Windows on ARM: starting the native arm64 host (%s)\n", dir); fflush(stdout);
+    char *args[] = {exe, mod, (char *)"1", NULL}; pid_t pid; int ws = 0;
+    if (posix_spawn(&pid, exe, NULL, NULL, args, environ)) { fprintf(stderr, "host : cannot start the native host\n"); return -1; }
+    if (waitpid(pid, &ws, 0) < 0) return -1;
+    return WIFEXITED(ws) ? WEXITSTATUS(ws) : 1;
 }
 static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &t); return t.tv_sec * 1e3 + t.tv_nsec / 1e6; }
 
@@ -240,6 +270,7 @@ int main(int argc, char **argv) {
         else if (!strcmp(argv[i], "--expect-fault")) expect_fault = 1;
         else if (!strcmp(argv[i], "--wt")) wt = 1;
     }
+    if (IsWindows() && !stress && !wt && !expect_fault && g_gargc == 1 && !strcmp(entry, "_start") && !getenv("WN_NO_NATIVE") && under_arm_emulation()) { int rc = run_native_arm64(base); if (rc >= 0) return rc; }
     if (getenv("WN_X28") && !strcmp(getenv("WN_X28"), "save")) wn_x28_save = 1;
     int m = !strcmp(mode, "sig") ? 0 : !strcmp(mode, "nosig") ? 1 : 2;
     const char *arch = IsAarch64() ? "aarch64" : "x86_64";
