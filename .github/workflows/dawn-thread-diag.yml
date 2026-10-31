@@ -30,6 +30,6 @@ jobs:
       - name: Async pipeline creation - where it crashes and in what state
         run: |
           set +e; export WGT_BACKEND=vulkan BENCH_ASYNC_PIPELINE=1 DAWN_COSMO_INLINE_WORKERS=0 DAWN_COSMO_DIAG=1
-          if [ "$(uname -m)" = aarch64 ]; then REGS="info registers x0 x1 x2 x28 sp pc"; else REGS="info registers rax rbx rcx rdx rsp rip fs_base"; fi
-          timeout -s KILL 120 sudo -E gdb -batch -ex "handle SIGSEGV stop nopass" -ex run -ex 'p $_siginfo._sifields._sigfault.si_addr' -ex "$REGS" -ex "x/14i \$pc-48" -ex "bt 25" -ex "info proc mappings" --args $DBG > gdb1.txt 2>&1
+          if [ "$(uname -m)" = aarch64 ]; then REGS="info registers x0 x1 x2 x28 sp pc"; EXTRA='p/x $tpidr' ; else REGS="info registers rax rbx rcx rdx rsp rip fs_base"; EXTRA='p/x $fs_base' ; fi
+          timeout -s KILL 120 sudo -E gdb -batch -ex "handle SIGSEGV stop nopass" -ex run -ex 'p $_siginfo._sifields._sigfault.si_addr' -ex "$REGS" -ex "x/14i \$pc-48" -ex "bt 25" -ex "$EXTRA" -ex "info proc mappings" --args $DBG > gdb1.txt 2>&1
           grep -E "dawn-cosmo:|^#[0-9]+ |received signal|si_addr|^\\$|^x[0-9]+ |^rax|^rip|^pc|^sp|^fs_base|=> " gdb1.txt | cut -c1-200; PC=$(grep -E "^(rip|pc) " gdb1.txt | head -1 | awk '{print $2}'); echo "pc=$PC"; grep -B1 -A1 -i "${PC:0:9}" gdb1.txt | head -6 | cut -c1-200; awk -v p="$PC" 'BEGIN{pc=strtonum(p)} $1 ~ /^0x/ && $2 ~ /^0x/ {s=strtonum($1); e=strtonum($2); if (pc>=s && pc<e) print "mapping holding pc:", $0}' gdb1.txt

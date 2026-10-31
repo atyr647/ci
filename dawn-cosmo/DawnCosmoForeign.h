@@ -71,10 +71,14 @@ unsigned long gPool[kPool];
 std::atomic<int> gUsed[kPool];
 int gCount = 0;
 bool gInitDone = false;
-inline unsigned long ReadTp() {
+inline unsigned long ReadTp() {   // the thread pointer REGISTER (not %fs:0, which Cosmopolitan code reads as its own thread information)
     unsigned long tp;
 #if defined(__x86_64__)
-    __asm__ volatile("mov %%fs:0, %0" : "=r"(tp));
+    if (gDawnCosmoFsgsbase) {
+        __asm__ volatile("rdfsbase %0" : "=r"(tp));
+    } else {
+        tp = 0; long r; __asm__ volatile("syscall" : "=a"(r) : "0"(158L), "D"(0x1003L), "S"((unsigned long)&tp) : "rcx", "r11", "memory");
+    }
 #else
     __asm__ volatile("mrs %0, tpidr_el0" : "=r"(tp));
 #endif
@@ -106,7 +110,7 @@ extern "C" void DawnCosmoForeignInit() {
         gPool[gCount++] = t + off;
     }
     pthread_sigmask(SIG_SETMASK, &old, nullptr);
-    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d)\n", gCount, gDawnCosmoFsgsbase);
+    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d), main thread pointer %#lx, offset %#lx, first block %#lx\n", gCount, gDawnCosmoFsgsbase, ReadTp(), off, gCount ? gPool[0] : 0UL);
 }
 extern "C" unsigned long DawnCosmoForeignTcb() {
     if (gChecked) return gSlot.tcb;
@@ -116,6 +120,7 @@ extern "C" unsigned long DawnCosmoForeignTcb() {
         int zero = 0;
         if (gUsed[i].compare_exchange_strong(zero, 1)) {
             gSlot.idx = i; gSlot.tcb = gPool[i];
+            if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: thread %d takes parked block %d (thread pointer %#lx), own thread pointer %#lx\n", (int)gettid(), i, gSlot.tcb, ReadTp());
             sigset_t m; sigfillset(&m); sigdelset(&m, SIGSEGV); sigdelset(&m, SIGBUS); sigdelset(&m, SIGFPE); sigdelset(&m, SIGILL); sigdelset(&m, SIGTRAP);
             pthread_sigmask(SIG_BLOCK, &m, nullptr);   // see the header comment: no Cosmopolitan signal handler while the library's thread pointer is in place
             return gSlot.tcb;
