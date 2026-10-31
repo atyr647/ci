@@ -19,15 +19,15 @@ jobs:
       - name: Dependencies and the files (the linker's .dbg ELF carries the symbols)
         run: |
           sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1 gdb
-          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D d && chmod +x d/*
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D d && chmod +x d/*; gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D c
           A=$(uname -m); echo "DBG=$PWD/d/dawn-bench.$A.com.dbg" >> $GITHUB_ENV; ls -la d
-      - name: Async pipeline creation - crash backtrace of every thread
+      - name: Async pipeline creation - where it crashes and in what state
         run: |
           set +e; export WGT_BACKEND=vulkan BENCH_ASYNC_PIPELINE=1
-          timeout -s KILL 120 sudo -E gdb -batch -ex "handle SIGSEGV stop nopass" -ex run -ex "thread apply all bt 14" -ex "info registers pc sp" --args $DBG 2>&1 | grep -v "^BENCH\|^\[New\|^\[Thread\|^warning" | tail -n 70 | cut -c1-230
-      - name: The benchmark on a created thread - where does the process hang after it finished
+          if [ "$(uname -m)" = aarch64 ]; then REGS="info registers x0 x1 x2 x28 sp pc"; else REGS="info registers rax rbx rcx rdx rsp rip fs_base"; fi
+          timeout -s KILL 120 sudo -E gdb -batch -ex "handle SIGSEGV stop nopass" -ex run -ex 'p $_siginfo._sifields._sigfault.si_addr' -ex "$REGS" -ex "x/6i \$pc" -ex "info proc mappings" --args $DBG > gdb1.txt 2>&1
+          grep -E "received signal|si_addr|^\\$|^x28|^rax|^rip|^pc|^sp|^fs_base|=> " gdb1.txt | cut -c1-200; PC=$(grep -E "^(rip|pc) " gdb1.txt | head -1 | awk '{print $2}'); echo "pc=$PC"; grep -B1 -A1 -i "${PC:0:9}" gdb1.txt | head -6 | cut -c1-200; awk -v p="$PC" 'BEGIN{pc=strtonum(p)} $1 ~ /^0x/ && $2 ~ /^0x/ {s=strtonum($1); e=strtonum($2); if (pc>=s && pc<e) print "mapping holding pc:", $0}' gdb1.txt
+      - name: The benchmark on a created thread - does the process end by itself, run as the real file
         run: |
           set +e; export WGT_BACKEND=vulkan BENCH_IN_THREAD=1
-          $DBG > out.txt 2>&1 & P=$!; for i in $(seq 1 40); do sleep 1; kill -0 $P 2>/dev/null || break; done
-          if kill -0 $P 2>/dev/null; then echo "still running after 40 s: the hang"; sudo gdb -p $P -batch -ex "thread apply all bt 14" 2>&1 | grep -v "^\[New\|^\[Thread\|^warning\|^Reading\|^Using" | head -70 | cut -c1-230; kill -9 $P; else echo "finished by itself"; fi
-          tail -n 3 out.txt | cut -c1-200
+          chmod +x c/dawn-bench.com 2>/dev/null; for i in 1 2 3; do timeout -s KILL 60 sh ./c/dawn-bench.com > out.$i.txt 2>&1; echo "run $i exit $? ; last line: $(tail -n 1 out.$i.txt | cut -c1-120)"; done
