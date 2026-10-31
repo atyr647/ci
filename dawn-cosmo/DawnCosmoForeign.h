@@ -87,7 +87,8 @@ thread_local bool gChecked = false;
 extern "C" void DawnCosmoForeignInit() {
     if (gInitDone) return;
     gInitDone = true;
-    if (!IsLinux() || gettid() != getpid()) return;   // only the main thread has the library's own thread block to ask for pthread_self and to call pthread_create with
+    if (!IsLinux()) return;
+    if (gettid() != getpid()) { if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: DawnCosmoForeignInit was not called on the main thread; threads cannot call the driver\n"); return; }   // only the main thread has the library's own thread block to ask for pthread_self and to call pthread_create with
 #if defined(__x86_64__)
     gDawnCosmoFsgsbase = (getauxval(AT_HWCAP2) & 2) ? 1 : 0;   // HWCAP2_FSGSBASE
 #endif
@@ -105,6 +106,7 @@ extern "C" void DawnCosmoForeignInit() {
         gPool[gCount++] = t + off;
     }
     pthread_sigmask(SIG_SETMASK, &old, nullptr);
+    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d)\n", gCount, gDawnCosmoFsgsbase);
 }
 extern "C" unsigned long DawnCosmoForeignTcb() {
     if (gChecked) return gSlot.tcb;

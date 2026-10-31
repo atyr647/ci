@@ -23,6 +23,7 @@
 #endif
 #ifdef __COSMOPOLITAN__
 extern "C" void DawnCosmoGpuThreadEnter();
+extern "C" void DawnCosmoForeignInit();
 #endif
 #include <vector>
 #include <webgpu/webgpu.h>
@@ -319,6 +320,9 @@ static int bench_main(int argc, char **argv) {
 // BENCH_IN_THREAD=1: the whole benchmark runs on a thread this program creates instead of on the main thread (a game's render thread is not the main thread); the driver is then called from a thread
 // that the C library of this program created. Used to check that foreign (driver) code works on such threads.
 int main(int argc, char **argv) {
+#ifdef __COSMOPOLITAN__
+    DawnCosmoForeignInit();   // on the main thread, before any other thread calls the driver (what a game host does at start-up)
+#endif
     if (!getenv("BENCH_IN_THREAD")) return bench_main(argc, argv);
     int rc = 1;
 #ifdef __COSMOPOLITAN__
