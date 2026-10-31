@@ -74,11 +74,18 @@ extern "C" {
 int __real_pthread_create(pthread_t *, const pthread_attr_t *, void *(*)(void *), void *);
 struct win_shield_start { void *(*fn)(void *); void *arg; };
 static void *win_shield_thread_main(void *p) { struct win_shield_start s = *(struct win_shield_start *)p; free(p); win_shield_fix_teb(); return s.fn(s.arg); }
+/* Cosmopolitan's default thread stack is about 80 KiB: Dawn's device creation, Tint and the drivers need more (measured: "Stack Overflow" in vkCreateDevice on a std::thread, and in Dawn's async
+ * pipeline workers, on every OS). Every thread this program creates therefore gets at least 8 MiB (reserved, committed only as it is touched) unless the caller chose a stack itself. */
+#define WIN_SHIELD_MIN_STACK ((size_t)8 << 20)
 int __wrap_pthread_create(pthread_t *t, const pthread_attr_t *a, void *(*fn)(void *), void *arg) {
-  if (!IsWindows()) return __real_pthread_create(t, a, fn, arg);
-  struct win_shield_start *s = (struct win_shield_start *)malloc(sizeof *s); if (!s) return 12;
+  pthread_attr_t big; void *saddr = 0; size_t ssize = 0;
+  if (a) big = *a; else pthread_attr_init(&big);
+  pthread_attr_getstack(&big, &saddr, &ssize);
+  if (!saddr && ssize < WIN_SHIELD_MIN_STACK) pthread_attr_setstacksize(&big, WIN_SHIELD_MIN_STACK);
+  if (!IsWindows()) { int r = __real_pthread_create(t, &big, fn, arg); pthread_attr_destroy(&big); return r; }
+  struct win_shield_start *s = (struct win_shield_start *)malloc(sizeof *s); if (!s) { pthread_attr_destroy(&big); return 12; }
   s->fn = fn; s->arg = arg;
-  int r = __real_pthread_create(t, a, win_shield_thread_main, s); if (r) free(s); return r;
+  int r = __real_pthread_create(t, &big, win_shield_thread_main, s); if (r) free(s); pthread_attr_destroy(&big); return r;
 }
 #ifdef __cplusplus
 }
