@@ -200,7 +200,8 @@ static int bench_main(int argc, char **argv) {
     // ---- resource creation
     if (const char *rep = getenv("BENCH_BUFFER_REPEAT")) {   // profiling aid: only buffer create/release in a loop
         WGPUBufferDescriptor b0 = WGPU_BUFFER_DESCRIPTOR_INIT; b0.size = 65536; b0.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
-        const int n0 = atoi(rep); auto t0 = Clock::now(); for (int i = 0; i < n0; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b0); wgpuBufferRelease(x); }
+        const int n0 = atoi(rep); const bool tick = getenv("BENCH_BUFFER_TICK") != nullptr;   // BENCH_BUFFER_TICK=1: tick the device every 64 iterations (steady state, memory does not grow)
+        auto t0 = Clock::now(); for (int i = 0; i < n0; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b0); wgpuBufferRelease(x); if (tick && (i & 63) == 63) wgpuDeviceTick(dev); }
         bench("buffer_create_release_us", ms_since(t0) * 1e3 / n0, "us/op"); return 0;
     }
     {
