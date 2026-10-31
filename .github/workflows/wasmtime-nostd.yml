@@ -85,7 +85,7 @@ jobs:
           $S/bin/clang --target=wasm32-wasip1 -O3 -mno-simd128 -DSIMD=0 wasm-perf/shootout.c -o wasm/so-scalar.wasm -lm
           $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 -DSIMD=1 wasm-perf/shootout.c -o wasm/so-simd.wasm -lm
           $S/bin/clang --target=wasm32-wasip1 -O3 -msimd128 wasmtime-nostd/guest/kern.c -o wasm/kern.wasm -lm
-          $S/bin/clang --target=wasm32-wasip1-threads -pthread -O2 wasmtime-nostd/guest/par.c -o wasm/par.wasm -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576
+          $S/bin/clang --target=wasm32-wasip1-threads -pthread -O2 wasmtime-nostd/guest/par.c -o wasm/par.wasm -Wl,--import-memory -Wl,--export-memory -Wl,--shared-memory -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576
           curl -fsSL -o wt.tar.xz https://github.com/bytecodealliance/wasmtime/releases/download/$WT/wasmtime-$WT-x86_64-linux.tar.xz && mkdir wt && tar xJf wt.tar.xz -C wt
           W=$(find wt -name wasmtime -type f | head -1); chmod +x cli/wasmtime; WP=$PWD/cli/wasmtime; $W --version; $WP --version
           F="-W gc-support=n -W concurrency-support=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n"
