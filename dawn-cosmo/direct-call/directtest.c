@@ -49,8 +49,9 @@ static int run_storm(fn_t f, int blocked, int helper_thread, int poll, double se
   return 0;
 }
 
+static void *thr_nop(void *arg) { long id = (long)arg; long a = f_nop(id), b = t_nop(id); printf("THREAD %ld foreign_calls_without_tls raw=%ld trampolined=%ld (expected %ld)\n", id, a, b, id + 1); fflush(stdout); return 0; }
 static void *thr(void *arg) {
-  long id = (long)arg; long a = f_tls(1), b = f_tls(1), c = t_tls(1);   // foreign thread-local storage, raw and trampolined
+  long id = (long)arg; printf("THREAD %ld about to touch foreign TLS\n", id); fflush(stdout); long a = f_tls(1), b = f_tls(1), c = t_tls(1);   // foreign thread-local storage, raw and trampolined
   printf("THREAD %ld foreign_tls_values_raw=%ld,%ld trampolined=%ld (expected 1,2,3)\n", id, a, b, c); fflush(stdout);
   return 0;
 }
@@ -74,7 +75,13 @@ int main(int argc, char **argv) {
     t0 = now_s(); for (long i = 0; i < N; i++) sink += gate ? f_nop(i) : t_nop(i); double ga = (now_s() - t0) / N * 1e9;
     printf("RESULT cost trampoline=%.1f ns/call raw=%.1f ns/call raw_with_thread_local_gate=%.1f ns/call\n", tr, di, ga); return 0;
   }
+  if (!strcmp(mode, "threads-nop")) {   // control: foreign calls that touch no thread-local storage, from threads Cosmopolitan created
+    setvbuf(stdout, 0, _IONBF, 0);
+    for (long i = 1; i <= 3; i++) { pthread_t t; pthread_create(&t, 0, thr_nop, (void *)i); pthread_join(t, 0); }
+    printf("RESULT threads-nop done\n"); return 0;
+  }
   if (!strcmp(mode, "threads")) {
+    setvbuf(stdout, 0, _IONBF, 0);
     long a = f_tls(1), b = f_tls(1), c = t_tls(1); printf("THREAD main foreign_tls_values_raw=%ld,%ld trampolined=%ld (expected 1,2,3)\n", a, b, c); fflush(stdout);
     for (long i = 1; i <= 3; i++) { pthread_t t; pthread_create(&t, 0, thr, (void *)i); pthread_join(t, 0); }
     printf("RESULT threads done\n"); return 0;
