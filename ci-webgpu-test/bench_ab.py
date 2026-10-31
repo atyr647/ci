@@ -25,11 +25,20 @@ for r in range(a.rounds):
     for name, env, cmd in order:
         e = dict(os.environ); e.update(env)
         t0 = time.time()
+        # one process group per run, killed as a whole on timeout: killing only the shell leaves a hung child holding the output pipe, and the run then never returns
+        popen_kw = {} if os.name == 'nt' else {'start_new_session': True}
+        pr = subprocess.Popen([GITBASH, '-c', cmd] if os.name == 'nt' else cmd, shell=(os.name != 'nt'), env=e, stdout=subprocess.PIPE, stderr=subprocess.STDOUT, text=True, **popen_kw)
         try:
-            p = subprocess.run([GITBASH, '-c', cmd] if os.name == 'nt' else cmd, shell=(os.name != 'nt'), env=e, capture_output=True, text=True, timeout=a.timeout)   # cmd.exe cannot run ./path/exe
-            out = p.stdout + p.stderr; rc = p.returncode
-        except subprocess.TimeoutExpired as x:
-            out = (x.stdout or b'').decode(errors='replace') if isinstance(x.stdout, bytes) else (x.stdout or ''); rc = 124
+            out, _ = pr.communicate(timeout=a.timeout); rc = pr.returncode
+        except subprocess.TimeoutExpired:
+            if os.name == 'nt': subprocess.run(['taskkill', '/F', '/T', '/PID', str(pr.pid)], capture_output=True)
+            else:
+                import signal
+                try: os.killpg(pr.pid, signal.SIGKILL)
+                except Exception: pr.kill()
+            try: out, _ = pr.communicate(timeout=10)
+            except Exception: out = ''
+            out = (out or '') + '\n(killed after the timeout)'; rc = 124
         got = 0
         for m in re.finditer(r'^BENCH (\S+) (\S+) (\S+)\s*$', out, re.M):
             samples[name].setdefault(m.group(1), []).append(float(m.group(2))); units[m.group(1)] = m.group(3); got += 1

@@ -101,7 +101,7 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then NATIVE=./native/dawn-bench.exe; COSMO=./cosmo/dawn-bench.exe; COSMO_MF=./cosmo/dawn-bench-mf.exe; COSMO_NF=./cosmo/dawn-bench-nf.exe
           else NATIVE=./native/dawn-bench; COSMO="sh ./cosmo/dawn-bench.com"; COSMO_MF="sh ./cosmo/dawn-bench-mf.com"; COSMO_NF="sh ./cosmo/dawn-bench-nf.com"; fi
           NATIVE_TC=${NATIVE/dawn-bench/dawn-bench-tcache}
-          args=(--rounds "$R" --title "${{ matrix.label }}: native Dawn vs Dawn compiled by Cosmopolitan ($B)" --json "bench-${{ matrix.label }}.json"
+          args=(--timeout 90 --rounds "$R" --title "${{ matrix.label }}: native Dawn vs Dawn compiled by Cosmopolitan ($B)" --json "bench-${{ matrix.label }}.json"
                 --variant "native|WGT_BACKEND=$B|$NATIVE" --variant "cosmo|WGT_BACKEND=$B|$COSMO" --variant "native-again|WGT_BACKEND=$B|$NATIVE"
                 --variant "native-tcache|WGT_BACKEND=$B|$NATIVE_TC" --variant "cosmo-mutexfast|WGT_BACKEND=$B|$COSMO_MF" --variant "cosmo-nsyncinline|WGT_BACKEND=$B|$COSMO_NF")
           args+=(--variant "native-async|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1|$NATIVE" --variant "cosmo-async|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1|$COSMO")   # pipeline creation on Dawn's worker threads
