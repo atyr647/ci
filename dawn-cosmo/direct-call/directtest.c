@@ -58,7 +58,18 @@ static void *thr(void *arg) {
 }
 
 static const char *g_test; static int g_result = -99;
-static void *battery_thr(void *arg) { (void)arg; fn_t f = cosmo_dlsym(g_h, g_test); g_result = (int)f(2000); return 0; }
+static int g_pre;   // 1: call the foreign uselocale(LC_GLOBAL_LOCALE) first (sets the thread's locale and ctype pointers, which glibc normally sets when it starts a thread)
+static void *battery_thr(void *arg) {
+    (void)arg;
+    if (g_pre == 1) { typedef void *(*ul_t)(void *); ul_t ul = cosmo_dltramp(cosmo_dlsym(g_h, "uselocale")); if (ul) ul((void *)-1); }
+    fn_t f = cosmo_dlsym(g_h, g_test); g_result = (int)f(2000); return 0;
+}
+// a thread created by the FOREIGN C library's pthread_create, running our (Cosmopolitan) code: does Cosmopolitan code work there?
+static void *foreign_made(void *arg) {
+    (void)arg; static const char m[] = "in a foreign-created thread: cosmo write works\n"; write(1, m, sizeof m - 1);
+    void *p = malloc(100); free(p); errno = 5; int e = errno; printf("cosmo malloc/errno/printf there: errno %d\n", e);
+    fn_t f = cosmo_dlsym(g_h, g_test); g_result = (int)f(2000); return 0;
+}
 int main(int argc, char **argv) {
   const char *mode = argc > 1 ? argv[1] : "tramp";
   void *h = g_h = cosmo_dlopen("./libclobber.so", RTLD_NOW); if (!h) { printf("dlopen failed: %s\n", cosmo_dlerror()); return 2; }
@@ -91,7 +102,12 @@ int main(int argc, char **argv) {
   }
   if (!strcmp(mode, "battery")) {   // battery <fb_test> <main|thread|thread-ctype-init>: foreign C library use from the main thread or from a thread the C library created
     setvbuf(stdout, 0, _IONBF, 0); g_test = argc > 2 ? argv[2] : "fb_ctype"; const char *where = argc > 3 ? argv[3] : "main";
-    if (!strncmp(where, "thread", 6)) { pthread_t t; pthread_create(&t, 0, battery_thr, 0); pthread_join(t, 0); } else { fn_t f = cosmo_dlsym(h, g_test); g_result = (int)f(2000); }
+    g_pre = strstr(where, "uselocale") ? 1 : 0;
+    if (!strcmp(where, "foreign-thread")) {
+        typedef int (*pc_t)(unsigned long *, const void *, void *(*)(void *), void *); typedef int (*pj_t)(unsigned long, void **);
+        pc_t pc = cosmo_dltramp(cosmo_dlsym(g_h, "pthread_create")); pj_t pj = cosmo_dltramp(cosmo_dlsym(g_h, "pthread_join")); unsigned long t = 0;
+        if (!pc || pc(&t, 0, foreign_made, 0)) { printf("foreign pthread_create failed\n"); return 3; } pj(t, 0);
+    } else if (!strncmp(where, "thread", 6)) { pthread_t t; pthread_create(&t, 0, battery_thr, 0); pthread_join(t, 0); } else { fn_t f = cosmo_dlsym(h, g_test); g_result = (int)f(2000); }
     printf("RESULT battery %s on %s: %s (misbehaviours %d)\n", g_test, where, g_result == 0 ? "ok" : "WRONG", g_result); return g_result == 0 ? 0 : 1;
   }
   printf("unknown mode\n"); return 2;

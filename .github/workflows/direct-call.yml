@@ -42,6 +42,6 @@ jobs:
       - name: Battery - ordinary C library use by foreign code, from the main thread and from a thread the C library created (each test its own process, 20 s limit)
         run: |
           set +e; cd out
-          for tst in fb_ctype fb_malloc fb_errno fb_format fb_mutex fb_once fb_self fb_spawn_join; do for where in main thread; do
-            timeout -s KILL 20 sh ./directtest.com battery $tst $where > b.txt 2>&1; rc=$?; r=$(grep -m1 "^RESULT" b.txt | cut -c1-110); [ $rc = 137 ] && r="HANG (killed after 20 s)"; [ $rc -gt 128 ] && [ $rc != 137 ] && r="CRASH (signal $((rc-128)))"; printf "%-14s %-7s exit %-3s %s\n" $tst $where $rc "$r"
+          for tst in fb_ctype fb_malloc fb_errno fb_format fb_mutex fb_once fb_self fb_spawn_join; do for where in main thread thread-uselocale foreign-thread; do
+            timeout -s KILL 20 sh ./directtest.com battery $tst $where > b.txt 2>&1; rc=$?; r=$(grep -m1 "^RESULT" b.txt | cut -c1-110); [ $rc = 137 ] && r="HANG (killed after 20 s)"; [ $rc -gt 128 ] && [ $rc != 137 ] && r="CRASH (signal $((rc-128)))"; printf "%-14s %-16s exit %-3s %s\n" $tst $where $rc "$r"
           done; done
