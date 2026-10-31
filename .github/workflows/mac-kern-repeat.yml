@@ -1,0 +1,26 @@
+name: mac-kern-repeat
+# The kernel guest failed 18 of 25 runs on macOS arm64 in one build of the static-Wasmtime file and 0 of 25 in the next build, with no change to the logic that reads the guest memory.
+# Is the failure a property of that binary, or of the runner? Both builds, same machine, interleaved, 40 runs each; several runners.
+on:
+  workflow_dispatch:
+    inputs:
+      old_run: { description: 'wasmtime-nostd run of the build that failed', required: true, default: '41157884129' }
+      new_run: { description: 'wasmtime-nostd run of the build that passed', required: true, default: '41159220910' }
+jobs:
+  rep:
+    strategy:
+      fail-fast: false
+      matrix: { slot: [1, 2, 3] }
+    runs-on: macos-latest
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - name: The two builds
+        run: |
+          gh run download ${{ inputs.old_run }} -R ${{ github.repository }} -n wn -D old; gh run download ${{ inputs.new_run }} -R ${{ github.repository }} -n wn -D new
+          chmod +x old/wn.com new/wn.com; sysctl -n machdep.cpu.brand_string; sw_vers -productVersion; uname -v | cut -c1-80
+      - name: Interleaved runs
+        run: |
+          set +e; po=0; pn=0; for i in $(seq 1 40); do
+            WN_KERNEL_LEVEL=9 sh old/wn.com sig kern > o.txt 2>&1; ro=$?; [ $ro = 0 ] && po=$((po+1)) || { echo "old run $i exit $ro: $(grep -E 'out of bounds|without guest' o.txt | head -1)"; }
+            WN_KERNEL_LEVEL=9 sh new/wn.com sig kern > n.txt 2>&1; rn=$?; [ $rn = 0 ] && pn=$((pn+1)) || { echo "new run $i exit $rn: $(grep -E 'out of bounds|without guest' n.txt | head -1)"; }
+          done; echo "RESULT slot ${{ matrix.slot }}: old build $po of 40 passed, new build $pn of 40 passed"
