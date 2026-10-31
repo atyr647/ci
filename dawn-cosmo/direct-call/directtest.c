@@ -10,6 +10,7 @@
 //   threads          foreign TLS and calls from threads that Cosmopolitan created
 #define _GNU_SOURCE
 #include <cosmo.h>
+#include <libc/thread/tls.h>
 #include <dlfcn.h>
 #include <errno.h>
 #include <pthread.h>
