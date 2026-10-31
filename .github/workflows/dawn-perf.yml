@@ -58,9 +58,16 @@ jobs:
           for v in native cosmo; do echo "=== $v: by object"; cat dso.$v.txt; done
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: 'perf-${{ matrix.label }}', path: 'top.*.txt\ndso.*.txt\nrun.*.txt\nktop.*.txt\nstat.*.txt' }
+        with:
+          name: 'perf-${{ matrix.label }}'
+          path: |
+            top.*.txt
+            dso.*.txt
+            run.*.txt
+            ktop.*.txt
+            stat.*.txt
       - name: Result (printed last)
         if: always()
         run: |
-          for v in native cosmo native2 cosmo2; do echo "=== $v: run"; grep -E "buffer_create" run.$v.txt; echo "--- by object"; cat dso.$v.txt; echo "--- kernel symbols, top 25"; head -25 ktop.$v.txt; echo "--- software counters"; grep -E "task-clock|page-faults|context-switches|migrations|elapsed|user|sys" stat.$v.txt; done
+          for v in native cosmo native2 cosmo2; do echo "=== $v: run"; grep -E "buffer_create|rror|what" run.$v.txt | head -5; tail -3 run.$v.txt; echo "--- by object"; cat dso.$v.txt; echo "--- kernel symbols, top 25"; head -25 ktop.$v.txt; echo "--- software counters"; grep -E "task-clock|page-faults|context-switches|migrations|elapsed|user|sys" stat.$v.txt || true; done
           for v in native cosmo; do echo "=== $v: flat profile, top 45"; head -45 top.$v.txt; done
