@@ -215,12 +215,18 @@ jobs:
             for r in 1 2 3; do WN_CWASM_LEVEL=$mod WN_KERNEL_LEVEL=$kl $RUN sig kern > kern.run.txt 2>&1; rc=$?; cat kern.run.txt >> kern.$label.txt; if [ $rc != 0 ]; then echo "::error::$label run $r exit $rc"; tail -n 25 kern.run.txt; kfail=1; fi; done
             echo "== $label: ($(grep -m1 'module level' kern.$label.txt))"
             if grep -q "refused by the engine\|load failed" kern.$label.txt; then echo "::error::$label: the module was refused or failed to load"; kfail=1; fi
-            if ! grep -q "^KERNEL" kern.$label.txt; then echo "::error::$label: no kernel result at all"; kfail=1; fi
+            if ! grep -q "^K " kern.$label.txt; then echo "::error::$label: no kernel result at all"; kfail=1; fi
           done
           $PY wasmtime-nostd/tools/kern-table.py A-baseline-module-baseline-kernels=kern.A-baseline-module-baseline-kernels.txt B-baseline-module-best-kernels=kern.B-baseline-module-best-kernels.txt C-v3-module-best-kernels=kern.C-v3-module-best-kernels.txt D-v3-module-avx2-kernels=kern.D-v3-module-avx2-kernels.txt
           echo "=== the shootout kernels, baseline module vs v3 module (best of 3, ms)"
           for g in so-simd so-scalar; do for mod in base auto; do for r in 1 2 3; do WN_CWASM_LEVEL=$mod $RUN sig $g 2>&1 | grep -E "^KERNEL|module level" | sed "s/^KERNEL /KERNEL $g-$mod /"; done; done; done | $PY wasmtime-nostd/tools/best-table.py
           [ "$kfail" = 1 ] && { echo "RESULT: FAIL (see the errors above)"; exit 1; }; echo "RESULT: all four configurations produced kernel results"
+      - name: "macOS - the kernel guest 25 times (it failed intermittently with exit 70 and with a segmentation fault), with the system crash report"
+        if: runner.os == 'macOS'
+        continue-on-error: true
+        run: |
+          set +e; ok=0; for i in $(seq 1 25); do WN_KERNEL_LEVEL=9 sh ./wn.com sig kern > kr.$i.txt 2>&1; rc=$?; if [ $rc = 0 ]; then ok=$((ok+1)); else echo "run $i: exit $rc"; grep -E "out of bounds|call failed|host function" kr.$i.txt | head -3; tail -n 3 kr.$i.txt | cut -c1-200; fi; done; echo "$ok of 25 runs passed"
+          ls -la ~/Library/Logs/DiagnosticReports 2>/dev/null | tail -5; f=$(ls -t ~/Library/Logs/DiagnosticReports/*wn* ~/Library/Logs/DiagnosticReports/*.ips ~/Library/Logs/DiagnosticReports/*.crash 2>/dev/null | head -1); [ -n "$f" ] && { echo "== $f"; head -c 6000 "$f"; }
       - uses: actions/download-artifact@v4
         with: { name: guests, path: guests }
       - name: Fault address and trap classification (out-of-bounds, guard region, end of memory, divide by zero, unreachable, stack overflow)

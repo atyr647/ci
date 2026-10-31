@@ -17,6 +17,6 @@ jobs:
           build() { n=$1; shift; $S/bin/clang --target=wasm32-wasip1-threads -pthread -O2 wasmtime-nostd/guest/par.c -o w/$n.wasm "$@" 2>&1 | head -5; echo "--- $n: $*"; python3 wasmtime-nostd/tools/wasm-mem.py w/$n.wasm
             for t in "1 scale" "4 scale" "4 sync" "1 waitnotify" "1 trapthread"; do echo "  [$t]"; timeout 60 $WT30 run -W threads=y -S threads=y w/$n.wasm $t 2>&1 | grep -E "^(KERNEL|SYNC|WAIT|TRAP|unknown|Error|.*memory fault|.*trap)" | head -3 | cut -c1-200; done; }
           build current -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576
-          build init32 -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576 -Wl,--initial-memory=33554432
-          build default
-          build stack128k -Wl,--max-memory=268435456 -Wl,-z,stack-size=131072
+          build import -Wl,--import-memory -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576
+          build import-shared-export -Wl,--import-memory -Wl,--export-memory -Wl,--shared-memory -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576
+          build import-init32 -Wl,--import-memory -Wl,--max-memory=268435456 -Wl,-z,stack-size=1048576 -Wl,--initial-memory=33554432

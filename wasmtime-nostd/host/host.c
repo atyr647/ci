@@ -107,11 +107,11 @@ static double now_ms(void) { struct timespec t; clock_gettime(CLOCK_MONOTONIC, &
 #define NK_OK(p, bytes) ((uint64_t)(uint32_t)(p) + (uint64_t)(bytes) <= (uint64_t)memlen)
 CB(nk_cb_level) { (void)a; r[0] = (uint64_t)nk_level(); return 0; }
 CB(nk_cb_saxpy) { uint32_t n = (uint32_t)a[0], x = (uint32_t)a[2], y = (uint32_t)a[3]; float al; uint32_t ab = (uint32_t)a[1]; memcpy(&al, &ab, 4);
-    if (!NK_OK(x, 4ull * n) || !NK_OK(y, 4ull * n)) return 1; nk_saxpy(n, al, (const float *)(mem + x), (float *)(mem + y)); return 0; }
+    if (!NK_OK(x, 4ull * n) || !NK_OK(y, 4ull * n)) { fprintf(stderr, "host : saxpy_f32 out of bounds: n=%u x=%u y=%u memory=%zu\n", n, x, y, memlen); return 1; } nk_saxpy(n, al, (const float *)(mem + x), (float *)(mem + y)); return 0; }
 CB(nk_cb_dot) { uint32_t n = (uint32_t)a[0], x = (uint32_t)a[1], y = (uint32_t)a[2];
-    if (!NK_OK(x, 4ull * n) || !NK_OK(y, 4ull * n)) return 1; float d = nk_dot(n, (const float *)(mem + x), (const float *)(mem + y)); uint32_t b; memcpy(&b, &d, 4); r[0] = b; return 0; }
+    if (!NK_OK(x, 4ull * n) || !NK_OK(y, 4ull * n)) { fprintf(stderr, "host : dot_f32 out of bounds: n=%u x=%u y=%u memory=%zu\n", n, x, y, memlen); return 1; } float d = nk_dot(n, (const float *)(mem + x), (const float *)(mem + y)); uint32_t b; memcpy(&b, &d, 4); r[0] = b; return 0; }
 CB(nk_cb_matmul) { uint32_t m = (uint32_t)a[0], n = (uint32_t)a[1], k = (uint32_t)a[2], A = (uint32_t)a[3], B = (uint32_t)a[4], C = (uint32_t)a[5];
-    if (!NK_OK(A, 4ull * m * k) || !NK_OK(B, 4ull * k * n) || !NK_OK(C, 4ull * m * n)) return 1; nk_matmul(m, n, k, (const float *)(mem + A), (const float *)(mem + B), (float *)(mem + C)); return 0; }
+    if (!NK_OK(A, 4ull * m * k) || !NK_OK(B, 4ull * k * n) || !NK_OK(C, 4ull * m * n)) { fprintf(stderr, "host : matmul_f32 out of bounds: m=%u n=%u k=%u A=%u B=%u C=%u memory=%zu\n", m, n, k, A, B, C, memlen); return 1; } nk_matmul(m, n, k, (const float *)(mem + A), (const float *)(mem + B), (float *)(mem + C)); return 0; }
 
 static int define_all(WnEngine *e, int wt) {
     const char *W = "wasi_snapshot_preview1"; int rc = 0;
