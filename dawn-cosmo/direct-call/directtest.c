@@ -76,12 +76,14 @@ __attribute__((noinline)) static long call_swapped_sys(fn_t f, long arg, unsigne
 #endif
 static int g_sys;
 static unsigned long g_tp_minus_self;   // arm64: where the thread pointer lies relative to pthread_self() of the foreign library (measured on the main thread)
-static unsigned long borrow_tcb(void) {   // the thread block of a parked foreign thread (made by the foreign pthread_create, all signals blocked meanwhile)
+static unsigned long g_pool[16]; static atomic_int g_pool_next;
+static unsigned long make_parked(void) {   // foreign pthread_create must be called on a thread whose foreign thread block exists: the main thread, ahead of time
     typedef int (*pc_t)(unsigned long *, const void *, void *(*)(void *), void *); pc_t pc = cosmo_dltramp(cosmo_dlsym(g_h, "pthread_create"));
     void *park = cosmo_dlsym(g_h, "fb_park"); static volatile long tp; tp = 0; unsigned long t = 0; sigset_t all, old; sigfillset(&all); pthread_sigmask(SIG_SETMASK, &all, &old);
-    if (pc(&t, 0, (void *(*)(void *))cosmo_dltramp(park), (void *)&tp)) return 0; pthread_sigmask(SIG_SETMASK, &old, 0);
+    int rc = pc(&t, 0, (void *(*)(void *))cosmo_dltramp(park), (void *)&tp); pthread_sigmask(SIG_SETMASK, &old, 0); if (rc) return 0;
     for (int i = 0; i < 2000 && !tp; i++) { struct timespec z = {0, 1000000}; nanosleep(&z, 0); } return (unsigned long)tp;
 }
+static unsigned long borrow_tcb(void) { int i = atomic_fetch_add(&g_pool_next, 1); return i < 16 ? g_pool[i] : 0; }
 static unsigned long g_borrowed;
 static int g_pre;   // 1: call the foreign uselocale(LC_GLOBAL_LOCALE) first (sets the thread's locale and ctype pointers, which glibc normally sets when it starts a thread)
 static void *battery_thr(void *arg) {
@@ -153,6 +155,7 @@ int main(int argc, char **argv) {
   if (!strcmp(mode, "tlsinfo")) { setvbuf(stdout, 0, _IONBF, 0); tlsinfo("main"); pthread_t t; pthread_create(&t, 0, tlsinfo_thr, 0); pthread_join(t, 0); return 0; }
   if (!strcmp(mode, "battery")) {   // battery <fb_test> <main|thread|thread-ctype-init>: foreign C library use from the main thread or from a thread the C library created
     setvbuf(stdout, 0, _IONBF, 0); g_test = argc > 2 ? argv[2] : "fb_ctype"; const char *where = argc > 3 ? argv[3] : "main";
+    if (strstr(where, "borrow")) for (int i = 0; i < 4; i++) g_pool[i] = make_parked();   // done here, on the main thread
     g_sys = strstr(where, "-sys") != 0; g_pre = strstr(where, "uselocale") ? 1 : strstr(where, "borrow") ? 2 : 0;
     if (!strcmp(where, "foreign-thread")) {
         typedef int (*pc_t)(unsigned long *, const void *, void *(*)(void *), void *); typedef int (*pj_t)(unsigned long, void **);
