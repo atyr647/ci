@@ -88,14 +88,14 @@ jobs:
               a, b = stat(cmd, 20000), stat(cmd, 120000)
               print(k.ljust(7), ' '.join(f"{ev}/iter={(b.get(ev, 0) - a.get(ev, 0)) / 100000:.3f}" for ev in sorted(b)))
           PY
-      - name: User-only profile of the loop (what the user-space part of one create+release is made of)
+      - name: Profile of the loop only (sampling starts 2.5 s after start-up, loop of 4,000,000 iterations), kernel and user, native against Cosmopolitan
         run: |
           export WGT_BACKEND=vulkan; set +e
           for v in native cosmo; do
             BIN=./benchout/dawn-bench; [ $v = cosmo ] && BIN=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
-            BENCH_BUFFER_REPEAT=400000 "$PERF" record -e cpu-clock:u -F 20000 -o pu.$v.data -- $BIN > /dev/null 2>&1
-            echo "=== $v: user-space samples by object"; "$PERF" report -i pu.$v.data --stdio --no-children --sort dso 2>/dev/null | grep -v '^#' | grep -v '^$' | head -6
-            echo "=== $v: user-space top symbols"; "$PERF" report -i pu.$v.data --stdio --no-children --sort dso,symbol 2>/dev/null | grep -v '^#' | grep -v '^$' | head -22 | cut -c1-150
+            BENCH_BUFFER_REPEAT=4000000 "$PERF" record -D 2500 -e cpu-clock -F 10000 -g --call-graph fp -o pl.$v.data -- $BIN > /dev/null 2>&1
+            echo "=== $v: samples by object (loop only)"; "$PERF" report -i pl.$v.data --stdio --no-children --sort dso -g none 2>/dev/null | grep -v '^#' | grep -v '^$' | head -7
+            echo "=== $v: top symbols (loop only)"; "$PERF" report -i pl.$v.data --stdio --no-children --sort dso,symbol -g none 2>/dev/null | grep -v '^#' | grep -v '^$' | head -26 | cut -c1-140
           done
       - name: "Who makes the extra system calls (Cosmopolitan build) - call stacks of rt_sigprocmask (strace -k) and callers of the syscall stub (perf, frame pointers)"
         run: |
