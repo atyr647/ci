@@ -1,0 +1,55 @@
+name: mimalloc-cosmo
+# Can mimalloc replace the Cosmopolitan C library's malloc in a fat file, on all five targets? Correctness (cross-thread frees, realloc, alignment, big blocks) and speed (Tint-like churn)
+# against the library's own malloc and the platform's native C++ library. The reason: Tint's compile time depends on the allocator underneath Dawn, and the library's malloc is slower than glibc's for it.
+on:
+  workflow_dispatch:
+    inputs:
+      mi_version: { description: 'mimalloc release tag', required: false, default: 'v2.1.7' }
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - name: Fat executables, library malloc and mimalloc
+        run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          curl -fsSL -o mi.tar.gz https://github.com/microsoft/mimalloc/archive/refs/tags/${{ inputs.mi_version }}.tar.gz && mkdir mi && tar xzf mi.tar.gz -C mi --strip-components=1
+          B=$PWD/cosmo/bin; mkdir out parts
+          for A in x86_64 aarch64; do
+            $B/$A-unknown-cosmo-cc -O2 -DMI_MALLOC_OVERRIDE=0 -DMI_SECURE=0 -DNDEBUG -I mi/include -c mi/src/static.c -o mi_static.$A.o 2>&1 | tail -20
+            $B/$A-unknown-cosmo-cc -O2 -I mi/include -c alloc-probe/mimalloc/mi_override.c -o mi_override.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 -std=c++17 alloc-probe/mimalloc/malloc_stress.cpp -o parts/stress-library.$A.com 2>&1 | tail -5
+            $B/$A-unknown-cosmo-c++ -O2 -std=c++17 alloc-probe/mimalloc/malloc_stress.cpp mi_static.$A.o mi_override.$A.o -o parts/stress-mimalloc.$A.com 2>&1 | tail -20
+          done
+          ls -la parts
+          for n in stress-library stress-mimalloc; do [ -f parts/$n.x86_64.com.dbg ] && [ -f parts/$n.aarch64.com.dbg ] && $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o out/$n.com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg; done
+          ls -la out
+      - uses: actions/upload-artifact@v4
+        with: { name: mimalloc-bin, path: out }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: mimalloc-bin, path: out }
+      - name: Native reference
+        run: |
+          CXX=c++; ST=""; if [ "$RUNNER_OS" = Windows ]; then CXX=g++; ST="-static"; fi
+          $CXX -O2 -std=c++17 alloc-probe/mimalloc/malloc_stress.cpp -o out/stress-native -pthread $ST
+      - name: Run
+        run: |
+          run() { if [ "$RUNNER_OS" = Windows ]; then if [ -f "$1.com" ]; then cp "$1.com" "$1.exe"; fi; "./$1.exe"; elif [ -f "$1.com" ]; then sh "./$1.com"; else "./$1"; fi; }
+          set +e; cd out; chmod +x *
+          for v in native library mimalloc; do echo "=== stress $v"; run stress-$v > ../s-$v.txt 2>&1; echo "exit=$?"; grep -E "FAIL|TIME|RESULT" ../s-$v.txt || tail -5 ../s-$v.txt; done
