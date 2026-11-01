@@ -3,7 +3,7 @@
 visitation dispatch show up as separate calls and cost about 0.5 ms per 160-function shader module more than with libstdc++. This replaces that one variant by a plain tagged union with the same
 behaviour, to test whether libc++'s std::variant is the cause of the remaining x86-64 shader-compile gap. usage: token_union.py <dawn-source-dir>
 
-Second change in the same files: `enum class Type` gets the underlying type uint8_t. Reason (found with perf annotate): libc++'s std::optional writes one byte of its storage (`__null_state_`) when it
+Second change in the same files: `enum class Type` gets the underlying type int8_t (some enumerators are negative). Reason (found with perf annotate): libc++'s std::optional writes one byte of its storage (`__null_state_`) when it
 holds no value, and the caller of each Lexer::try_*() then loads Token::type_ (4 bytes) from that same address before testing the optional's flag; a load wider than the store just before it cannot be
 forwarded and stalls (about 12-15 cycles per call, in Lexer::next() every token tries eight such functions). With a 1-byte type the load is the same width and offset as the store and forwards."""
 import sys, os
@@ -35,7 +35,7 @@ new = '''    struct Value {
     } value_;'''
 t = t.replace(old, new)
 assert '    enum class Type {' in t
-t = t.replace('    enum class Type {', '    enum class Type : uint8_t {', 1)
+t = t.replace('    enum class Type {', '    enum class Type : int8_t {', 1)
 if '#include <cstdint>' not in t: t = t.replace('#include <variant>', '#include <cstdint>\n#include <variant>', 1)
 open(h, 'w').write(t)
 t = open(c).read()
