@@ -6,6 +6,7 @@ on:
   workflow_dispatch:
     inputs:
       cosmo_run: { description: 'run id of a dawn-cosmo run whose artifact wgt-dawn contains dawn-bench.com', required: true }
+      cosmo_run_b: { description: 'optional second dawn-cosmo run (for example the GCC build against the clang build): its dawn-bench.com is run as the variant cosmo-b', required: false, default: '' }
       only: { description: 'one label (linux-x64, linux-arm64, win-x64, win-arm64, mac-arm64); empty = all', required: false, default: '' }
       rounds: { description: 'interleaved rounds', required: false, default: '7' }
 env:
@@ -89,6 +90,11 @@ jobs:
         run: |
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D cosmo
           chmod +x cosmo/dawn-bench.com cosmo/dawn-bench-mf.com cosmo/dawn-bench-lib.com cosmo/dawn-bench-nomi.com; if [ "$RUNNER_OS" = Windows ]; then cp cosmo/dawn-bench.com cosmo/dawn-bench.exe; cp cosmo/dawn-bench-nomi.com cosmo/dawn-bench-nomi.exe; cp cosmo/dawn-bench-mf.com cosmo/dawn-bench-mf.exe; cp cosmo/dawn-bench-lib.com cosmo/dawn-bench-lib.exe; fi; ls -la cosmo
+      - name: The second Cosmopolitan build (optional)
+        if: inputs.cosmo_run_b != ''
+        run: |
+          gh run download ${{ inputs.cosmo_run_b }} -R ${{ github.repository }} -n wgt-dawn -D cosmob
+          chmod +x cosmob/dawn-bench.com; if [ "$RUNNER_OS" = Windows ]; then cp cosmob/dawn-bench.com cosmob/dawn-bench.exe; fi
       - name: Vulkan loader + MoltenVK (macOS, for the extra Cosmopolitan-on-Vulkan row)
         if: runner.os == 'macOS'
         run: |
@@ -107,6 +113,7 @@ jobs:
           args+=(--variant "native-async|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1|$NATIVE" --variant "cosmo-async|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1|$COSMO")   # pipeline creation on Dawn's worker threads
           args+=(--variant "cosmo-async-inline|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=1|$COSMO" --variant "cosmo-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO")   # worker tasks on the posting thread / on Dawn's worker threads
           args+=(--variant "cosmo-mf-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO_MF" --variant "cosmo-lib-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO_LIB")   # does the crash depend on the lock implementation
+          if [ -n "${{ inputs.cosmo_run_b }}" ]; then if [ "$RUNNER_OS" = Windows ]; then CB=./cosmob/dawn-bench.exe; else CB="sh ./cosmob/dawn-bench.com"; fi; args+=(--variant "cosmo-b|WGT_BACKEND=$B|$CB"); fi
           args+=(--variant "cosmo-mi-nopurge|WGT_BACKEND=$B,MIMALLOC_PURGE_DELAY=-1|$COSMO")   # mimalloc never returns freed memory to the system (its default returns it after 10 ms; decommit calls are expensive on macOS)
           args+=(--variant "cosmo-library-malloc|WGT_BACKEND=$B|${COSMO/dawn-bench./dawn-bench-nomi.}")   # control: the library's own malloc instead of mimalloc
           if [ "$RUNNER_OS" = Linux ]; then args+=(--variant "native-sepheap|WGT_BACKEND=$B|${NATIVE/dawn-bench/dawn-bench-sepheap}"); fi   # native build with Dawn's allocations on a heap separate from the driver's
