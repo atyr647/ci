@@ -14,6 +14,7 @@
 #include <cstdio>
 #include <cstdlib>
 #include <csignal>
+#include <ctime>
 #include <cstring>
 #include <mutex>
 #include <string>
@@ -212,10 +213,19 @@ static int bench_main(int argc, char **argv) {
     {
         const int n = scaled(4000); WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT; b.size = 65536; b.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
         // the first iterations of this loop are the first buffer creations of the process: report the first 250 on their own, then the rest, besides the total (a cold-start cost against a per-call cost)
+#ifndef _WIN32
+        struct rusage pr0; getrusage(RUSAGE_SELF, &pr0); struct timespec cpu0; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu0);   // exact counts and the thread's own CPU time around this loop
+#endif
         auto t0 = Clock::now(); auto tc = t0; const int nc = std::min(250, n);
         for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); if (i == nc - 1) { bench("buffer_first250_us", ms_since(tc) * 1e3 / nc, "us/op"); tc = Clock::now(); } }
         if (n > nc) bench("buffer_after_first250_us", ms_since(tc) * 1e3 / (n - nc), "us/op");
         bench("buffer_create_release_us", ms_since(t0) * 1e3 / n, "us/op");
+#ifndef _WIN32
+        { struct rusage pr1; getrusage(RUSAGE_SELF, &pr1); struct timespec cpu1; clock_gettime(CLOCK_THREAD_CPUTIME_ID, &cpu1);
+          bench("buffer_plain_thread_cpu_us", ((cpu1.tv_sec - cpu0.tv_sec) * 1e9 + (cpu1.tv_nsec - cpu0.tv_nsec)) / 1e3 / n, "us/op");
+          bench("buffer_plain_minflt_per_call", (double)(pr1.ru_minflt - pr0.ru_minflt) / n, "faults/op");
+          bench("buffer_plain_ctxsw", (double)((pr1.ru_nvcsw - pr0.ru_nvcsw) + (pr1.ru_nivcsw - pr0.ru_nivcsw)), "count"); }
+#endif
         {   // the same with the device ticked every 64 iterations: Dawn frees a released buffer's memory only when the queue is ticked, so the loop above makes memory grow (page faults on fresh pages);
             // this one stays at a steady state. Also the resident memory growth per iteration of each loop.
             auto rss = []() -> double { FILE *f = fopen("/proc/self/statm", "r"); long a = 0, r = 0; if (f) { if (fscanf(f, "%ld %ld", &a, &r) != 2) r = 0; fclose(f); } return (double)r * 4096.0; };
