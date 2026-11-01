@@ -48,7 +48,7 @@ jobs:
         run: |
           export WGT_BACKEND=vulkan
           N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
-          if [ "${{ inputs.mode }}" = buffer ]; then export BENCH_BUFFER_REPEAT=1500000; elif [ "${{ inputs.mode }}" = steady ]; then export BENCH_BUFFER_REPEAT=1200000 BENCH_BUFFER_TICK=1; else export BENCH_TINT_REPEAT=400; fi   # only Tint (WGSL parse/validate/translate), or only buffer create/release, in a loop, so the profile is not dominated by the host baselines and the software GPU
+          if [ "${{ inputs.mode }}" = buffer ]; then export BENCH_BUFFER_REPEAT=100000; elif [ "${{ inputs.mode }}" = steady ]; then export BENCH_BUFFER_REPEAT=1200000 BENCH_BUFFER_TICK=1; else export BENCH_TINT_REPEAT=400; fi   # only Tint (WGSL parse/validate/translate), or only buffer create/release, in a loop, so the profile is not dominated by the host baselines and the software GPU
           VARS="native cosmo native2 cosmo2"; [ -f dbg/dawn-bench-clang.${{ matrix.arch }}.com.dbg ] && VARS="native cosmo clang native2 cosmo2 clang2"
           for v in $VARS; do
             case $v in native*) BIN=$N;; clang*) BIN=dbg/dawn-bench-clang.${{ matrix.arch }}.com.dbg;; *) BIN=$C;; esac
