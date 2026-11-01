@@ -143,7 +143,7 @@ static int bench_main(int argc, char **argv) {
     DawnCosmoGpuThreadEnter();   // arm64 Linux: this thread keeps asynchronous signals blocked, so Dawn's calls into the driver on it skip the signal-blocking trampoline (other threads still use it); no-op elsewhere. DAWN_COSMO_DIRECT=0 turns it off.
 #endif
     const char *tintRepeat = getenv("BENCH_TINT_REPEAT");   // profiling aid: only start-up and N shader-module creations, nothing else
-    if (!tintRepeat) host_baselines();
+    if (!tintRepeat && !getenv("BENCH_BUFFER_REPEAT")) host_baselines();
     if (hostOnly) return 0;
 
     auto t = Clock::now();
