@@ -42,6 +42,7 @@ jobs:
     env:
       GH_TOKEN: ${{ github.token }}
       RUNNER_LABEL: ${{ matrix.label }}
+      BENCH_TINT_CURVE: ${{ startsWith(matrix.label, 'linux') && '1' || '' }}
     steps:
       - uses: actions/checkout@v4
       - uses: ilammy/msvc-dev-cmd@v1
