@@ -44,7 +44,27 @@ jobs:
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D dbg
           if [ -n "${{ inputs.flags_run }}" ]; then gh run download ${{ inputs.flags_run }} -R ${{ github.repository }} -n bench-clang-${{ matrix.arch }} -D dbg || echo "no clang build"; fi
           ls -la dbg; chmod +x dbg/*
+      - name: Profile of the buffer loop minus start-up (mode bufprof)
+        if: inputs.mode == 'bufprof'
+        run: |
+          export WGT_BACKEND=vulkan
+          N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+          for rep in 1 2 3; do for v in native cosmo; do case $v in native) BIN=$N;; *) BIN=$C;; esac
+            for K in 1 200000; do
+              BENCH_BUFFER_REPEAT=$K "$PERF" record -e cpu-clock -F 20000 -o pb.$v.$K.$rep.data -- $BIN > pbrun.$v.$K.$rep.txt 2>&1 || echo "record failed $v $K"
+              "$PERF" report -i pb.$v.$K.$rep.data --stdio --no-children --sort dso,symbol -n 2>/dev/null | grep -v '^#' | grep -v '^$' | head -400 > pbtop.$v.$K.$rep.txt || true
+            done
+          done; done
+          grep -h "buffer_create" pbrun.*.200000.*.txt | head -12
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'bufprof'
+        with:
+          name: 'bufprof-${{ matrix.label }}'
+          path: |
+            pbtop.*.txt
+            pbrun.*.txt
       - name: Profile
+        if: inputs.mode != 'bufprof'
         run: |
           export WGT_BACKEND=vulkan
           N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
@@ -78,7 +98,7 @@ jobs:
             stat2.*.txt
             strace.*.txt
       - name: Result (printed last)
-        if: always()
+        if: always() && inputs.mode != 'bufprof'
         run: |
           for v in native cosmo cosmo-mallopt; do echo "=== $v: strace -c (top 8)"; head -12 strace.$v.txt; echo "--- faults"; grep -E "page-faults|task-clock" stat2.$v.txt; done
           VARS=$(ls run.*.txt | sed "s/run\.//;s/\.txt//" | tr "\n" " ")
