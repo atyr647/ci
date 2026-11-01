@@ -179,7 +179,7 @@ static int bench_main(int argc, char **argv) {
             bench("shader_module_first_ms", mod[0], "ms");
             std::vector<double> warm; for (int i = 0; i < 30; i++) { std::string w = big_wgsl(160, 50 + i); auto t0 = Clock::now(); WGPUShaderModule m = make_module(dev, w); double ms = ms_since(t0); wgpuShaderModuleRelease(m); if (i >= 24) warm.push_back(ms); }
             bench("shader_module_warm_ms", median(warm), "ms");
-            if (getenv("BENCH_TINT_CURVE")) {   // how long the process takes to reach steady-state compile time: medians of consecutive blocks of compiles
+            if (const char *tc = getenv("BENCH_TINT_CURVE"); tc && *tc) {   // how long the process takes to reach steady-state compile time: medians of consecutive blocks of compiles
                 std::vector<double> blk; int idx = 0; const int edges[] = {30, 60, 100, 200, 400}; int e = 0; char nm[48];
                 for (int i = 30 + 30; i < 400 + 30; i++) { std::string w = big_wgsl(160, 100 + i); auto t0 = Clock::now(); WGPUShaderModule m = make_module(dev, w); blk.push_back(ms_since(t0)); wgpuShaderModuleRelease(m); idx++;
                     if (idx == 40 || idx == 100 || idx == 200 || idx == 370) { snprintf(nm, sizeof nm, "shader_module_upto%03d_ms", idx); std::vector<double> tail(blk.end() - std::min<size_t>(blk.size(), 20), blk.end()); bench(nm, median(tail), "ms"); } }
