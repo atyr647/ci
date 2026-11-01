@@ -17,7 +17,7 @@ jobs:
           curl -fsSL -o mi.tar.gz https://github.com/microsoft/mimalloc/archive/refs/tags/${{ inputs.mi_version }}.tar.gz && mkdir mi && tar xzf mi.tar.gz -C mi --strip-components=1
           B=$PWD/cosmo/bin; mkdir out parts
           for A in x86_64 aarch64; do
-            $B/$A-unknown-cosmo-cc -O2 -DMI_MALLOC_OVERRIDE=0 -DMI_SECURE=0 -DNDEBUG -I mi/include -c mi/src/static.c -o mi_static.$A.o 2>&1 | tail -20
+            $B/$A-unknown-cosmo-cc -O2 -D_COSMO_SOURCE -DMI_MALLOC_OVERRIDE=0 -DMI_SECURE=0 -DNDEBUG -I mi/include -c mi/src/static.c -o mi_static.$A.o 2>&1 | tail -20
             $B/$A-unknown-cosmo-cc -O2 -I mi/include -c alloc-probe/mimalloc/mi_override.c -o mi_override.$A.o
             $B/$A-unknown-cosmo-c++ -O2 -std=c++17 alloc-probe/mimalloc/malloc_stress.cpp -o parts/stress-library.$A.com 2>&1 | tail -5
             $B/$A-unknown-cosmo-c++ -O2 -std=c++17 alloc-probe/mimalloc/malloc_stress.cpp mi_static.$A.o mi_override.$A.o -o parts/stress-mimalloc.$A.com 2>&1 | tail -20
