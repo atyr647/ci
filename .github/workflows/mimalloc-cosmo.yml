@@ -24,7 +24,7 @@ jobs:
           done
           ls -la parts
           for n in stress-library stress-mimalloc; do [ -f parts/$n.x86_64.com.dbg ] && [ -f parts/$n.aarch64.com.dbg ] && $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o out/$n.com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg; done
-          ls -la out
+          mkdir -p out/dbg && cp parts/stress-mimalloc.*.com.dbg out/dbg/ 2>/dev/null; ls -la out
       - uses: actions/upload-artifact@v4
         with: { name: mimalloc-bin, path: out }
   run:
@@ -48,6 +48,12 @@ jobs:
         run: |
           CXX=c++; ST=""; if [ "$RUNNER_OS" = Windows ]; then CXX=g++; ST="-static"; fi
           $CXX -O2 -std=c++17 alloc-probe/mimalloc/malloc_stress.cpp -o out/stress-native -pthread $ST
+      - name: Where mimalloc crashes (Linux x86-64 and arm64: the unstripped ELF under gdb)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          sudo apt-get install -y gdb >/dev/null 2>&1; A=$(uname -m); chmod +x out/dbg/*
+          timeout 120 gdb -batch -ex "handle SIGSEGV stop nopass" -ex run -ex bt -ex "info registers rip" -ex "x/6i \$pc" out/dbg/stress-mimalloc.$A.com.dbg 2>&1 | tail -40 | cut -c1-220
       - name: Run
         run: |
           run() { if [ "$RUNNER_OS" = Windows ]; then if [ -f "$1.com" ]; then cp "$1.com" "$1.exe"; fi; "./$1.exe"; elif [ -f "$1.com" ]; then sh "./$1.com"; else "./$1"; fi; }

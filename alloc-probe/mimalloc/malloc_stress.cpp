@@ -36,7 +36,9 @@ int main() {
     { std::vector<std::thread> t; for (int i = 0; i < 4; i++) t.emplace_back(producer, i); for (int i = 0; i < 3; i++) t.emplace_back(consumer); for (int i = 0; i < 4; i++) t[i].join(); done = true; for (size_t i = 4; i < t.size(); i++) t[i].join(); }
     printf("OK   cross-thread produce/consume\n");
     { unsigned char *z = (unsigned char *)calloc(1000, 17); bool ok = z; for (int i = 0; ok && i < 17000; i++) ok = z[i] == 0; CHECK(ok, "calloc zero"); free(z); }
+#if !defined(_WIN32) || defined(__COSMOPOLITAN__)
     for (size_t al : {16, 64, 256, 4096, 65536}) { void *p = nullptr; int rc = posix_memalign(&p, al, 1000); CHECK(rc == 0 && ((uintptr_t)p % al) == 0, "posix_memalign alignment"); free(p); void *a = aligned_alloc(al, al * 2); CHECK(a && ((uintptr_t)a % al) == 0, "aligned_alloc alignment"); free(a); }
+#endif
     { size_t big = 256u << 20; unsigned char *b = (unsigned char *)malloc(big); CHECK(b, "256 MiB malloc"); if (b) { b[0] = 1; b[big - 1] = 2; CHECK(b[0] == 1 && b[big - 1] == 2, "256 MiB block usable"); free(b); } }
     { void *p = malloc(0); free(p); free(nullptr); void *r = realloc(nullptr, 100); CHECK(r, "realloc(null)"); free(r); }
     printf("OK   calloc / aligned / big / edge cases\n");
