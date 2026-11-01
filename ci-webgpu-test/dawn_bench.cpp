@@ -211,7 +211,10 @@ static int bench_main(int argc, char **argv) {
     }
     {
         const int n = scaled(4000); WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT; b.size = 65536; b.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
-        auto t0 = Clock::now(); for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); }
+        // the first iterations of this loop are the first buffer creations of the process: report the first 250 on their own, then the rest, besides the total (a cold-start cost against a per-call cost)
+        auto t0 = Clock::now(); auto tc = t0; const int nc = std::min(250, n);
+        for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); if (i == nc - 1) { bench("buffer_first250_us", ms_since(tc) * 1e3 / nc, "us/op"); tc = Clock::now(); } }
+        if (n > nc) bench("buffer_after_first250_us", ms_since(tc) * 1e3 / (n - nc), "us/op");
         bench("buffer_create_release_us", ms_since(t0) * 1e3 / n, "us/op");
         {   // the same with the device ticked every 64 iterations: Dawn frees a released buffer's memory only when the queue is ticked, so the loop above makes memory grow (page faults on fresh pages);
             // this one stays at a steady state. Also the resident memory growth per iteration of each loop.
