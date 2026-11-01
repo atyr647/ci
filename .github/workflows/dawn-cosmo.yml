@@ -235,6 +235,9 @@ jobs:
             $B/$A-unknown-cosmo-c++ -O2 gpu_probe.$A.o $extra nsync_fast.$A.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create $WM -o parts/gpu-probe.$A.com
             $B/$A-unknown-cosmo-c++ -O3 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.$A.o
             $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra nsync_fast.$A.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create $WM -o parts/dawn-bench.$A.com
+            # experiment: the allocator front end also retains big blocks (alloc-probe/tcache_big_new.cpp)
+            $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -c alloc-probe/tcache_big_new.cpp -o tcache_big_new.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $(echo $extra | sed "s#$PWD/tcache_new.$A.o#$PWD/tcache_big_new.$A.o#") nsync_fast.$A.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create $WM -o parts/dawn-bench-big.$A.com
             # control: the same program with the library's own mutex, unwrapped
             $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create -o parts/dawn-bench-lib.$A.com
             # the same benchmark with the futex-only default mutex + condition variable (alloc-probe/fast_sync.c), to measure what it buys
@@ -245,7 +248,7 @@ jobs:
       - name: One fat file
         run: |
           B=$PWD/cosmo/bin
-          for n in wgt gpu-probe dawn-bench dawn-bench-mf dawn-bench-lib; do
+          for n in wgt gpu-probe dawn-bench dawn-bench-mf dawn-bench-lib dawn-bench-big; do
             $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o $( [ $n = wgt ] && echo wgt-dawn || echo $n ).com parts/$n.x86_64.com.dbg parts/$n.aarch64.com.dbg
           done
           # the native Windows on ARM build rides along as a zip entry of the benchmark file (started by the x86-64 half on ARM64 machines)
@@ -253,7 +256,7 @@ jobs:
           $B/cosmocc -O1 -Ici-webgpu-test ci-webgpu-test/d3d12min.c -o d3d12min.com
           ls -la wgt-dawn.com gpu-probe.com dawn-bench.com d3d12min.com
       - uses: actions/upload-artifact@v4
-        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com\ndawn-bench.com\ndawn-bench-mf.com\ndawn-bench-lib.com\nd3d12min.com" }
+        with: { name: wgt-dawn, path: "wgt-dawn.com\ngpu-probe.com\ndawn-bench.com\ndawn-bench-mf.com\ndawn-bench-lib.com\ndawn-bench-big.com\nd3d12min.com" }
       - uses: actions/upload-artifact@v4
         with: { name: dbg-dawn-bench, path: "parts/dawn-bench.x86_64.com.dbg\nparts/dawn-bench.aarch64.com.dbg", compression-level: 6 }
 
