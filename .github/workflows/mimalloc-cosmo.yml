@@ -48,7 +48,7 @@ jobs:
         run: |
           CXX=c++; ST=""; if [ "$RUNNER_OS" = Windows ]; then CXX=g++; ST="-static"; fi
           $CXX -O2 -std=c++17 alloc-probe/mimalloc/malloc_stress.cpp -o out/stress-native -pthread $ST
-      - name: Where mimalloc crashes (Linux x86-64 and arm64: the unstripped ELF under gdb)
+      - name: "Where mimalloc crashes (Linux x86-64 and arm64, the unstripped ELF under gdb)"
         if: runner.os == 'Linux'
         continue-on-error: true
         run: |
