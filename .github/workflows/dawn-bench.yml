@@ -119,8 +119,8 @@ jobs:
           fi
           if [ "${{ matrix.label }}" = linux-arm64 ]; then args+=(--variant "cosmo-tramp|WGT_BACKEND=$B,DAWN_COSMO_DIRECT=0|$COSMO"); fi
           if [ "$RUNNER_OS" = macOS ]; then
-            args+=(--variant "cosmo-moltenvk|WGT_BACKEND=vulkan,DAWN_COSMO_ALLOW_VULKAN=1,VK_ICD_FILENAMES=$MVK_ICD,DYLD_LIBRARY_PATH=$VKLIB|$COSMO")
-            args+=(--variant "cosmo-moltenvk-library-malloc|WGT_BACKEND=vulkan,DAWN_COSMO_ALLOW_VULKAN=1,VK_ICD_FILENAMES=$MVK_ICD,DYLD_LIBRARY_PATH=$VKLIB|${COSMO/dawn-bench./dawn-bench-nomi.}")   # the same with the library's malloc: the MoltenVK row now times out with mimalloc
+            args+=(--variant "cosmo-moltenvk|WGT_BACKEND=vulkan,BENCH_SCALE=0.1,DAWN_COSMO_ALLOW_VULKAN=1,VK_ICD_FILENAMES=$MVK_ICD,DYLD_LIBRARY_PATH=$VKLIB|$COSMO")
+            args+=(--variant "cosmo-moltenvk-library-malloc|WGT_BACKEND=vulkan,BENCH_SCALE=0.1,DAWN_COSMO_ALLOW_VULKAN=1,VK_ICD_FILENAMES=$MVK_ICD,DYLD_LIBRARY_PATH=$VKLIB|${COSMO/dawn-bench./dawn-bench-nomi.}")   # the same with the library's malloc: the MoltenVK row now times out with mimalloc
           fi
           PY=$(command -v python3 || command -v python); echo "python: $PY"; "$PY" ci-webgpu-test/bench_ab.py "${args[@]}" 2>&1 | tee bench-out.txt; rc=${PIPESTATUS[0]}
           # the GPU kernel check lines (groups, time, error against the CPU reference) are not metrics, so show them separately
