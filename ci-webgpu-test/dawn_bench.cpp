@@ -175,6 +175,11 @@ static int bench_main(int argc, char **argv) {
         std::vector<double> mod; const int reps = tintRepeat ? atoi(tintRepeat) : scaled(6);
         for (int i = 0; i < reps; i++) { std::string w = big_wgsl(160, i); auto t0 = Clock::now(); WGPUShaderModule m = make_module(dev, w); mod.push_back(ms_since(t0)); wgpuShaderModuleRelease(m); }
         bench("shader_module_160fn_ms", median(mod), "ms");
+        if (!tintRepeat && !mod.empty()) {   // the first compile of the process (cold code, first-touch memory) against modules compiled after 24 more: what is a one-time cost and what is steady
+            bench("shader_module_first_ms", mod[0], "ms");
+            std::vector<double> warm; for (int i = 0; i < 30; i++) { std::string w = big_wgsl(160, 50 + i); auto t0 = Clock::now(); WGPUShaderModule m = make_module(dev, w); double ms = ms_since(t0); wgpuShaderModuleRelease(m); if (i >= 24) warm.push_back(ms); }
+            bench("shader_module_warm_ms", median(warm), "ms");
+        }
         if (tintRepeat) return 0;
         std::vector<double> pip;
         for (int i = 0; i < scaled(5); i++) { std::string w = big_wgsl(12, 100 + i); auto t0 = Clock::now(); WGPUShaderModule m = make_module(dev, w); WGPUComputePipeline p = make_pipeline(dev, m); pip.push_back(ms_since(t0)); wgpuComputePipelineRelease(p); wgpuShaderModuleRelease(m); }
