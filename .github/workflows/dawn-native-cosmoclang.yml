@@ -24,7 +24,7 @@ jobs:
           clang --version | head -1; "$PWD/cosmo/libexec/clang" --version | head -3 || true
           # the cosmocc clang is an APE binary; give it a plain-ELF wrapper for the native toolchain, with the system's resource directory (for stddef.h and the like)
           RD=$(clang -print-resource-dir); echo "resource dir: $RD"
-          printf '#!/bin/sh\nexec %s/cosmo/libexec/clang -resource-dir %s "$@"\n' "$PWD" "$RD" > $HOME/cc-clang; printf '#!/bin/sh\nexec %s/cosmo/libexec/clang --driver-mode=g++ -resource-dir %s "$@"\n' "$PWD" "$RD" > $HOME/cc-clangxx
+          printf '#!/bin/sh\nexec %s/cosmo/libexec/clang -resource-dir %s -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include "$@"\n' "$PWD" "$RD" > $HOME/cc-clang; printf '#!/bin/sh\nexec %s/cosmo/libexec/clang --driver-mode=g++ -resource-dir %s -idirafter /usr/include/x86_64-linux-gnu -idirafter /usr/include "$@"\n' "$PWD" "$RD" > $HOME/cc-clangxx
           chmod +x $HOME/cc-clang $HOME/cc-clangxx; echo 'int main(){return 0;}' > t.c; $HOME/cc-clang t.c -o t && ./t && echo "cosmocc clang compiles and links natively"
       - name: Restore native Dawn built by the system clang
         uses: actions/cache/restore@v4
