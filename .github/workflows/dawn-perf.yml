@@ -44,6 +44,25 @@ jobs:
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D dbg
           if [ -n "${{ inputs.flags_run }}" ]; then gh run download ${{ inputs.flags_run }} -R ${{ github.repository }} -n bench-clang-${{ matrix.arch }} -D dbg || echo "no clang build"; fi
           ls -la dbg; chmod +x dbg/*
+      - name: Page faults of the first 4,000 buffer calls minus start-up, by code location (mode faultprof)
+        if: inputs.mode == 'faultprof'
+        run: |
+          export WGT_BACKEND=vulkan
+          N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+          for rep in 1 2 3; do for v in native cosmo; do case $v in native) BIN=$N;; *) BIN=$C;; esac
+            for K in 1 4000; do
+              BENCH_BUFFER_REPEAT=$K "$PERF" record -e page-faults -c 1 -o pf.$v.$K.$rep.data -- $BIN > pfrun.$v.$K.$rep.txt 2>&1 || echo "record failed $v $K"
+              "$PERF" report -i pf.$v.$K.$rep.data --stdio --no-children --sort dso,symbol -n 2>/dev/null | grep -v '^#' | grep -v '^$' | head -600 > pftop.$v.$K.$rep.txt || true
+            done
+          done; done
+          grep -h "buffer_plain_minflt\|buffer_create" pfrun.*.4000.1.txt | head
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'faultprof'
+        with:
+          name: 'faultprof-${{ matrix.label }}'
+          path: |
+            pftop.*.txt
+            pfrun.*.txt
       - name: Profile of the buffer loop minus start-up (mode bufprof)
         if: inputs.mode == 'bufprof'
         run: |
@@ -64,7 +83,7 @@ jobs:
             pbtop.*.txt
             pbrun.*.txt
       - name: Profile
-        if: inputs.mode != 'bufprof'
+        if: inputs.mode != 'bufprof' && inputs.mode != 'faultprof'
         run: |
           export WGT_BACKEND=vulkan
           N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
@@ -98,7 +117,7 @@ jobs:
             stat2.*.txt
             strace.*.txt
       - name: Result (printed last)
-        if: always() && inputs.mode != 'bufprof'
+        if: always() && inputs.mode != 'bufprof' && inputs.mode != 'faultprof'
         run: |
           for v in native cosmo cosmo-mallopt; do echo "=== $v: strace -c (top 8)"; head -12 strace.$v.txt; echo "--- faults"; grep -E "page-faults|task-clock" stat2.$v.txt; done
           VARS=$(ls run.*.txt | sed "s/run\.//;s/\.txt//" | tr "\n" " ")
