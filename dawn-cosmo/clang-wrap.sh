@@ -4,8 +4,8 @@
 ARCH=$1; KIND=$2; shift 2
 COSMO=${COSMO:-$HOME/cosmo}
 case " $* " in *" -c "*) ;; *) exec "$COSMO/bin/$ARCH-unknown-cosmo-$KIND" "$@";; esac
-# Not usable for the x86-64 half: with this wrapper the D3D12 backend built, but D3D12 on Windows failed its compute check (measured, dawn-cosmo run with compiler=clang), and compiling only the
-# Direct3D sources with GCC did not link (undefined BindGroupBase constructor between the GCC and clang objects). The arm64 half has no D3D12 backend and uses this wrapper (dawn-cosmo, compiler=auto).
+# Used for both halves (dawn-cosmo, compiler=clang, the default). For the D3D12 backend of the x86-64 half the COM headers must have been rewritten by fix_com_struct_returns.py (explicit result
+# pointer), as for GCC: without it D3D12 on Windows crashed in the driver's request-device stage (an earlier all-clang run skipped the rewrite and failed its compute check for that reason).
 case $ARCH in
   x86_64)  AF="--target=x86_64 -mno-tls-direct-seg-refs -fpatchable-function-entry=18,16 -mno-red-zone" ;;
   aarch64) AF="--target=aarch64 -ffixed-x18 -ffixed-x28 -fpatchable-function-entry=7,6 -fsigned-char" ;;

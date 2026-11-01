@@ -4,7 +4,7 @@ name: dawn-cosmo
 on:
   workflow_dispatch:
     inputs:
-      compiler: { description: 'compiler for Dawn: auto (clang for the arm64 half, GCC for the x86-64 half, which carries the D3D12 backend that only works with GCC), gcc (the Cosmopolitan driver default) or clang (cosmocc clang through dawn-cosmo/clang-wrap.sh, frame pointers and NOP padding off, for both)', required: false, default: 'auto' }
+      compiler: { description: 'compiler for Dawn, both halves: clang (cosmocc clang through dawn-cosmo/clang-wrap.sh, frame pointers and NOP padding off) or gcc (the Cosmopolitan driver default)', required: false, default: 'clang' }
 env:
   DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
   COSMOCC: 4.0.2
@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 340
     env:
       COSMO_ARCH: ${{ matrix.arch }}
-      DAWN_CC: ${{ inputs.compiler == 'gcc' && 'gcc' || inputs.compiler == 'clang' && 'clang' || (matrix.arch == 'aarch64' && 'clang' || 'gcc') }}
+      DAWN_CC: ${{ inputs.compiler == 'gcc' && 'gcc' || 'clang' }}
     steps:
       - uses: actions/checkout@v4
       - name: Tools
