@@ -4,7 +4,7 @@ name: dawn-cosmo
 on:
   workflow_dispatch:
     inputs:
-      compiler: { description: 'compiler for Dawn: gcc (the Cosmopolitan driver default) or clang (cosmocc clang through dawn-cosmo/clang-wrap.sh, frame pointers and NOP padding off)', required: false, default: 'gcc' }
+      compiler: { description: 'compiler for Dawn: auto (clang for the arm64 half, GCC for the x86-64 half, which carries the D3D12 backend that only works with GCC), gcc (the Cosmopolitan driver default) or clang (cosmocc clang through dawn-cosmo/clang-wrap.sh, frame pointers and NOP padding off, for both)', required: false, default: 'auto' }
 env:
   DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
   COSMOCC: 4.0.2
@@ -19,7 +19,7 @@ jobs:
     timeout-minutes: 340
     env:
       COSMO_ARCH: ${{ matrix.arch }}
-      DAWN_CC: ${{ inputs.compiler || 'gcc' }}
+      DAWN_CC: ${{ inputs.compiler == 'gcc' && 'gcc' || inputs.compiler == 'clang' && 'clang' || (matrix.arch == 'aarch64' && 'clang' || 'gcc') }}
     steps:
       - uses: actions/checkout@v4
       - name: Tools
@@ -34,7 +34,7 @@ jobs:
           sh backend-spikes/setup-wine-headers.sh $PWD/wine
           mkdir dxh && git -C dxh init -q && git -C dxh fetch -q --depth 1 https://github.com/microsoft/DirectX-Headers $DXH_SHA && git -C dxh checkout -q FETCH_HEAD
           W=$PWD/wine/x/usr/include/wine/wine
-          python3 dawn-cosmo/fix_com_struct_returns.py dxh/include/directx   # result pointer order of struct-returning COM methods (GCC vs Microsoft); the Direct3D sources are compiled by GCC even in the clang build of struct-returning COM methods (GCC vs Microsoft)
+          python3 dawn-cosmo/fix_com_struct_returns.py dxh/include/directx   # result pointer order of struct-returning COM methods (GCC vs Microsoft) of struct-returning COM methods (GCC vs Microsoft)
           python3 backend-spikes/make_sal_shim.py dawn-cosmo/d3d12-shims/sal_shim.h dxh/include/directx/*.h dawn-cosmo/d3d12-shims/dxcapi.h
           python3 backend-spikes/make_uuid_decls.py dawn-cosmo/d3d12-shims/uuid_decls.h $W/windows dxh/include/directx dawn-cosmo/d3d12-shims
       - name: Restore the Dawn checkout and build directory from the last run
@@ -43,8 +43,8 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ inputs.compiler == 'clang' && '-clang' || '' }}-${{ github.run_id }}
-          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ inputs.compiler == 'clang' && '-clang' || '' }}-
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ env.DAWN_CC == 'clang' && '-clang' || '' }}-${{ github.run_id }}
+          restore-keys: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ env.DAWN_CC == 'clang' && '-clang' || '' }}-
       - name: Fetch Dawn at the pinned commit (unless restored)
         run: |
           if [ ! -d dawn/.git ]; then
@@ -102,7 +102,7 @@ jobs:
           path: |
             dawn
             build
-          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ inputs.compiler == 'clang' && '-clang' || '' }}-${{ github.run_id }}
+          key: dawn-cosmo-${{ matrix.arch }}-${{ env.DAWN_SHA }}-v3${{ env.DAWN_CC == 'clang' && '-clang' || '' }}-${{ github.run_id }}
       - name: Package the library and headers (linked in the link job, together with the Metal objects for arm64)
         run: |
           mkdir -p dist/inc1 dist/inc2
