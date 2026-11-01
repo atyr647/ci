@@ -51,11 +51,11 @@ jobs:
           N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
           for v in native cosmo; do case $v in native) BIN=$N;; *) BIN=$C;; esac
             "$PERF" record -e cpu-clock -F 20000 -o an.$v.data -- $BIN > anrun.$v.txt 2>&1 || echo "record failed $v"
-            for SYM in 'tint::wgsl::reader::Lexer::next()' 'tint::wgsl::reader::Token::Token(tint::wgsl::reader::Token&&)' 'tint::wgsl::reader::Lexer::skip_blankspace_and_comments()'; do
+            for SYM in 'tint::wgsl::reader::Lexer::next()' 'tint::wgsl::reader::Lexer::try_hex_float()' 'tint::wgsl::reader::Lexer::try_hex_integer()' 'tint::wgsl::reader::Lexer::try_float()'; do
               F=$(echo "$SYM" | tr -c 'A-Za-z0-9' '_' | cut -c1-40)
               "$PERF" annotate -i an.$v.data --stdio -s "$SYM" 2>/dev/null > anfull.$v.$F.txt || true
               wc -l anfull.$v.$F.txt
-              awk '$1+0 >= 0.6' anfull.$v.$F.txt | head -70 > anhot.$v.$F.txt
+              awk "\$1+0 >= 0.6" anfull.$v.$F.txt | head -70 > anhot.$v.$F.txt
             done
           done
           for f in anhot.*.txt; do echo "=== $f"; cut -c1-150 $f; done
