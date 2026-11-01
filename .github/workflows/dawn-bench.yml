@@ -96,6 +96,11 @@ jobs:
         run: |
           gh run download ${{ inputs.cosmo_run_b }} -R ${{ github.repository }} -n wgt-dawn -D cosmob
           chmod +x cosmob/dawn-bench.com; if [ "$RUNNER_OS" = Windows ]; then cp cosmob/dawn-bench.com cosmob/dawn-bench.exe; fi
+      - name: The unstripped single-architecture ELF of the same build (Linux; the file itself is started through the APE loader)
+        if: runner.os == 'Linux'
+        continue-on-error: true
+        run: |
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D dbgelf && chmod +x dbgelf/*; ls -la dbgelf
       - name: Vulkan loader + MoltenVK (macOS, for the extra Cosmopolitan-on-Vulkan row)
         if: runner.os == 'macOS'
         run: |
@@ -115,6 +120,7 @@ jobs:
           args+=(--variant "cosmo-async-inline|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=1|$COSMO" --variant "cosmo-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO")   # worker tasks on the posting thread / on Dawn's worker threads
           args+=(--variant "cosmo-mf-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO_MF" --variant "cosmo-lib-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO_LIB")   # does the crash depend on the lock implementation
           if [ -n "${{ inputs.cosmo_run_b }}" ]; then if [ "$RUNNER_OS" = Windows ]; then CB=./cosmob/dawn-bench.exe; else CB="sh ./cosmob/dawn-bench.com"; fi; args+=(--variant "cosmo-b|WGT_BACKEND=$B|$CB"); fi
+          if [ "$RUNNER_OS" = Linux ] && [ -f dbgelf/dawn-bench.$(uname -m).com.dbg ]; then args+=(--variant "cosmo-elf|WGT_BACKEND=$B|./dbgelf/dawn-bench.$(uname -m).com.dbg"); fi   # the same code started directly as an ELF, without the APE loader
           args+=(--variant "native-nobase|WGT_BACKEND=$B,BENCH_NO_BASELINES=1|$NATIVE" --variant "cosmo-nobase|WGT_BACKEND=$B,BENCH_NO_BASELINES=1|$COSMO")   # the same without the host baselines before Dawn starts
           args+=(--variant "cosmo-mi-nopurge|WGT_BACKEND=$B,MIMALLOC_PURGE_DELAY=-1|$COSMO")   # mimalloc never returns freed memory to the system (its default returns it after 10 ms; decommit calls are expensive on macOS)
           args+=(--variant "cosmo-library-malloc|WGT_BACKEND=$B|${COSMO/dawn-bench./dawn-bench-nomi.}")   # control: the library's own malloc instead of mimalloc
