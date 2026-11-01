@@ -223,7 +223,9 @@ static int bench_main(int argc, char **argv) {
 #ifndef _WIN32
             struct rusage ru0, ru1; getrusage(RUSAGE_SELF, &ru0);
 #endif
-            auto t1 = Clock::now(); for (int i = 0; i < n2s; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); if ((i & 63) == 63) wgpuDeviceTick(dev); }
+            auto t1 = Clock::now(); auto tk = t1; const int chunk = std::max(1, n2s / 10);   // the per-call cost in ten consecutive chunks of the ticked loop (how it changes while the driver's mappings grow)
+            for (int i = 0; i < n2s; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); if ((i & 63) == 63) wgpuDeviceTick(dev);
+                if ((i + 1) % chunk == 0 && (i + 1) / chunk <= 10) { char nm[48]; snprintf(nm, sizeof nm, "buffer_tick_chunk%02d_us", (i + 1) / chunk); bench(nm, ms_since(tk) * 1e3 / chunk, "us/op"); tk = Clock::now(); } }
             double us = ms_since(t1) * 1e3 / n2s; bench("buffer_create_release_steady_us", us, "us/op");
 #ifndef _WIN32
             // where the time of that loop goes, from the kernel's own accounting of this process: user and system CPU time, page faults, context switches, per iteration
