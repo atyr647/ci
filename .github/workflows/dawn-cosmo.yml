@@ -4,7 +4,7 @@ name: dawn-cosmo
 on:
   workflow_dispatch:
     inputs:
-      token_union: { description: 'experiment: replace the std::variant in Tint lexer tokens by a tagged union (dawn-cosmo/experiments/token_union.py)', required: false, default: 'false' }
+      token_union: { description: 'replace the std::variant in Tint lexer tokens by a tagged union (dawn-cosmo/experiments/token_union.py): the libc++ variant is slower than the libstdc++ one there, about 8.6 percent of shader compile time', required: false, default: 'true' }
       compiler: { description: 'compiler for Dawn, both halves: clang (cosmocc clang through dawn-cosmo/clang-wrap.sh, frame pointers and NOP padding off) or gcc (the Cosmopolitan driver default)', required: false, default: 'clang' }
 env:
   DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1
@@ -62,7 +62,7 @@ jobs:
           python3 dawn-cosmo/patch.py dawn
           python3 dawn-cosmo/keep_mtimes.py restore dawn $RUNNER_TEMP/mtimes.json
       - name: Experiment - Tint token without std::variant
-        if: inputs.token_union == 'true'
+        if: inputs.token_union != 'false'
         run: python3 dawn-cosmo/experiments/token_union.py dawn
       - name: Configure
         run: |
