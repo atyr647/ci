@@ -15,6 +15,8 @@ jobs:
         run: |
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
           curl -fsSL -o mi.tar.gz https://github.com/microsoft/mimalloc/archive/refs/tags/${{ inputs.mi_version }}.tar.gz && mkdir mi && tar xzf mi.tar.gz -C mi --strip-components=1
+          # cosmocc defines __GLIBC__, which makes mimalloc read the thread id straight from %fs:0 (glibc's TLS layout); Cosmopolitan runs on Windows and macOS too, where that register is not the thread block. Use the portable path.
+          sed -i 's/(defined(__GLIBC__)   \&\&/(0 \&\&/' mi/include/mimalloc/prim.h; grep -n '(0 &&' mi/include/mimalloc/prim.h | head -2
           B=$PWD/cosmo/bin; mkdir out parts
           for A in x86_64 aarch64; do
             $B/$A-unknown-cosmo-cc -O2 -D_COSMO_SOURCE -include libc/sysv/consts/madv.h -DMI_SECURE=0 -DNDEBUG -I mi/include -c mi/src/static.c -o mi_static.$A.o 2>&1 | tail -20
