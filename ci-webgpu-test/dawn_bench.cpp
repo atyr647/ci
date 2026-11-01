@@ -226,6 +226,15 @@ static int bench_main(int argc, char **argv) {
           bench("buffer_plain_minflt_per_call", (double)(pr1.ru_minflt - pr0.ru_minflt) / n, "faults/op");
           bench("buffer_plain_ctxsw", (double)((pr1.ru_nvcsw - pr0.ru_nvcsw) + (pr1.ru_nivcsw - pr0.ru_nivcsw)), "count"); }
 #endif
+#ifndef _WIN32
+        for (int rep = 2; rep <= 4; rep++) {   // the same 4,000 calls again, right after: what is a one-time cost of the first loop and what is per call (faults and time of each repetition)
+            struct rusage q0, q1; getrusage(RUSAGE_SELF, &q0); auto tq = Clock::now();
+            for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(dev, &b); wgpuBufferRelease(x); }
+            double us = ms_since(tq) * 1e3 / n; getrusage(RUSAGE_SELF, &q1); char nm[64];
+            snprintf(nm, sizeof nm, "buffer_plain_rep%d_us", rep); bench(nm, us, "us/op");
+            snprintf(nm, sizeof nm, "buffer_plain_rep%d_minflt_per_call", rep); bench(nm, (double)(q1.ru_minflt - q0.ru_minflt) / n, "faults/op");
+        }
+#endif
         {   // the same with the device ticked every 64 iterations: Dawn frees a released buffer's memory only when the queue is ticked, so the loop above makes memory grow (page faults on fresh pages);
             // this one stays at a steady state. Also the resident memory growth per iteration of each loop.
             auto rss = []() -> double { FILE *f = fopen("/proc/self/statm", "r"); long a = 0, r = 0; if (f) { if (fscanf(f, "%ld %ld", &a, &r) != 2) r = 0; fclose(f); } return (double)r * 4096.0; };
