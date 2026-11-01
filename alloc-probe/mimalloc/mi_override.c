@@ -16,3 +16,9 @@ void *valloc(size_t n) { return mi_valloc(n); }
 void *pvalloc(size_t n) { return mi_pvalloc(n); }
 void *reallocarray(void *p, size_t a, size_t b) { return mi_reallocarray(p, a, b); }
 size_t malloc_usable_size(void *p) { return mi_usable_size(p); }
+
+// Cosmopolitan's thread creation frees a thread's memory in one call (libc/thread/pthread_create.c -> bulk_free), which would hand mimalloc's blocks to dlmalloc.
+size_t bulk_free(void *array[], size_t n) {
+  for (size_t i = 0; i < n; i++) { mi_free(array[i]); array[i] = 0; }
+  return 0;
+}
