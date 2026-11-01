@@ -44,6 +44,29 @@ jobs:
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D dbg
           if [ -n "${{ inputs.flags_run }}" ]; then gh run download ${{ inputs.flags_run }} -R ${{ github.repository }} -n bench-clang-${{ matrix.arch }} -D dbg || echo "no clang build"; fi
           ls -la dbg; chmod +x dbg/*
+      - name: Hottest instructions of the lexer entry point (mode annotate)
+        if: inputs.mode == 'annotate'
+        run: |
+          export WGT_BACKEND=vulkan BENCH_TINT_REPEAT=300
+          N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+          for v in native cosmo; do case $v in native) BIN=$N;; *) BIN=$C;; esac
+            "$PERF" record -e cpu-clock -F 20000 -o an.$v.data -- $BIN > anrun.$v.txt 2>&1 || echo "record failed $v"
+            for SYM in 'tint::wgsl::reader::Lexer::next()' 'tint::wgsl::reader::Token::Token(tint::wgsl::reader::Token&&)' 'tint::wgsl::reader::Lexer::skip_blankspace_and_comments()'; do
+              F=$(echo "$SYM" | tr -c 'A-Za-z0-9' '_' | cut -c1-40)
+              "$PERF" annotate -i an.$v.data --stdio -s "$SYM" 2>/dev/null > anfull.$v.$F.txt || true
+              wc -l anfull.$v.$F.txt
+              awk '$1+0 >= 0.6' anfull.$v.$F.txt | head -70 > anhot.$v.$F.txt
+            done
+          done
+          for f in anhot.*.txt; do echo "=== $f"; cut -c1-150 $f; done
+      - uses: actions/upload-artifact@v4
+        if: inputs.mode == 'annotate'
+        with:
+          name: 'annotate-${{ matrix.label }}'
+          path: |
+            anhot.*.txt
+            anfull.*.txt
+            anrun.*.txt
       - name: Page faults of the first 4,000 buffer calls minus start-up, by code location (mode faultprof)
         if: inputs.mode == 'faultprof'
         run: |
@@ -83,7 +106,7 @@ jobs:
             pbtop.*.txt
             pbrun.*.txt
       - name: Profile
-        if: inputs.mode != 'bufprof' && inputs.mode != 'faultprof'
+        if: inputs.mode != 'bufprof' && inputs.mode != 'faultprof' && inputs.mode != 'annotate'
         run: |
           export WGT_BACKEND=vulkan
           N=benchout/dawn-bench; C=dbg/dawn-bench.${{ matrix.arch }}.com.dbg
@@ -117,7 +140,7 @@ jobs:
             stat2.*.txt
             strace.*.txt
       - name: Result (printed last)
-        if: always() && inputs.mode != 'bufprof' && inputs.mode != 'faultprof'
+        if: always() && inputs.mode != 'bufprof' && inputs.mode != 'faultprof' && inputs.mode != 'annotate'
         run: |
           for v in native cosmo cosmo-mallopt; do echo "=== $v: strace -c (top 8)"; head -12 strace.$v.txt; echo "--- faults"; grep -E "page-faults|task-clock" stat2.$v.txt; done
           VARS=$(ls run.*.txt | sed "s/run\.//;s/\.txt//" | tr "\n" " ")
