@@ -63,11 +63,12 @@ jobs:
       - name: Configure
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
-          OVR=""
+          # Cosmopolitan's libc++ is configured with hardening mode "fast" (bounds checks in vector/string_view/span indexing and similar), which native Linux builds (libstdc++) do not have: off here
+          OVR="-D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE"
           if [ "$DAWN_CC" = clang ]; then
             printf '#!/bin/sh\nexec sh %s/dawn-cosmo/clang-wrap.sh %s cc "$@"\n' "$PWD" "$COSMO_ARCH" > $HOME/wrap-cc; printf '#!/bin/sh\nexec sh %s/dawn-cosmo/clang-wrap.sh %s c++ "$@"\n' "$PWD" "$COSMO_ARCH" > $HOME/wrap-cxx
             chmod +x $HOME/wrap-cc $HOME/wrap-cxx; export DAWN_COSMO_CC=$HOME/wrap-cc DAWN_COSMO_CXX=$HOME/wrap-cxx
-            OVR="-fomit-frame-pointer -fpatchable-function-entry=0"
+            OVR="$OVR -fomit-frame-pointer -fpatchable-function-entry=0"
           fi
           d3d=""
           [ "$COSMO_ARCH" = aarch64 ] && d3d="-DTINT_BUILD_MSL_WRITER=ON"   # the Metal objects (built on macOS, linked into the arm64 half) use Tint's MSL writer
@@ -238,7 +239,7 @@ jobs:
             $B/$A-unknown-cosmo-c++ -O2 wgt.$A.o $extra nsync_fast.$A.o $MI "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create $WM -o parts/wgt.$A.com
             $B/$A-unknown-cosmo-c++ -O2 -std=c++20 $INC -c ci-webgpu-test/gpu_probe.cpp -o gpu_probe.$A.o
             $B/$A-unknown-cosmo-c++ -O2 gpu_probe.$A.o $extra nsync_fast.$A.o $MI "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create $WM -o parts/gpu-probe.$A.com
-            $B/$A-unknown-cosmo-c++ -O3 -std=c++17 $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.$A.o
+            $B/$A-unknown-cosmo-c++ -O3 -std=c++17 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE $INC -c ci-webgpu-test/dawn_bench.cpp -o dawn_bench.$A.o
             $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra nsync_fast.$A.o $MI "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create $WM -o parts/dawn-bench.$A.com
             # controls, each differing from the shipped program in one thing: the library's own malloc; the library's own mutex; the futex-only mutex + condition variable (alloc-probe/fast_sync.c)
             $B/$A-unknown-cosmo-c++ -O2 dawn_bench.$A.o $extra nsync_fast.$A.o "$L/libwebgpu_dawn.a" -Wl,--wrap=pthread_create $WM -o parts/dawn-bench-nomi.$A.com
