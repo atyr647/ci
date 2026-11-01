@@ -6,7 +6,10 @@
 #include <cstdlib>
 #include <new>
 namespace {
-constexpr size_t kMax = 1024, kClasses = kMax / 16 + 1, kKeep = 128, kLarge = ~size_t(0);
+#ifndef TC_KEEP
+#define TC_KEEP 128   // blocks kept per size class per thread (experiments build other values)
+#endif
+constexpr size_t kMax = 1024, kClasses = kMax / 16 + 1, kKeep = TC_KEEP, kLarge = ~size_t(0);
 struct Block { Block *next; };
 thread_local Block *g_head[kClasses];
 thread_local unsigned g_count[kClasses];
