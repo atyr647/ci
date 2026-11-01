@@ -184,6 +184,21 @@ extern "C" void DawnCosmoForeignInit() {
     }
 #endif
     pthread_sigmask(SIG_SETMASK, &old, nullptr);
+    // Pre-fault the system C library's heap (the driver's malloc). Natively Dawn and the driver share that heap, so the driver reuses pages Dawn and Tint freed during start-up; in this build Dawn has its
+    // own heap, and the driver's first allocations would touch fresh pages (measured: about 420 extra page faults, 0.9 ms, in the first burst of buffer creation). Allocate and touch a few MiB through the
+    // library's own malloc, free it, and tell it not to give the memory back (M_TRIM_THRESHOLD), so those pages are already mapped when the driver asks. DAWN_COSMO_PREFAULT_KB=0 turns it off.
+    {
+        long kb = 3072; if (const char* pk = getenv("DAWN_COSMO_PREFAULT_KB")) kb = atol(pk);
+        auto pmallopt = reinterpret_cast<int (*)(int, int)>(cosmo_dltramp(cosmo_dlsym(libc, "mallopt")));
+        auto pcalloc = reinterpret_cast<void* (*)(unsigned long, unsigned long)>(cosmo_dltramp(cosmo_dlsym(libc, "calloc")));
+        auto pfree = reinterpret_cast<void (*)(void*)>(cosmo_dltramp(cosmo_dlsym(libc, "free")));
+        if (kb > 0 && pmallopt && pcalloc && pfree) {
+            pmallopt(-1, 256 << 20);   // M_TRIM_THRESHOLD: keep freed heap memory
+            const long n = kb;         // blocks of 1 KiB, the size class the driver's per-buffer allocations use
+            void** blocks = static_cast<void**>(malloc(sizeof(void*) * n));
+            if (blocks) { for (long i = 0; i < n; i++) blocks[i] = pcalloc(1, 1024); for (long i = 0; i < n; i++) if (blocks[i]) pfree(blocks[i]); free(blocks); }
+        }
+    }
     if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d), main thread pointer %#lx, offset %#lx, first block %#lx\n", gCount, gDawnCosmoFsgsbase, ReadTp(), off, gCount ? gPool[0] : 0UL);
 }
 extern "C" unsigned long DawnCosmoForeignTcb() {
