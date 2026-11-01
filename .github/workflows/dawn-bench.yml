@@ -88,7 +88,7 @@ jobs:
       - name: The Cosmopolitan build (artifact of the dawn-cosmo run)
         run: |
           gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n wgt-dawn -D cosmo
-          chmod +x cosmo/dawn-bench.com cosmo/dawn-bench-mf.com cosmo/dawn-bench-lib.com cosmo/dawn-bench-big.com cosmo/dawn-bench-notc.com cosmo/dawn-bench-k1024.com cosmo/dawn-bench-m4096.com cosmo/dawn-bench-m16384.com; if [ "$RUNNER_OS" = Windows ]; then cp cosmo/dawn-bench.com cosmo/dawn-bench.exe; cp cosmo/dawn-bench-mf.com cosmo/dawn-bench-mf.exe; cp cosmo/dawn-bench-lib.com cosmo/dawn-bench-lib.exe; fi; ls -la cosmo
+          chmod +x cosmo/dawn-bench.com cosmo/dawn-bench-mf.com cosmo/dawn-bench-lib.com cosmo/dawn-bench-big.com cosmo/dawn-bench-notc.com cosmo/dawn-bench-k1024.com cosmo/dawn-bench-m4096.com cosmo/dawn-bench-m16384.com cosmo/dawn-bench-mi.com cosmo/dawn-bench-minotc.com; if [ "$RUNNER_OS" = Windows ]; then cp cosmo/dawn-bench.com cosmo/dawn-bench.exe; cp cosmo/dawn-bench-mi.com cosmo/dawn-bench-mi.exe; cp cosmo/dawn-bench-minotc.com cosmo/dawn-bench-minotc.exe; cp cosmo/dawn-bench-mf.com cosmo/dawn-bench-mf.exe; cp cosmo/dawn-bench-lib.com cosmo/dawn-bench-lib.exe; fi; ls -la cosmo
       - name: Vulkan loader + MoltenVK (macOS, for the extra Cosmopolitan-on-Vulkan row)
         if: runner.os == 'macOS'
         run: |
@@ -109,6 +109,7 @@ jobs:
           args+=(--variant "cosmo-mf-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO_MF" --variant "cosmo-lib-async-threads|WGT_BACKEND=$B,BENCH_ASYNC_PIPELINE=1,DAWN_COSMO_INLINE_WORKERS=0|$COSMO_LIB")   # does the crash depend on the lock implementation
           if [ "$RUNNER_OS" = Linux ]; then args+=(--variant "cosmo-bigcache|WGT_BACKEND=$B|sh ./cosmo/dawn-bench-big.com"); fi   # allocator front end that also retains big blocks
           if [ "$RUNNER_OS" = Linux ]; then args+=(--variant "cosmo-notcache|WGT_BACKEND=$B|sh ./cosmo/dawn-bench-notc.com" --variant "cosmo-keep1024|WGT_BACKEND=$B|sh ./cosmo/dawn-bench-k1024.com" --variant "cosmo-max4096|WGT_BACKEND=$B|sh ./cosmo/dawn-bench-m4096.com" --variant "cosmo-max16384|WGT_BACKEND=$B|sh ./cosmo/dawn-bench-m16384.com"); fi   # small-block cache: none / 1024 blocks per class / blocks up to 4 KiB / up to 16 KiB (shipped: 128 blocks per class, up to 1 KiB)
+          args+=(--variant "cosmo-mimalloc|WGT_BACKEND=$B|${COSMO/dawn-bench./dawn-bench-mi.}" --variant "cosmo-mimalloc-notc|WGT_BACKEND=$B|${COSMO/dawn-bench./dawn-bench-minotc.}")   # mimalloc as the C library's malloc, with and without the small-block cache
           if [ "$RUNNER_OS" = Linux ]; then args+=(--variant "native-sepheap|WGT_BACKEND=$B|${NATIVE/dawn-bench/dawn-bench-sepheap}"); fi   # native build with Dawn's allocations on a heap separate from the driver's
           if [ "$RUNNER_OS" = Linux ]; then args+=(--variant "cosmo-mallopt|WGT_BACKEND=$B,BENCH_MALLOPT=64|$COSMO"); fi   # the allocator keeps freed memory (no trim, no unmapping of large blocks), 64 MiB growth steps
           if [ "$RUNNER_OS" = Linux ]; then args+=(--variant "cosmo-nopool|WGT_BACKEND=$B,DAWN_COSMO_POOL=0|$COSMO"); fi   # no parked thread blocks (about 150 fewer memory mappings); only the main thread can call the driver then
