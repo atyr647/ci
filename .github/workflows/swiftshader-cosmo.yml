@@ -28,7 +28,10 @@ jobs:
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
           cmake -S ss -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release -DREACTOR_BACKEND=Subzero $emu \
             -DSWIFTSHADER_BUILD_TESTS=OFF -DSWIFTSHADER_BUILD_BENCHMARKS=OFF -DSWIFTSHADER_BUILD_PVR=OFF -DSWIFTSHADER_BUILD_GLESv2=OFF -DSWIFTSHADER_BUILD_EGL=OFF -DSWIFTSHADER_BUILD_GLES_CM=OFF \
-            -DSWIFTSHADER_BUILD_VULKAN=ON -DSWIFTSHADER_WARNINGS_AS_ERRORS=OFF -DSWIFTSHADER_ENABLE_ASTC=OFF -DSWIFTSHADER_DCHECK_ALWAYS_ON=OFF 2>&1 | tee configure.log | tail -40
+            -DSWIFTSHADER_BUILD_VULKAN=ON -DSWIFTSHADER_WARNINGS_AS_ERRORS=OFF \
+            "-DCMAKE_C_FLAGS=-D_COSMO_SOURCE -D_GNU_SOURCE -D__linux__=1 -D__unix__=1 -I$PWD/dawn-cosmo/swiftshader-shim -include $PWD/dawn-cosmo/swiftshader-shim/cosmo_compat.h" \
+            "-DCMAKE_CXX_FLAGS=-D_COSMO_SOURCE -D_GNU_SOURCE -D__linux__=1 -D__unix__=1 -I$PWD/dawn-cosmo/swiftshader-shim -include $PWD/dawn-cosmo/swiftshader-shim/cosmo_compat.h" \
+            -DSWIFTSHADER_BUILD_WSI_XCB=OFF -DSWIFTSHADER_BUILD_WSI_WAYLAND=OFF -DSWIFTSHADER_BUILD_WSI_D2D=OFF -DSWIFTSHADER_ENABLE_ASTC=OFF -DSWIFTSHADER_DCHECK_ALWAYS_ON=OFF 2>&1 | tee configure.log | tail -40
       - name: Build everything that builds (keep going)
         run: |
           cmake --build build --target vk_swiftshader -- -k 0 > build.log 2>&1 || true
