@@ -32,7 +32,7 @@ jobs:
             fa=$(grep -E ' [Tt] vk::PhysicalDevice::getFeatures2\(' syms.txt | head -1 | cut -d' ' -f1); echo "getFeatures2 at 0x$fa"
             $OBJ -d -C --no-show-raw-insn --start-address=0x$fa --stop-address=$((0x$fa+0x80)) vk_icd_test.$A.com.dbg | tail -40
             cd=$(grep -E ' [Tt] vkCreateDevice$' syms.txt | head -1 | cut -d' ' -f1); echo "vkCreateDevice at 0x$cd"
-            $OBJ -d -C --no-show-raw-insn --start-address=$((0x$cd+0x560)) --stop-address=$((0x$cd+0x600)) vk_icd_test.$A.com.dbg | tail -60
+            $OBJ -d -C --no-show-raw-insn --start-address=$((0x$cd+0x3d0)) --stop-address=$((0x$cd+0x4b0)) vk_icd_test.$A.com.dbg | tail -80
           fi
       - uses: actions/upload-artifact@v4
         with: { name: 'icd-test-${{ inputs.arch }}', path: 'vk_icd_test.${{ inputs.arch }}.com*' }
