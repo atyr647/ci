@@ -36,7 +36,7 @@ jobs:
       - name: Host tools for the LLVM backend (cross compiling needs a native llvm-tblgen, the arm64 one cannot run on this x86-64 runner)
         if: inputs.backend != 'Subzero'
         run: |
-          cmake -S ss/third_party/llvm-project/llvm -B native -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF 2>&1 | tail -3
+          cmake -S ss/third_party/llvm-project/llvm -B native -G Ninja -DCMAKE_BUILD_TYPE=Release "-DCMAKE_CXX_FLAGS=-include cstdint" -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF 2>&1 | tail -3
           ninja -C native llvm-tblgen > native.log 2>&1 || true; grep -E 'FAILED|error' native.log | cut -c1-260 | head -15; tail -2 native.log; ls -la native/bin
       - name: Configure
         run: |
