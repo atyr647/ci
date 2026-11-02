@@ -25,6 +25,14 @@ jobs:
           B=$PWD/cosmo/bin
           $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -Ivkh/include game/platform/vk_icd_test.cpp -Wl,-u,vk_icdGetInstanceProcAddr -Wl,-u,vk_icdNegotiateLoaderICDInterfaceVersion ss/libswiftshader_objs.a -Wl,--start-group ss/libswiftshader_objs.a -Wl,--end-group -lpthread -o vk_icd_test.$A.com 2>&1 | tail -20
           ls -la vk_icd_test.$A.com
-          if [ $A = x86_64 ]; then sh ./vk_icd_test.$A.com 2>&1 | head -60; echo "exit ${PIPESTATUS[0]}"; fi
+          ls $B | grep -E "objdump|-nm$|addr2line" | head
+          NM=$B/$A-linux-cosmo-nm; OBJ=$B/$A-linux-cosmo-objdump
+          $NM -n -C vk_icd_test.$A.com.dbg > syms.txt; wc -l syms.txt
+          if [ $A = x86_64 ]; then sh ./vk_icd_test.$A.com > run.txt 2>&1; echo "exit $?"; tr '\r' '\n' < run.txt | head -45; python3 game/tools/symbolize.py syms.txt run.txt
+            fa=$(grep -E ' [Tt] vk::PhysicalDevice::getFeatures2\(' syms.txt | head -1 | cut -d' ' -f1); echo "getFeatures2 at 0x$fa"
+            $OBJ -d -C --no-show-raw-insn --start-address=0x$fa --stop-address=$((0x$fa+0x80)) vk_icd_test.$A.com.dbg | tail -40
+            cd=$(grep -E ' [Tt] vkCreateDevice$' syms.txt | head -1 | cut -d' ' -f1); echo "vkCreateDevice at 0x$cd"
+            $OBJ -d -C --no-show-raw-insn --start-address=$((0x$cd+0x560)) --stop-address=$((0x$cd+0x600)) vk_icd_test.$A.com.dbg | tail -60
+          fi
       - uses: actions/upload-artifact@v4
         with: { name: 'icd-test-${{ inputs.arch }}', path: 'vk_icd_test.${{ inputs.arch }}.com*' }

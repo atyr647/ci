@@ -1,6 +1,9 @@
 // Loads SwiftShader that is LINKED INTO this Cosmopolitan program (no dlopen, no libvulkan, no glibc) through the ICD entry point, creates an instance, lists the device and runs a trivial compute-free check
 // (queue family properties, device properties). Prints "VKICD ..." lines and a RESULT line.
 #include <cstdio>
+#ifdef __COSMOPOLITAN__
+#include <cosmo.h>
+#endif
 #include <cstring>
 #include <vector>
 #define VK_NO_PROTOTYPES
@@ -9,6 +12,9 @@ extern "C" PFN_vkVoidFunction vk_icdGetInstanceProcAddr(VkInstance, const char *
 extern "C" VkResult vk_icdNegotiateLoaderICDInterfaceVersion(uint32_t *);   // what a Vulkan loader does first; without it the driver only accepts apiVersion 1.0
 int main() {
     setvbuf(stdout, nullptr, _IONBF, 0);
+#ifdef __COSMOPOLITAN__
+    ShowCrashReports();
+#endif
     uint32_t ifv = 5; VkResult nr = vk_icdNegotiateLoaderICDInterfaceVersion(&ifv); printf("VKICD interface version negotiated: %u (rc %d)\n", ifv, (int)nr);
     auto gipa = (PFN_vkGetInstanceProcAddr)vk_icdGetInstanceProcAddr;
     auto createInstance = (PFN_vkCreateInstance)gipa(nullptr, "vkCreateInstance");
