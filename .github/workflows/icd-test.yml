@@ -31,6 +31,8 @@ jobs:
           if [ $A = x86_64 ]; then sh ./vk_icd_test.$A.com > run.txt 2>&1 || echo "exit status $? (non-zero is expected while the crash is open)"; tr '\r' '\n' < run.txt | head -45; python3 game/tools/symbolize.py syms.txt run.txt
             fa=$(grep -E ' [Tt] vk::PhysicalDevice::getFeatures2\(' syms.txt | head -1 | cut -d' ' -f1); echo "getFeatures2 at 0x$fa"
             $OBJ -d -C --no-show-raw-insn --start-address=0x$fa --stop-address=$((0x$fa+0x80)) vk_icd_test.$A.com.dbg | tail -40
+            hv=$(grep -E ' [Tt] vk::PhysicalDevice::hasExtendedFeatures\(VkPhysicalDeviceVulkan11Features const\*\) const' syms.txt | head -1 | cut -d' ' -f1); echo "hasExtendedFeatures(Vulkan11Features) at 0x$hv"
+            $OBJ -d -C --no-show-raw-insn --start-address=0x$hv --stop-address=$((0x$hv+0xc0)) vk_icd_test.$A.com.dbg | tail -60
             cd=$(grep -E ' [Tt] vkCreateDevice$' syms.txt | head -1 | cut -d' ' -f1); echo "vkCreateDevice at 0x$cd"
             $OBJ -d -C --no-show-raw-insn --start-address=$((0x$cd+0x3d0)) --stop-address=$((0x$cd+0x4b0)) vk_icd_test.$A.com.dbg | tail -80
           fi
