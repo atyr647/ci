@@ -6,12 +6,13 @@ on:
   workflow_dispatch:
     inputs:
       arch: { description: 'x86_64 or aarch64', required: false, default: 'x86_64' }
+      backend: { description: 'Reactor JIT backend: Subzero (x86-64 only, small) or LLVM-Submodule (needed on arm64: Subzero does not support it; builds the LLVM in third_party)', required: false, default: 'Subzero' }
 env: { COSMOCC: 4.0.2 }
 jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 300
-    env: { COSMO_ARCH: '${{ inputs.arch }}' }
+    env: { COSMO_ARCH: '${{ inputs.arch }}', RB: '${{ inputs.backend }}' }
     steps:
       - uses: actions/checkout@v4
       - name: Tools
@@ -26,7 +27,7 @@ jobs:
       - name: "Treat Cosmopolitan as Linux where the sources test __linux__ (the compiler driver undefines it so that code does not assume one OS)"
         run: |
           cd ss
-          grep -rlE "__linux__" src third_party/marl third_party/llvm-subzero third_party/subzero 2>/dev/null | sort > ../linux_files.txt; wc -l ../linux_files.txt
+          grep -rlE "__linux__" src third_party/marl third_party/llvm-subzero third_party/subzero $([ "$RB" != Subzero ] && echo third_party/llvm-project/llvm/lib/Support third_party/llvm-project/llvm/include third_party/llvm-project/llvm/lib/ExecutionEngine) 2>/dev/null | sort > ../linux_files.txt; wc -l ../linux_files.txt
           xargs -a ../linux_files.txt perl -0pi -e 's/defined\(__linux__\)/(defined(__linux__) || defined(__COSMOPOLITAN__))/g; s/#\s*ifdef\s+__linux__/#if defined(__linux__) || defined(__COSMOPOLITAN__)/g; s/#\s*ifndef\s+__linux__/#if !(defined(__linux__) || defined(__COSMOPOLITAN__))/g'
           perl -0pi -e 's/#if defined\(PTRACE\) &&/#if 0 \&\& defined(PTRACE) \&\&/' src/Reactor/Debug.cpp   # no debugger detection through ptrace
           perl -0pi -e 's/#if defined\(HAVE_POSIX_FALLOCATE\)/#if 0/' third_party/llvm-subzero/lib/Support/Unix/Path.inc   # ftruncate is the fallback the sources already have
@@ -34,7 +35,7 @@ jobs:
       - name: Configure
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
-          cmake -S ss -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release -DREACTOR_BACKEND=Subzero $emu \
+          cmake -S ss -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release -DREACTOR_BACKEND=$RB $emu \
             -DSWIFTSHADER_BUILD_TESTS=OFF -DSWIFTSHADER_BUILD_BENCHMARKS=OFF -DSWIFTSHADER_BUILD_PVR=OFF -DSWIFTSHADER_BUILD_GLESv2=OFF -DSWIFTSHADER_BUILD_EGL=OFF -DSWIFTSHADER_BUILD_GLES_CM=OFF \
             -DSWIFTSHADER_BUILD_VULKAN=ON -DSWIFTSHADER_WARNINGS_AS_ERRORS=OFF \
             "-DCMAKE_C_FLAGS=-D_GNU_SOURCE -I$PWD/dawn-cosmo/swiftshader-shim -include $PWD/dawn-cosmo/swiftshader-shim/cosmo_compat.h" \
@@ -58,4 +59,7 @@ jobs:
         if: always()
         with: { name: swiftshader-logs, path: "*.log" }
       - uses: actions/upload-artifact@v4
-        with: { name: 'swiftshader-${{ inputs.arch }}', path: libswiftshader_objs.a, retention-days: 30 }
+        with:
+          name: swiftshader-${{ inputs.arch }}${{ inputs.backend == 'Subzero' && '' || '-llvm' }}
+          path: libswiftshader_objs.a
+          retention-days: 30
