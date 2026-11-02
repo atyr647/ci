@@ -12,14 +12,19 @@ jobs:
   build:
     runs-on: ubuntu-latest
     timeout-minutes: 300
-    env: { COSMO_ARCH: '${{ inputs.arch }}', RB: '${{ inputs.backend }}' }
+    env: { COSMO_ARCH: '${{ inputs.arch }}', RB: '${{ inputs.backend }}', CCACHE_DIR: /home/runner/.ccache, CCACHE_MAXSIZE: 2G, CCACHE_COMPILERCHECK: 'string:cosmocc-4.0.2', CCACHE_SLOPPINESS: 'include_file_mtime,time_macros' }
     steps:
       - uses: actions/checkout@v4
       - name: Tools
         run: |
-          sudo apt-get update && sudo apt-get install -y ninja-build python3
+          sudo apt-get update && sudo apt-get install -y ninja-build python3 ccache
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir -p $HOME/cosmo && unzip -q cosmocc.zip -d $HOME/cosmo
           cp $HOME/cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+      - uses: actions/cache@v4
+        with:
+          path: ~/.ccache
+          key: ccache-ss-${{ inputs.arch }}-${{ inputs.backend }}-${{ github.run_id }}
+          restore-keys: ccache-ss-${{ inputs.arch }}-${{ inputs.backend }}-
       - name: SwiftShader sources
         run: |
           git clone --depth 1 https://swiftshader.googlesource.com/SwiftShader ss 2>&1 | tail -2
@@ -43,7 +48,7 @@ jobs:
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
           NT=""; [ "$RB" != Subzero ] && NT="-DLLVM_NATIVE_TOOL_DIR=$PWD/native/bin -DLLVM_TABLEGEN=$PWD/native/bin/llvm-tblgen"
-          cmake -S ss -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release -DREACTOR_BACKEND=$RB $emu $NT \
+          cmake -S ss -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release -DREACTOR_BACKEND=$RB $emu $NT -DCMAKE_C_COMPILER_LAUNCHER=ccache -DCMAKE_CXX_COMPILER_LAUNCHER=ccache \
             -DSWIFTSHADER_BUILD_TESTS=OFF -DSWIFTSHADER_BUILD_BENCHMARKS=OFF -DSWIFTSHADER_BUILD_PVR=OFF -DSWIFTSHADER_BUILD_GLESv2=OFF -DSWIFTSHADER_BUILD_EGL=OFF -DSWIFTSHADER_BUILD_GLES_CM=OFF \
             -DSWIFTSHADER_BUILD_VULKAN=ON -DSWIFTSHADER_WARNINGS_AS_ERRORS=OFF \
             "-DCMAKE_C_FLAGS=-D_GNU_SOURCE -fno-strict-aliasing -I$PWD/dawn-cosmo/swiftshader-shim -include $PWD/dawn-cosmo/swiftshader-shim/cosmo_compat.h" \
@@ -61,7 +66,9 @@ jobs:
           find build -name '*.o' -not -path '*CMakeFiles/CMakeScratch*' > objs.txt; wc -l objs.txt
           keep=x64; [ "$A" = aarch64 ] && keep=aarch64
           { grep -vE "osfiber_asm_" objs.txt; grep -E "osfiber_asm_$keep\.S\.o" objs.txt; } > objs2.txt || true   # only the fiber switch of this architecture (the other arches' assembly does not build)
-          rm -f libswiftshader_objs.a; xargs -a objs2.txt $B/$A-linux-cosmo-ar qcs libswiftshader_objs.a 2>&1 | tail -3; ls -la libswiftshader_objs.a   # q, not r: LLVM has several objects with the same name (r would replace them)
+          # every object under a unique name: ar keeps ONE member per name within a command, and LLVM and SwiftShader both have Constants.cpp, Timer.cpp, Utils.cpp, ...
+          rm -rf flat; mkdir flat; i=0; while read -r f; do i=$((i+1)); cp "$f" "flat/$(printf %05d $i)_$(basename "$f")"; done < objs2.txt
+          rm -f libswiftshader_objs.a; (cd flat && ls | xargs $B/$A-linux-cosmo-ar qcs ../libswiftshader_objs.a); echo "archive members: $($B/$A-linux-cosmo-ar t libswiftshader_objs.a | wc -l) of $(wc -l < objs2.txt) objects"; ls -la libswiftshader_objs.a
           $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -I $(dirname $(dirname $(find ss -path '*vulkan/vulkan.h' | head -1))) game/platform/vk_icd_test.cpp libswiftshader_objs.a -Wl,--start-group libswiftshader_objs.a -Wl,--end-group -lpthread -o vk_icd_test.$A.com 2>&1 | grep -E "undefined reference|error" | sed -E 's#/home/runner/work/ci/ci/##' | cut -c1-200 | sort | uniq -c | sort -rn | head -40; ls -la vk_icd_test.$A.com 2>&1 | tail -1
           [ -f vk_icd_test.$A.com ] && { sh ./vk_icd_test.$A.com 2>&1 | head -20; } || echo "no test binary"
       - uses: actions/upload-artifact@v4
