@@ -48,10 +48,11 @@ jobs:
             $B/$A-unknown-cosmo-c++ -O2 game_host.$A.o platform.$A.o $extra "$L/libwebgpu_dawn.a" wnlib/$A/libwn_embedding.a -Wl,--wrap=pthread_create -Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -Wl,--gc-sections -lm -o parts/game.$A.com 2>&1 | tail -40
           done
           ls -la parts
+          for A in x86_64 aarch64; do $B/$A-linux-cosmo-nm -n -C parts/game.$A.com.dbg > syms.$A.txt 2>/dev/null || $B/$A-unknown-cosmo-nm -n -C parts/game.$A.com.dbg > syms.$A.txt || true; wc -l syms.$A.txt; done
           $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o game.com parts/game.x86_64.com.dbg parts/game.aarch64.com.dbg
           (cd out && zip -q ../game.com game.sig.x86_64.cwasm game.sig.aarch64.cwasm); ls -la game.com; unzip -l game.com | tail -4
       - uses: actions/upload-artifact@v4
-        with: { name: game, path: "game.com\ngame.wasm" }
+        with: { name: game, path: "game.com\ngame.wasm\nsyms.x86_64.txt\nsyms.aarch64.txt\ngame/tools/symbolize.py" }
   run:
     needs: build
     strategy:
@@ -93,6 +94,7 @@ jobs:
         run: |
           set +e
           docker run --rm -e WGT_BACKEND=vulkan -e DAWN_COSMO_VK=software -e DAWN_COSMO_TRACE=1 -v "$PWD:/w" -w /w alpine:3.20 sh -c 'ls /lib/ld-musl* /lib64 2>&1 | head -3; ls /usr/lib/libvulkan* /lib/libc.so.6 2>&1 | head -3; sh ./game.com' > out_musl.txt 2>&1; rc=$?
+          python3 game/tools/symbolize.py syms.x86_64.txt out_musl.txt 2>/dev/null || python3 symbolize.py syms.x86_64.txt out_musl.txt 2>/dev/null
           tr '\r' '\n' < out_musl.txt | grep -v "^Warning" | grep -v "^\[vk\]" | head -40; echo "=== last Vulkan calls before the end:"; grep "^\[vk\]" out_musl.txt | tail -12; echo "exit status $rc"
           grep -q "RESULT PASS" out_musl.txt
       - name: In-file software GPU (SwiftShader inside the file) on Windows and macOS, Vulkan backend

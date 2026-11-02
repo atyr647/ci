@@ -156,6 +156,7 @@ extern "C" bool DawnCosmoStaticIcd() { return gStaticIcd; }
 extern "C" int DawnCosmoDlclose(void* handle) { return handle == &gStaticIcdTag ? 0 : cosmo_dlclose(handle); }
 extern "C" void* DawnCosmoDlopen(const char* file, int mode) {
     const bool vk = file && strstr(file, "vulkan");
+    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: dlopen(%s) vulkan=%d icd_linked=%d mode=%d\n", file ? file : "(null)", (int)vk, (int)IcdLinked(), VkMode());
     if (vk && IcdLinked() && VkMode() == kVkSoftware) { gStaticIcd = true; return &gStaticIcdTag; }   // nothing foreign is touched: no helper file, no dlopen
     if (!vk || VkMode() != kVkSoftware) DawnCosmoSeedDlopenHelper();
     if (gVkHandle && vk && strstr(file, "libvulkan")) return gVkHandle;
