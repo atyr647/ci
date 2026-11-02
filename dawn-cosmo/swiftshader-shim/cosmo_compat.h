@@ -1,6 +1,7 @@
 // Force-included when SwiftShader is compiled with the Cosmopolitan compiler: the few Linux-only declarations the sources use and that Cosmopolitan's headers do not provide.
 // Everything here is either not needed at run time in this use (backtraces, debugger detection, the loader's module query) or has an obvious portable meaning.
 #pragma once
+#ifndef __ASSEMBLER__   // also force-included into marl's assembly sources
 #ifdef __cplusplus
 extern "C" {
 #endif
@@ -15,3 +16,4 @@ long syscall(long, ...);   // exists in the C library; Cosmopolitan declares it 
 #ifdef __cplusplus
 }
 #endif
+#endif /* __ASSEMBLER__ */
