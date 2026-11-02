@@ -33,10 +33,16 @@ jobs:
           perl -0pi -e 's/#if defined\(PTRACE\) &&/#if 0 \&\& defined(PTRACE) \&\&/' src/Reactor/Debug.cpp   # no debugger detection through ptrace
           perl -0pi -e 's/#if defined\(HAVE_POSIX_FALLOCATE\)/#if 0/' third_party/llvm-subzero/lib/Support/Unix/Path.inc   # ftruncate is the fallback the sources already have
           git diff --stat 2>/dev/null | tail -3; grep -rn "__COSMOPOLITAN__" third_party/marl/src/memory.cpp | head -2
+      - name: Host tools for the LLVM backend (cross compiling needs a native llvm-tblgen, the arm64 one cannot run on this x86-64 runner)
+        if: inputs.backend != 'Subzero'
+        run: |
+          cmake -S ss/third_party/llvm-project/llvm -B native -G Ninja -DCMAKE_BUILD_TYPE=Release -DLLVM_TARGETS_TO_BUILD=X86 -DLLVM_INCLUDE_TESTS=OFF -DLLVM_INCLUDE_BENCHMARKS=OFF -DLLVM_INCLUDE_EXAMPLES=OFF 2>&1 | tail -3
+          ninja -C native llvm-tblgen 2>&1 | tail -3; ls -la native/bin
       - name: Configure
         run: |
           emu=""; [ "$COSMO_ARCH" = x86_64 ] && emu="-DCMAKE_CROSSCOMPILING_EMULATOR=$HOME/.ape-1.10"
-          cmake -S ss -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release -DREACTOR_BACKEND=$RB $emu \
+          NT=""; [ "$RB" != Subzero ] && NT="-DLLVM_NATIVE_TOOL_DIR=$PWD/native/bin -DLLVM_TABLEGEN=$PWD/native/bin/llvm-tblgen"
+          cmake -S ss -B build -G Ninja -DCMAKE_TOOLCHAIN_FILE=$PWD/dawn-cosmo/cosmo.cmake -DCMAKE_BUILD_TYPE=Release -DREACTOR_BACKEND=$RB $emu $NT \
             -DSWIFTSHADER_BUILD_TESTS=OFF -DSWIFTSHADER_BUILD_BENCHMARKS=OFF -DSWIFTSHADER_BUILD_PVR=OFF -DSWIFTSHADER_BUILD_GLESv2=OFF -DSWIFTSHADER_BUILD_EGL=OFF -DSWIFTSHADER_BUILD_GLES_CM=OFF \
             -DSWIFTSHADER_BUILD_VULKAN=ON -DSWIFTSHADER_WARNINGS_AS_ERRORS=OFF \
             "-DCMAKE_C_FLAGS=-D_GNU_SOURCE -fno-strict-aliasing -I$PWD/dawn-cosmo/swiftshader-shim -include $PWD/dawn-cosmo/swiftshader-shim/cosmo_compat.h" \
@@ -61,6 +67,6 @@ jobs:
         with: { name: swiftshader-logs, path: "*.log" }
       - uses: actions/upload-artifact@v4
         with:
-          name: swiftshader-${{ inputs.arch }}${{ inputs.backend == 'Subzero' && '' || '-llvm' }}
+          name: swiftshader-${{ inputs.arch }}-${{ inputs.backend == 'Subzero' && 'subzero' || 'llvm' }}
           path: libswiftshader_objs.a
           retention-days: 30

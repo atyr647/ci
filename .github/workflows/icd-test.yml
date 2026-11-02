@@ -6,7 +6,7 @@ on:
     inputs:
       ss_run: { description: 'swiftshader-cosmo run whose artifact swiftshader-<arch><suffix> is used', required: true }
       arch: { description: 'x86_64 or aarch64', required: false, default: 'x86_64' }
-      artifact_suffix: { description: 'empty (Subzero) or -llvm', required: false, default: '' }
+      artifact_suffix: { description: '-subzero or -llvm (the artifact is swiftshader-<arch><suffix>; runs made before this naming have -llvm on x86_64 too)', required: false, default: '-subzero' }
 env: { COSMOCC: 4.0.2 }
 jobs:
   test:

@@ -6,7 +6,7 @@ on:
     inputs:
       wn_run: { description: 'wasmtime-nostd run with artifacts lib-x86_64, lib-aarch64 (the static runtime) and cli (the patched compiler)', required: true, default: '41230610646' }
       dawn_run: { description: 'dawn-cosmo run with artifacts lib-x86_64, lib-aarch64 and metal-objs', required: true }
-      ss_run: { description: 'swiftshader-cosmo run(s) whose artifact swiftshader-<arch> (the software Vulkan driver, built by cosmocc) is linked INTO the file; format x86_64:RUNID,aarch64-llvm:RUNID, empty = none', required: false, default: '' }
+      ss_run: { description: 'swiftshader-cosmo run(s) whose artifact swiftshader-<arch> (the software Vulkan driver, built by cosmocc) is linked INTO the file; format x86_64-subzero:RUNID,aarch64-llvm:RUNID (older x86_64 runs: x86_64-llvm:RUNID), empty = none', required: false, default: '' }
 env: { COSMOCC: 4.0.2, WT: v50.0.0 }
 jobs:
   build:
