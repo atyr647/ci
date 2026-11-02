@@ -89,6 +89,15 @@ jobs:
           echo "=== shared libraries or Vulkan/driver files opened (successful opens only):"; grep -E 'lib[^ "]*\.so|\.icd|icd\.d|libc\.so|ld-linux' strace.txt | grep -v ENOENT | grep -v "= -1" | head -20 || true
           echo "=== count of such opens: $(grep -E 'lib[^ "]*\.so' strace.txt | grep -vc -E 'ENOENT|= -1')"
           grep -q "RESULT PASS" out_sw.txt
+      - name: Automatic fallback - no DAWN_COSMO_VK set, the system Vulkan loader and drivers removed (glibc is present here)
+        if: always() && runner.os == 'Linux'
+        env: { WGT_BACKEND: vulkan }
+        run: |
+          set +e
+          sudo apt-get remove -y libvulkan1 mesa-vulkan-drivers >/dev/null 2>&1; ls /usr/lib/*/libvulkan* 2>&1 | head -2
+          DAWN_COSMO_DIAG=1 sh ./game.com > out_auto.txt 2>&1; rc=$?
+          tr '\r' '\n' < out_auto.txt | grep -v "^Warning" | grep -E "dawn-cosmo: dlopen|adapter|RESULT" | head; echo "exit status $rc"
+          grep -q "RESULT PASS" out_auto.txt
       - name: In-file software GPU on a Linux without glibc (Alpine, musl) and without any Vulkan library
         if: always() && runner.os == 'Linux'
         run: |
