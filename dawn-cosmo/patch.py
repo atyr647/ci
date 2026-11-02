@@ -202,6 +202,27 @@ def devicevk(s):
     return s[:a] + '#ifndef __COSMOPOLITAN__  // %s: test-only toggle that stores raw System V function pointers\n' % MARK + s[a:b] + '#endif\n' + s[b:]
 edit('src/dawn/native/vulkan/DeviceVk.cpp', devicevk)
 
+# 8c. diagnostics (DAWN_COSMO_DIAG=1): the pNext chain handed to vkCreateDevice
+def devicevk_diag(s):
+    m = re.search(r'^([ \t]*)(.*)fn\.CreateDevice\(\s*[^,]+,\s*&(\w+)', s, re.M)
+    assert m, 'fn.CreateDevice call not found'
+    ci = m.group(3)
+    code = ('#ifdef __COSMOPOLITAN__  // COSMO-PATCH-DIAG\n'
+            '    if (getenv("DAWN_COSMO_DIAG")) {\n'
+            '        fprintf(stderr, "dawn-cosmo: vkCreateDevice sizeof(VkDeviceCreateInfo)=%%zu sizeof(VkPhysicalDeviceFeatures2)=%%zu pEnabledFeatures=%%p\\n", sizeof(VkDeviceCreateInfo), sizeof(VkPhysicalDeviceFeatures2), (const void*)%(ci)s.pEnabledFeatures);\n'
+            '        int n_ = 0;\n'
+            '        for (const VkBaseInStructure* p_ = static_cast<const VkBaseInStructure*>(%(ci)s.pNext); p_ && n_ < 40; p_ = p_->pNext, n_++) {\n'
+            '            fprintf(stderr, "dawn-cosmo:   chain[%%d] sType=%%d at %%p next=%%p\\n", n_, (int)p_->sType, (const void*)p_, (const void*)p_->pNext);\n'
+            '        }\n'
+            '    }\n'
+            '#endif\n') % {'ci': ci}
+    s = s[:m.start()] + code + s[m.start():]
+    return insert_after_last_include(s, '#ifdef __COSMOPOLITAN__\n#include <cstdio>\n#include <cstdlib>\n#endif')
+_p = os.path.join(root, 'src/dawn/native/vulkan/DeviceVk.cpp')
+_s = open(_p).read()
+if 'COSMO-PATCH-DIAG' not in _s:   # (the generic edit() would skip this file: it already carries the first patch's marker)
+    open(_p, 'w').write(devicevk_diag(_s)); print('patched: DeviceVk.cpp diagnostics')
+
 # 9. Foreign code (the Vulkan loader) must not call back into Cosmopolitan code: on Windows the loader would use the Microsoft ABI, on aarch64
 #    the thread register (x28) is clobbered. So no debug-utils messengers are registered; driver messages simply are not forwarded to Dawn's log.
 p = os.path.join(root, 'src/dawn/native/vulkan/BackendVk.cpp')
