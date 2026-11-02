@@ -188,10 +188,15 @@ extern "C" void DawnCosmoForeignInit() {
     // own heap, and the driver's first allocations would touch fresh pages (measured: about 420 extra page faults, 0.9 ms, in the first burst of buffer creation). Allocate and touch a few MiB through the
     // library's own malloc, free it, and tell it not to give the memory back (M_TRIM_THRESHOLD), so those pages are already mapped when the driver asks. DAWN_COSMO_PREFAULT_KB=0 turns it off.
     {
-        long kb = 3072; if (const char* pk = getenv("DAWN_COSMO_PREFAULT_KB")) kb = atol(pk);
+        long kb = 0; if (const char* pk = getenv("DAWN_COSMO_PREFAULT_KB")) kb = atol(pk);   // pre-faulting the main arena measured: no effect (0.1755 vs 0.1757 faults per call), so it is off by default
+        long mmapmb = 32; if (const char* pm = getenv("DAWN_COSMO_MMAP_THRESHOLD_MB")) mmapmb = atol(pm);
         auto pmallopt = reinterpret_cast<int (*)(int, int)>(cosmo_dltramp(cosmo_dlsym(libc, "mallopt")));
         auto pcalloc = reinterpret_cast<void* (*)(unsigned long, unsigned long)>(cosmo_dltramp(cosmo_dlsym(libc, "calloc")));
         auto pfree = reinterpret_cast<void (*)(void*)>(cosmo_dltramp(cosmo_dlsym(libc, "free")));
+        // glibc raises its mmap threshold (up to 32 MiB) the first time a large mmapped block is freed, and keeps big blocks in the heap from then on. Natively that happens during start-up (Tint, Dawn and the
+        // baselines free large blocks), so the driver's mid-size allocations come from an already-faulted heap; here Dawn's frees never reach glibc, the threshold stays at 128 KiB and every such allocation of the
+        // driver is mapped and unmapped (fresh pages, page faults). Set the end state of that adaptation directly. DAWN_COSMO_MMAP_THRESHOLD_MB=0 leaves glibc's default.
+        if (mmapmb > 0 && pmallopt) { pmallopt(-3, (int)(mmapmb << 20)); pmallopt(-1, (int)(mmapmb << 21)); }   // M_MMAP_THRESHOLD, M_TRIM_THRESHOLD
         if (kb > 0 && pmallopt && pcalloc && pfree) {
             pmallopt(-1, 256 << 20);   // M_TRIM_THRESHOLD: keep freed heap memory
             const long n = kb;         // blocks of 1 KiB, the size class the driver's per-buffer allocations use

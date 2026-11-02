@@ -122,7 +122,7 @@ jobs:
           if [ -n "${{ inputs.cosmo_run_b }}" ]; then if [ "$RUNNER_OS" = Windows ]; then CB=./cosmob/dawn-bench.exe; else CB="sh ./cosmob/dawn-bench.com"; fi; args+=(--variant "cosmo-b|WGT_BACKEND=$B|$CB"); fi
           if [ "$RUNNER_OS" = Linux ] && [ -f dbgelf/dawn-bench.$(uname -m).com.dbg ]; then args+=(--variant "cosmo-elf|WGT_BACKEND=$B|./dbgelf/dawn-bench.$(uname -m).com.dbg"); fi   # the same code started directly as an ELF, without the APE loader
           args+=(--variant "native-tintonly|WGT_BACKEND=$B,BENCH_TINT_REPEAT=200|$NATIVE" --variant "cosmo-tintonly|WGT_BACKEND=$B,BENCH_TINT_REPEAT=200|$COSMO")   # only start-up and 200 shader-module compiles (the mode the profiles use)
-          if [ "$RUNNER_OS" = Linux ]; then args+=(--variant "cosmo-noprefault|WGT_BACKEND=$B,DAWN_COSMO_PREFAULT_KB=0|$COSMO"); fi   # control: the driver's heap is not pre-faulted at start-up
+          if [ "$RUNNER_OS" = Linux ]; then args+=(--variant "cosmo-nomallopt|WGT_BACKEND=$B,DAWN_COSMO_MMAP_THRESHOLD_MB=0|$COSMO"); fi   # control: glibc keeps its default mmap threshold (the shipped build raises it the way glibc itself would have adapted it natively)
           args+=(--variant "native-nobase|WGT_BACKEND=$B,BENCH_NO_BASELINES=1|$NATIVE" --variant "cosmo-nobase|WGT_BACKEND=$B,BENCH_NO_BASELINES=1|$COSMO")   # the same without the host baselines before Dawn starts
           args+=(--variant "cosmo-mi-nopurge|WGT_BACKEND=$B,MIMALLOC_PURGE_DELAY=-1|$COSMO")   # mimalloc never returns freed memory to the system (its default returns it after 10 ms; decommit calls are expensive on macOS)
           args+=(--variant "cosmo-library-malloc|WGT_BACKEND=$B|${COSMO/dawn-bench./dawn-bench-nomi.}")   # control: the library's own malloc instead of mimalloc
