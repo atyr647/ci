@@ -1,0 +1,42 @@
+name: platform-io
+# Window, input and audio from a Cosmopolitan program on each OS (game/platform/probe.c): the operating system's own libraries reached at run time, no Dawn. One fat file, run on the five targets.
+on: { workflow_dispatch: {} }
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          B=$PWD/cosmo/bin; mkdir parts
+          for A in x86_64 aarch64; do $B/$A-unknown-cosmo-cc -O2 game/platform/probe.c -o parts/probe.$A.com -lm 2>&1 | tail -30; done
+          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o probe.com parts/probe.x86_64.com.dbg parts/probe.aarch64.com.dbg; ls -la probe.com
+      - uses: actions/upload-artifact@v4
+        with: { name: probe, path: probe.com }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: probe, path: . }
+      - name: Linux - an X server without a display (Xvfb) and the libraries
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y xvfb libx11-6 libxtst6 libasound2t64 libasound2-plugins
+      - name: Run
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = Windows ]; then cp probe.com probe.exe; ( ./probe.exe 2>&1 | cat ) | tr '\r' '\n'; rc=${PIPESTATUS[0]}
+          elif [ "$RUNNER_OS" = Linux ]; then chmod +x probe.com; xvfb-run -a sh ./probe.com 2>&1; rc=$?
+          else chmod +x probe.com; sh ./probe.com 2>&1; rc=$?; fi
+          echo "exit status $rc"
