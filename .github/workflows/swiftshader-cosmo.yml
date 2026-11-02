@@ -52,7 +52,7 @@ jobs:
           find build -name '*.o' -not -path '*CMakeFiles/CMakeScratch*' > objs.txt; wc -l objs.txt
           grep -vE "osfiber_asm_(arm|aarch64|loongarch64|mips64|ppc64|rv64|x86)\.S\.o" objs.txt | { [ "$A" = x86_64 ] && cat || grep -vE "osfiber_asm_x64"; } > objs2.txt || true
           rm -f libswiftshader_objs.a; xargs -a objs2.txt $B/$A-linux-cosmo-ar rcs libswiftshader_objs.a 2>&1 | tail -3; ls -la libswiftshader_objs.a
-          $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -I ss/third_party/Vulkan-Headers/include game/platform/vk_icd_test.cpp libswiftshader_objs.a -Wl,--start-group libswiftshader_objs.a -Wl,--end-group -lpthread -o vk_icd_test.$A.com 2>&1 | grep -E "undefined reference|error" | sed -E 's#/home/runner/work/ci/ci/##' | cut -c1-200 | sort | uniq -c | sort -rn | head -40; ls -la vk_icd_test.$A.com 2>&1 | tail -1
+          $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -I $(dirname $(dirname $(find ss -path '*vulkan/vulkan.h' | head -1))) game/platform/vk_icd_test.cpp libswiftshader_objs.a -Wl,--start-group libswiftshader_objs.a -Wl,--end-group -lpthread -o vk_icd_test.$A.com 2>&1 | grep -E "undefined reference|error" | sed -E 's#/home/runner/work/ci/ci/##' | cut -c1-200 | sort | uniq -c | sort -rn | head -40; ls -la vk_icd_test.$A.com 2>&1 | tail -1
           [ -f vk_icd_test.$A.com ] && { sh ./vk_icd_test.$A.com 2>&1 | head -20; } || echo "no test binary"
       - uses: actions/upload-artifact@v4
         if: always()
