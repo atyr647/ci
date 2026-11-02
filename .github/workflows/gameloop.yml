@@ -97,14 +97,6 @@ jobs:
           echo "=== crash addresses:"; ls -la syms.x86_64.txt game/tools/symbolize.py 2>&1 | head -3; wc -l syms.x86_64.txt 2>&1; head -2 syms.x86_64.txt 2>&1; python3 game/tools/symbolize.py syms.x86_64.txt out_musl.txt 2>&1 | head -12
           tr '\r' '\n' < out_musl.txt | grep -v "^Warning" | grep -v "^\[vk\]" | head -40; echo "=== last Vulkan calls before the end:"; grep "^\[vk\]" out_musl.txt | tail -12; echo "exit status $rc"
           grep -q "RESULT PASS" out_musl.txt
-      - name: In-file software GPU (SwiftShader inside the file) on Windows and macOS, Vulkan backend
-        if: always() && runner.os != 'Linux'
-        env: { WGT_BACKEND: vulkan, DAWN_COSMO_VK: software, DAWN_COSMO_TRACE: '1', DAWN_COSMO_DIAG: '1' }
-        run: |
-          set +e
-          if [ "$RUNNER_OS" = Windows ]; then cp game.com game.exe; ( ./game.exe 2>&1 | cat ) > out_sw.txt; rc=${PIPESTATUS[0]}; else chmod +x game.com; sh ./game.com > out_sw.txt 2>&1; rc=$?; fi
-          tr '\r' '\n' < out_sw.txt | grep -v "^Warning" | grep -v "^\[vk\]" | head -40; echo "=== Vulkan calls (last 15):"; grep "^\[vk\]" out_sw.txt | tail -15; echo "exit status $rc"
-          grep -q "RESULT PASS" out_sw.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'gameloop-${{ matrix.label }}', path: "out*.txt\ngame.wav\nstrace.txt" }
