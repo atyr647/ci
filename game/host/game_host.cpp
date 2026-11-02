@@ -53,7 +53,7 @@ static std::vector<WGPUShaderModule> g_shaders; static std::vector<Buf> g_bufs; 
 static WGPUCommandEncoder g_enc; static uint64_t g_submits, g_dispatches, g_draws;
 
 static bool gpu_init() {
-    WGPUInstanceDescriptor id = WGPU_INSTANCE_DESCRIPTOR_INIT; g_inst = wgpuCreateInstance(&id); if (!g_inst) return false;
+    puts("host : creating the instance"); WGPUInstanceDescriptor id = WGPU_INSTANCE_DESCRIPTOR_INIT; g_inst = wgpuCreateInstance(&id); if (!g_inst) return false; puts("host : requesting an adapter");
     WGPURequestAdapterOptions ao = WGPU_REQUEST_ADAPTER_OPTIONS_INIT;
     if (const char *be = getenv("WGT_BACKEND")) ao.backendType = !strcmp(be, "vulkan") ? WGPUBackendType_Vulkan : !strcmp(be, "d3d12") ? WGPUBackendType_D3D12 : !strcmp(be, "metal") ? WGPUBackendType_Metal : WGPUBackendType_Undefined;
     if (getenv("WGT_FALLBACK")) ao.forceFallbackAdapter = 1;
@@ -146,6 +146,7 @@ static uint8_t *read_all(const char *path, size_t *n) { FILE *f = fopen(path, "r
     if (fread(b, 1, len, f) != (size_t)len) { fclose(f); free(b); return nullptr; } fclose(f); *n = len; return b; }
 
 int main(int argc, char **argv) {
+    setvbuf(stdout, nullptr, _IONBF, 0); ShowCrashReports();   // a crash prints a report (registers, backtrace) instead of nothing
     DawnCosmoForeignInit(); DawnCosmoGpuThreadEnter();
     int frames = 120; const char *cw = getenv("GAME_CWASM");
     for (int i = 1; i < argc; i++) { if (!strncmp(argv[i], "--frames=", 9)) frames = atoi(argv[i] + 9); else if (!strncmp(argv[i], "--cwasm=", 8)) cw = argv[i] + 8; }
