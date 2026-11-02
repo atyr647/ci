@@ -1,0 +1,30 @@
+name: icd-test
+# Fast loop for the in-file software Vulkan driver (SwiftShader built by cosmocc, see swiftshader-cosmo.yml): downloads its stored object archive and compiles/runs game/platform/vk_icd_test.cpp
+# (instance, device listing, device creation in the shapes Dawn uses). About a minute instead of the twelve of a full SwiftShader build.
+on:
+  workflow_dispatch:
+    inputs:
+      ss_run: { description: 'swiftshader-cosmo run whose artifact swiftshader-<arch><suffix> is used', required: true }
+      arch: { description: 'x86_64 or aarch64', required: false, default: 'x86_64' }
+      artifact_suffix: { description: 'empty (Subzero) or -llvm', required: false, default: '' }
+env: { COSMOCC: 4.0.2 }
+jobs:
+  test:
+    runs-on: ubuntu-latest
+    env: { GH_TOKEN: '${{ github.token }}', A: '${{ inputs.arch }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inputs
+        run: |
+          gh run download ${{ inputs.ss_run }} -R ${{ github.repository }} -n swiftshader-$A${{ inputs.artifact_suffix }} -D ss; ls -la ss
+          git clone -q --depth 1 https://github.com/KhronosGroup/Vulkan-Headers vkh
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+      - name: Link and run (x86-64 here; the arm64 test needs an arm64 runner)
+        run: |
+          B=$PWD/cosmo/bin
+          $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -Ivkh/include game/platform/vk_icd_test.cpp -Wl,-u,vk_icdGetInstanceProcAddr -Wl,-u,vk_icdNegotiateLoaderICDInterfaceVersion ss/libswiftshader_objs.a -Wl,--start-group ss/libswiftshader_objs.a -Wl,--end-group -lpthread -o vk_icd_test.$A.com 2>&1 | tail -20
+          ls -la vk_icd_test.$A.com
+          if [ $A = x86_64 ]; then sh ./vk_icd_test.$A.com 2>&1 | head -60; echo "exit ${PIPESTATUS[0]}"; fi
+      - uses: actions/upload-artifact@v4
+        with: { name: 'icd-test-${{ inputs.arch }}', path: 'vk_icd_test.${{ inputs.arch }}.com*' }
