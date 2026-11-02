@@ -29,6 +29,7 @@ jobs:
           cd ss
           grep -rlE "__linux__" src third_party/marl third_party/llvm-subzero third_party/subzero $([ "$RB" != Subzero ] && echo third_party/llvm-project/llvm/lib/Support third_party/llvm-project/llvm/include third_party/llvm-project/llvm/lib/ExecutionEngine) 2>/dev/null | sort > ../linux_files.txt; wc -l ../linux_files.txt
           xargs -a ../linux_files.txt perl -0pi -e 's/defined\(__linux__\)/(defined(__linux__) || defined(__COSMOPOLITAN__))/g; s/#\s*ifdef\s+__linux__/#if defined(__linux__) || defined(__COSMOPOLITAN__)/g; s/#\s*ifndef\s+__linux__/#if !(defined(__linux__) || defined(__COSMOPOLITAN__))/g'
+          if [ "$RB" != Subzero ]; then grep -rlE "std::is_pod<" third_party/llvm-project/llvm third_party/llvm-project/clang 2>/dev/null | xargs -r perl -0pi -e 's/std::is_pod<([^<>]+)>/std::conjunction<std::is_trivial<$1>, std::is_standard_layout<$1>>/g'; fi   # std::is_pod is gone from the libc++ Cosmopolitan ships
           perl -0pi -e 's/#if defined\(PTRACE\) &&/#if 0 \&\& defined(PTRACE) \&\&/' src/Reactor/Debug.cpp   # no debugger detection through ptrace
           perl -0pi -e 's/#if defined\(HAVE_POSIX_FALLOCATE\)/#if 0/' third_party/llvm-subzero/lib/Support/Unix/Path.inc   # ftruncate is the fallback the sources already have
           git diff --stat 2>/dev/null | tail -3; grep -rn "__COSMOPOLITAN__" third_party/marl/src/memory.cpp | head -2
