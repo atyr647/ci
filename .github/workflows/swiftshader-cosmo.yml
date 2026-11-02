@@ -57,3 +57,5 @@ jobs:
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: swiftshader-logs, path: "*.log" }
+      - uses: actions/upload-artifact@v4
+        with: { name: 'swiftshader-${{ inputs.arch }}', path: libswiftshader_objs.a, retention-days: 30 }

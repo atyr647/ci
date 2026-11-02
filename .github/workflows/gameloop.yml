@@ -6,6 +6,7 @@ on:
     inputs:
       wn_run: { description: 'wasmtime-nostd run with artifacts lib-x86_64, lib-aarch64 (the static runtime) and cli (the patched compiler)', required: true, default: '41230610646' }
       dawn_run: { description: 'dawn-cosmo run with artifacts lib-x86_64, lib-aarch64 and metal-objs', required: true }
+      ss_run: { description: 'swiftshader-cosmo run(s) whose artifact swiftshader-<arch> (the software Vulkan driver, built by cosmocc) is linked INTO the file; format x86_64:RUNID,aarch64:RUNID, empty = none', required: false, default: '' }
 env: { COSMOCC: 4.0.2, WT: v50.0.0 }
 jobs:
   build:
@@ -21,6 +22,7 @@ jobs:
           curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
           cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+          for kv in $(echo "${{ inputs.ss_run }}" | tr ',' ' '); do a=${kv%%:*}; r=${kv##*:}; gh run download $r -R ${{ github.repository }} -n swiftshader-$a -D ss/$a && ls -la ss/$a; done || true
           curl -fsSL -o mi.tar.gz https://github.com/microsoft/mimalloc/archive/refs/tags/v2.1.7.tar.gz && mkdir mi && tar xzf mi.tar.gz -C mi --strip-components=1
       - name: The wasm guest and its precompiled modules
         run: |
@@ -42,6 +44,7 @@ jobs:
             extra="$PWD/tcache_new.$A.o $PWD/nsync_fast.$A.o $PWD/mi_static.$A.o $PWD/mi_override.$A.o"
             if [ $A = aarch64 ] && [ -f metal/objc_shim.c ]; then $B/aarch64-unknown-cosmo-cc -O2 -c metal/objc_shim.c -o objc_shim.o; extra="$extra $(ls $PWD/metal/objs/*.o) objc_shim.o"; fi
             $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE $INC -c game/host/game_host.cpp -o game_host.$A.o
+            if [ -f ss/$A/libswiftshader_objs.a ]; then extra="$extra -Wl,-u,vk_icdGetInstanceProcAddr -Wl,-u,vk_icdNegotiateLoaderICDInterfaceVersion $PWD/ss/$A/libswiftshader_objs.a"; fi   # the software Vulkan driver inside the file (Dawn uses it when no system loader opens, or DAWN_COSMO_VK=software)
             $B/$A-unknown-cosmo-c++ -O2 game_host.$A.o platform.$A.o $extra "$L/libwebgpu_dawn.a" wnlib/$A/libwn_embedding.a -Wl,--wrap=pthread_create -Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -Wl,--gc-sections -lm -o parts/game.$A.com 2>&1 | tail -40
           done
           ls -la parts
@@ -75,6 +78,31 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then cp game.com game.exe; ( ./game.exe 2>&1 | cat ) > out.txt; rc=${PIPESTATUS[0]}; else chmod +x game.com; sh ./game.com > out.txt 2>&1; rc=$?; fi
           tr '\r' '\n' < out.txt | grep -v "^Warning" | head -60; echo "exit status $rc"; ls -la game.wav 2>/dev/null
           grep -q "RESULT PASS" out.txt
+      - name: In-file software GPU (SwiftShader inside the file), shared libraries watched with strace
+        if: always() && runner.os == 'Linux'
+        env: { WGT_BACKEND: vulkan, DAWN_COSMO_VK: software }
+        run: |
+          set +e; sudo apt-get install -y strace >/dev/null 2>&1
+          chmod +x game.com; strace -f -e trace=openat,open -o strace.txt sh ./game.com > out_sw.txt 2>&1; rc=$?
+          tr '\r' '\n' < out_sw.txt | grep -v "^Warning" | head -40; echo "exit status $rc"
+          echo "=== shared libraries or Vulkan/driver files opened (successful opens only):"; grep -E 'lib[^ "]*\.so|\.icd|icd\.d|libc\.so|ld-linux' strace.txt | grep -v ENOENT | grep -v "= -1" | head -20 || true
+          echo "=== count of such opens: $(grep -E 'lib[^ "]*\.so' strace.txt | grep -vc -E 'ENOENT|= -1')"
+          grep -q "RESULT PASS" out_sw.txt
+      - name: In-file software GPU on a Linux without glibc (Alpine, musl) and without any Vulkan library
+        if: always() && runner.os == 'Linux'
+        run: |
+          set +e
+          docker run --rm -e WGT_BACKEND=vulkan -e DAWN_COSMO_VK=software -v "$PWD:/w" -w /w alpine:3.20 sh -c 'ls /lib/ld-musl* /lib64 2>&1 | head -3; ls /usr/lib/libvulkan* /lib/libc.so.6 2>&1 | head -3; sh ./game.com' > out_musl.txt 2>&1; rc=$?
+          tr '\r' '\n' < out_musl.txt | grep -v "^Warning" | head -40; echo "exit status $rc"
+          grep -q "RESULT PASS" out_musl.txt
+      - name: In-file software GPU (SwiftShader inside the file) on Windows and macOS, Vulkan backend
+        if: always() && runner.os != 'Linux'
+        env: { WGT_BACKEND: vulkan, DAWN_COSMO_VK: software }
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = Windows ]; then cp game.com game.exe; ( ./game.exe 2>&1 | cat ) > out_sw.txt; rc=${PIPESTATUS[0]}; else chmod +x game.com; sh ./game.com > out_sw.txt 2>&1; rc=$?; fi
+          tr '\r' '\n' < out_sw.txt | grep -v "^Warning" | head -40; echo "exit status $rc"
+          grep -q "RESULT PASS" out_sw.txt
       - uses: actions/upload-artifact@v4
         if: always()
-        with: { name: 'gameloop-${{ matrix.label }}', path: "out.txt\ngame.wav" }
+        with: { name: 'gameloop-${{ matrix.label }}', path: "out*.txt\ngame.wav\nstrace.txt" }

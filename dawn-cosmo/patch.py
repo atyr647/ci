@@ -28,7 +28,7 @@ edit('src/utils/platform.h', platform_h)
 #    where the Vulkan wrapper below calls them with the Microsoft ABI itself
 def dynlib(s):
     hdr = ('// %s\n#ifdef __COSMOPOLITAN__\n#include <cosmo.h>\n#include <dlfcn.h>\n#ifndef RTLD_NOLOAD\n#define RTLD_NOLOAD 0\n#endif\n'
-           '#include "src/dawn/native/vulkan/DawnCosmoForeign.h"\n#define dlopen DawnCosmoDlopen\n#define dlsym DawnCosmoDlsym\n#define dlclose cosmo_dlclose\n#define dlerror cosmo_dlerror\n#endif\n') % MARK
+           '#include "src/dawn/native/vulkan/DawnCosmoForeign.h"\n#define dlopen DawnCosmoDlopen\n#define dlsym DawnCosmoDlsym\n#define dlclose DawnCosmoDlclose\n#define dlerror cosmo_dlerror\n#endif\n') % MARK
     i = s.index('#include')
     return s[:i] + hdr + s[i:]
 edit('src/dawn/common/DynamicLib.cpp', dynlib)
@@ -62,6 +62,7 @@ struct VkFnImpl<R(VKAPI_PTR*)(Args...)> {
     new = '''#ifdef __COSMOPOLITAN__  // %s
 extern "C" bool DawnCosmoIsWindows();
 extern "C" bool DawnCosmoDirect();
+extern "C" bool DawnCosmoStaticIcd();   // the Vulkan driver is linked into this file (software ICD): native code, called directly
 extern "C" bool DawnCosmoDirectOk();   // arm64 Linux: true when THIS thread keeps asynchronous signals blocked (DawnCosmoGpuThreadEnter), which is what makes a raw call into the driver safe
 extern "C" bool DawnCosmoTrace();                                  // DAWN_COSMO_TRACE=1 prints every Vulkan call (name) to stderr
 extern "C" void DawnCosmoTraceCall(const char* name, void* addr);  // defined in VulkanFunctions.cpp, which can include cosmo.h without its IsWindows() macro leaking into Dawn's headers
@@ -82,6 +83,9 @@ struct DualAbiFn {
     __attribute__((noinline)) R operator()(Args... args) const {
         if (DawnCosmoTrace()) {
             DawnCosmoTraceCall(name, addr);
+        }
+        if (DawnCosmoStaticIcd()) {   // in-file driver: System V on every OS, our own thread block, nothing foreign
+            return reinterpret_cast<SysV>(raw)(args...);
         }
         if (DawnCosmoIsWindows()) {
             __asm__ volatile("# dawn-cosmo: Microsoft x64 call" ::: "memory");
@@ -134,6 +138,9 @@ VkFn<F> AsVkFn(void(VKAPI_PTR* addr)()) {
     // every other thread keeps using the thunk. Synchronous faults stay unblocked, as before (a fault inside the driver ends the process either way).
     DawnCosmoForeignInit();   // once, on the thread that loads the Vulkan functions (the main thread): parked threads whose thread blocks other threads borrow for driver calls
     void* raw = reinterpret_cast<void*>(addr);
+    if (DawnCosmoStaticIcd()) {
+        return VkFn<F>(raw, raw);   // in-file driver: no thunk, no Microsoft ABI
+    }
     return VkFn<F>(DawnCosmoIsWindows() ? raw : cosmo_dltramp(raw), raw);
 }
 

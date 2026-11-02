@@ -17,6 +17,8 @@ void DawnCosmoForeignInit();           // call on the main thread before other t
 extern int gDawnCosmoFsgsbase;         // x86-64: wrfsbase/rdfsbase can be used instead of arch_prctl
 void DawnCosmoSeedDlopenHelper();   // Linux: put the pre-built dlopen helper where Cosmopolitan looks for it, so no C compiler is needed on the user's machine
 void* DawnCosmoDlopen(const char* file, int mode);   // cosmo_dlopen, except that the Vulkan loader loaded ahead of time by the main thread is handed out without a foreign call
+int DawnCosmoDlclose(void* handle);   // cosmo_dlclose, except for the built-in software ICD (nothing was loaded)
+bool DawnCosmoStaticIcd();            // true once Dawn's Vulkan loader was bound to the Vulkan driver linked INTO this file (SwiftShader), which is native code: called directly, no foreign-call machinery
 void* DawnCosmoDlsym(void* handle, const char* name);   // likewise for vkGetInstanceProcAddr (a foreign dlsym on a created thread would need the library's thread block, and cosmo_dlsym cannot be wrapped: most of it is Cosmopolitan code)
 }
 static inline __attribute__((always_inline)) unsigned long DawnCosmoSwapIn(unsigned long tcb) {
@@ -126,16 +128,43 @@ extern "C" void DawnCosmoSeedDlopenHelper() {
     if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: seeded the dlopen helper in %s (%d %d)\n", d, (int)a, (int)b);
 }
 
+// A Vulkan driver linked into this very file (SwiftShader, built by cosmocc: game/platform and .github/workflows/swiftshader-cosmo.yml) needs no dlopen, no system C library and no libvulkan.
+// It is used when DAWN_COSMO_VK=software, or (unset) when no system Vulkan loader can be opened; DAWN_COSMO_VK=system never uses it. The symbols are weak, so a program that does not link the
+// driver (link with -Wl,-u,vk_icdGetInstanceProcAddr -Wl,-u,vk_icdNegotiateLoaderICDInterfaceVersion plus the archive to include it) behaves exactly as before.
+extern "C" {
+__attribute__((weak)) int vk_icdNegotiateLoaderICDInterfaceVersion(unsigned int* version);
+__attribute__((weak)) void* vk_icdGetInstanceProcAddr(void* instance, const char* name);
+}
 namespace {
+char gStaticIcdTag;
+bool gStaticIcd = false;
+enum { kVkAuto, kVkSystem, kVkSoftware };
+int VkMode() {
+    static int m = [] { const char* e = getenv("DAWN_COSMO_VK"); return !e ? kVkAuto : !strcmp(e, "software") ? kVkSoftware : !strcmp(e, "system") ? kVkSystem : kVkAuto; }();
+    return m;
+}
+bool IcdLinked() { return vk_icdGetInstanceProcAddr != nullptr && vk_icdNegotiateLoaderICDInterfaceVersion != nullptr; }
+void* IcdGipa(void* instance, const char* name) {
+    static const bool negotiated = [] { unsigned int v = 5; vk_icdNegotiateLoaderICDInterfaceVersion(&v); return true; }();   // 5: without it the driver accepts only Vulkan 1.0 instances (-9)
+    (void)negotiated;
+    return vk_icdGetInstanceProcAddr(instance, name);
+}
 void* gVkHandle = nullptr;
 void* gVkGipa = nullptr;
 }
+extern "C" bool DawnCosmoStaticIcd() { return gStaticIcd; }
+extern "C" int DawnCosmoDlclose(void* handle) { return handle == &gStaticIcdTag ? 0 : cosmo_dlclose(handle); }
 extern "C" void* DawnCosmoDlopen(const char* file, int mode) {
-    DawnCosmoSeedDlopenHelper();
-    if (gVkHandle && file && strstr(file, "libvulkan")) return gVkHandle;
-    return cosmo_dlopen(file, mode);
+    const bool vk = file && strstr(file, "vulkan");
+    if (vk && IcdLinked() && VkMode() == kVkSoftware) { gStaticIcd = true; return &gStaticIcdTag; }   // nothing foreign is touched: no helper file, no dlopen
+    if (!vk || VkMode() != kVkSoftware) DawnCosmoSeedDlopenHelper();
+    if (gVkHandle && vk && strstr(file, "libvulkan")) return gVkHandle;
+    void* h = cosmo_dlopen(file, mode);
+    if (!h && vk && IcdLinked() && VkMode() == kVkAuto) { gStaticIcd = true; return &gStaticIcdTag; }   // no system Vulkan loader (or no glibc at all): the driver inside this file
+    return h;
 }
 extern "C" void* DawnCosmoDlsym(void* handle, const char* name) {
+    if (handle == &gStaticIcdTag) return !strcmp(name, "vkGetInstanceProcAddr") ? reinterpret_cast<void*>(&IcdGipa) : nullptr;
     if (handle && handle == gVkHandle && gVkGipa && !strcmp(name, "vkGetInstanceProcAddr")) return gVkGipa;
     return cosmo_dlsym(handle, name);
 }
@@ -143,6 +172,7 @@ extern "C" void DawnCosmoForeignInit() {
     if (gInitDone) return;
     gInitDone = true;
     if (!IsLinux()) return;
+    if (IcdLinked() && VkMode() == kVkSoftware) return;   // glibc-free mode: no helper, no libvulkan, no parked threads, nothing from the system C library
     DawnCosmoSeedDlopenHelper();
     if (gettid() != getpid()) { if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: DawnCosmoForeignInit was not called on the main thread; threads cannot call the driver\n"); return; }   // only the main thread has the library's own thread block to ask for pthread_self and to call pthread_create with
 #if defined(__x86_64__)
