@@ -35,6 +35,8 @@ jobs:
             $OBJ -d -C --no-show-raw-insn --start-address=0x$hv --stop-address=$((0x$hv+0xc0)) vk_icd_test.$A.com.dbg | tail -60
             cd=$(grep -E ' [Tt] vkCreateDevice$' syms.txt | head -1 | cut -d' ' -f1); echo "vkCreateDevice at 0x$cd"
             $OBJ -d -C --no-show-raw-insn --start-address=$((0x$cd+0x3d0)) --stop-address=$((0x$cd+0x4b0)) vk_icd_test.$A.com.dbg | tail -80
+            echo "=== VERDICT (driver-only test, $A):"; grep -E "VKICD|RESULT" run.txt | tail -14
+            grep -q "RESULT PASS" run.txt
           fi
       - uses: actions/upload-artifact@v4
         with: { name: 'icd-test-${{ inputs.arch }}', path: 'vk_icd_test.${{ inputs.arch }}.com*' }
