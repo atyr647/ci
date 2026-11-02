@@ -1,0 +1,80 @@
+name: gameloop
+# A complete game loop in WebAssembly driving the GPU: the guest (game/guest/game.c, wasm) runs the game, the host (game/host/game_host.cpp) owns the GPU (Dawn), the scripted input and the audio sink.
+# One Cosmopolitan program for x86-64 and arm64 (static no_std Wasmtime + Dawn), run on the five targets with the software GPUs of the runners (Vulkan llvmpipe, D3D12 WARP, Metal on the runner's virtual GPU).
+on:
+  workflow_dispatch:
+    inputs:
+      wn_run: { description: 'wasmtime-nostd run with artifacts lib-x86_64, lib-aarch64 (the static runtime) and cli (the patched compiler)', required: true, default: '41230610646' }
+      dawn_run: { description: 'dawn-cosmo run with artifacts lib-x86_64, lib-aarch64 and metal-objs', required: true }
+env: { COSMOCC: 4.0.2, WT: v50.0.0 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Inputs
+        run: |
+          for a in x86_64 aarch64; do gh run download ${{ inputs.wn_run }} -R ${{ github.repository }} -n lib-$a -D wnlib/$a; gh run download ${{ inputs.dawn_run }} -R ${{ github.repository }} -n lib-$a -D dawnlib/$a; done
+          gh run download ${{ inputs.wn_run }} -R ${{ github.repository }} -n cli -D cli; gh run download ${{ inputs.dawn_run }} -R ${{ github.repository }} -n metal-objs -D metal || echo "no metal objects"
+          chmod +x cli/wasmtime; cli/wasmtime --version; ls -la wnlib/* dawnlib/* metal | head -30
+          curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
+          curl -fsSL -o mi.tar.gz https://github.com/microsoft/mimalloc/archive/refs/tags/v2.1.7.tar.gz && mkdir mi && tar xzf mi.tar.gz -C mi --strip-components=1
+      - name: The wasm guest and its precompiled modules
+        run: |
+          S=$(ls -d $PWD/wasi-sdk-34*); mkdir -p out
+          $S/bin/clang --target=wasm32-wasip1 -O2 -mexec-model=reactor -Wl,--no-entry game/guest/game.c -o game.wasm -lm
+          ls -la game.wasm; $S/bin/llvm-objdump --version >/dev/null 2>&1; (strings -a game.wasm | grep -E "wasi_snapshot|celori" | head -5) || true
+          F="-W gc-support=n -W concurrency-support=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n -W threads=n"
+          for a in x86_64 aarch64; do cli/wasmtime compile --target $a-unknown-linux-gnu $F -O signals-based-traps=y game.wasm -o out/game.sig.$a.cwasm; done; ls -la out
+      - name: The host, for both architectures (Wasmtime + Dawn + mimalloc + mutex fast path), one file
+        run: |
+          B=$PWD/cosmo/bin; mkdir parts
+          for A in x86_64 aarch64; do
+            L=$PWD/dawnlib/$A; INC="-I$L/inc1 -I$L/inc2 -I$PWD/ci-webgpu-test"; extra=""
+            $B/$A-unknown-cosmo-cc -O2 -Iwasmtime-nostd/platform -DWASMTIME_VIRTUAL_MEMORY -DWASMTIME_NATIVE_SIGNALS -DWASMTIME_CUSTOM_SYNC -c wasmtime-nostd/platform/platform.c -o platform.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -c alloc-probe/tcache_new.cpp -o tcache_new.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -c alloc-probe/nsync_fast.c -o nsync_fast.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -D_COSMO_SOURCE -include libc/sysv/consts/madv.h -include alloc-probe/mimalloc/mi_threadid.h -DMI_PRIM_THREAD_ID=mi_cosmo_tid -DMI_SECURE=0 -DNDEBUG -I mi/include -c mi/src/static.c -o mi_static.$A.o
+            $B/$A-unknown-cosmo-cc -O2 -I mi/include -c alloc-probe/mimalloc/mi_override.c -o mi_override.$A.o
+            extra="$PWD/tcache_new.$A.o $PWD/nsync_fast.$A.o $PWD/mi_static.$A.o $PWD/mi_override.$A.o"
+            if [ $A = aarch64 ] && [ -f metal/objc_shim.c ]; then $B/aarch64-unknown-cosmo-cc -O2 -c metal/objc_shim.c -o objc_shim.o; extra="$extra $(ls $PWD/metal/objs/*.o) objc_shim.o"; fi
+            $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -D_LIBCPP_HARDENING_MODE=_LIBCPP_HARDENING_MODE_NONE $INC -c game/host/game_host.cpp -o game_host.$A.o
+            $B/$A-unknown-cosmo-c++ -O2 game_host.$A.o platform.$A.o $extra "$L/libwebgpu_dawn.a" wnlib/$A/libwn_embedding.a -Wl,--wrap=pthread_create -Wl,--wrap=pthread_mutex_lock -Wl,--wrap=pthread_mutex_unlock -Wl,--gc-sections -lm -o parts/game.$A.com 2>&1 | tail -40
+          done
+          ls -la parts
+          $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o game.com parts/game.x86_64.com.dbg parts/game.aarch64.com.dbg
+          (cd out && zip -q ../game.com game.sig.x86_64.cwasm game.sig.aarch64.cwasm); ls -la game.com; unzip -l game.com | tail -4
+      - uses: actions/upload-artifact@v4
+        with: { name: game, path: "game.com\ngame.wasm" }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    backend: vulkan }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, backend: vulkan }
+          - { label: win-x64,     os: windows-latest,   backend: d3d12 }
+          - { label: win-arm64,   os: windows-11-arm,   backend: d3d12 }
+          - { label: mac-arm64,   os: macos-latest,     backend: metal }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { name: game, path: . }
+      - name: Vulkan software driver (Linux)
+        if: runner.os == 'Linux'
+        run: sudo apt-get update && sudo apt-get install -y mesa-vulkan-drivers libvulkan1
+      - name: Run the game loop
+        env: { WGT_BACKEND: '${{ matrix.backend }}', GAME_WAV: 'game.wav' }
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = Windows ]; then cp game.com game.exe; ( ./game.exe 2>&1 | cat ) > out.txt; rc=${PIPESTATUS[0]}; else chmod +x game.com; sh ./game.com > out.txt 2>&1; rc=$?; fi
+          tr '\r' '\n' < out.txt | grep -v "^Warning" | head -60; echo "exit status $rc"; ls -la game.wav 2>/dev/null
+          grep -q "RESULT PASS" out.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'gameloop-${{ matrix.label }}', path: "out.txt\ngame.wav" }
