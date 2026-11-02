@@ -189,7 +189,7 @@ extern "C" void DawnCosmoForeignInit() {
     // library's own malloc, free it, and tell it not to give the memory back (M_TRIM_THRESHOLD), so those pages are already mapped when the driver asks. DAWN_COSMO_PREFAULT_KB=0 turns it off.
     {
         long kb = 0; if (const char* pk = getenv("DAWN_COSMO_PREFAULT_KB")) kb = atol(pk);   // pre-faulting the main arena measured: no effect (0.1755 vs 0.1757 faults per call), so it is off by default
-        long mmapmb = 32; if (const char* pm = getenv("DAWN_COSMO_MMAP_THRESHOLD_MB")) mmapmb = atol(pm);
+        long mmapmb = 0; if (const char* pm = getenv("DAWN_COSMO_MMAP_THRESHOLD_MB")) mmapmb = atol(pm);   // measured: no effect on the first-loop page faults either (0.171 vs 0.173 per call), so off
         auto pmallopt = reinterpret_cast<int (*)(int, int)>(cosmo_dltramp(cosmo_dlsym(libc, "mallopt")));
         auto pcalloc = reinterpret_cast<void* (*)(unsigned long, unsigned long)>(cosmo_dltramp(cosmo_dlsym(libc, "calloc")));
         auto pfree = reinterpret_cast<void (*)(void*)>(cosmo_dltramp(cosmo_dlsym(libc, "free")));
