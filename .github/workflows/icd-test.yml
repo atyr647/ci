@@ -28,7 +28,7 @@ jobs:
           ls $B | grep -E "objdump|-nm$|addr2line" | head
           NM=$B/$A-linux-cosmo-nm; OBJ=$B/$A-linux-cosmo-objdump
           $NM -n -C vk_icd_test.$A.com.dbg > syms.txt; wc -l syms.txt
-          if [ $A = x86_64 ]; then sh ./vk_icd_test.$A.com > run.txt 2>&1; echo "exit $?"; tr '\r' '\n' < run.txt | head -45; python3 game/tools/symbolize.py syms.txt run.txt
+          if [ $A = x86_64 ]; then sh ./vk_icd_test.$A.com > run.txt 2>&1 || echo "exit status $? (non-zero is expected while the crash is open)"; tr '\r' '\n' < run.txt | head -45; python3 game/tools/symbolize.py syms.txt run.txt
             fa=$(grep -E ' [Tt] vk::PhysicalDevice::getFeatures2\(' syms.txt | head -1 | cut -d' ' -f1); echo "getFeatures2 at 0x$fa"
             $OBJ -d -C --no-show-raw-insn --start-address=0x$fa --stop-address=$((0x$fa+0x80)) vk_icd_test.$A.com.dbg | tail -40
             cd=$(grep -E ' [Tt] vkCreateDevice$' syms.txt | head -1 | cut -d' ' -f1); echo "vkCreateDevice at 0x$cd"
