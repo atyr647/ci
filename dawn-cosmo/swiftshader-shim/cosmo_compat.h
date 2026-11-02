@@ -15,6 +15,7 @@ static inline void backtrace_symbols_fd(void *const *b, int n, int fd) { (void)b
 #define PTRACE_TRACEME 0
 #endif
 static inline long ptrace(int req, ...) { (void)req; return -1; }
+long syscall(long, ...);   // exists in the C library; Cosmopolitan declares it only for its own source mode
 #ifdef __cplusplus
 }
 #endif
