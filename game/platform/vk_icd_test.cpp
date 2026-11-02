@@ -6,7 +6,9 @@
 #define VK_NO_PROTOTYPES
 #include <vulkan/vulkan.h>
 extern "C" PFN_vkVoidFunction vk_icdGetInstanceProcAddr(VkInstance, const char *);
+extern "C" VkResult vk_icdNegotiateLoaderICDInterfaceVersion(uint32_t *);   // what a Vulkan loader does first; without it the driver only accepts apiVersion 1.0
 int main() {
+    uint32_t ifv = 5; VkResult nr = vk_icdNegotiateLoaderICDInterfaceVersion(&ifv); printf("VKICD interface version negotiated: %u (rc %d)\n", ifv, (int)nr);
     auto gipa = (PFN_vkGetInstanceProcAddr)vk_icdGetInstanceProcAddr;
     auto createInstance = (PFN_vkCreateInstance)gipa(nullptr, "vkCreateInstance");
     VkApplicationInfo app = {VK_STRUCTURE_TYPE_APPLICATION_INFO, nullptr, "icd-test", 1, "none", 1, VK_API_VERSION_1_1};
