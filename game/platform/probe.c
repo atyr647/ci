@@ -133,11 +133,20 @@ static void probe_macos(void) {
     Pt loc = {50, 60};
     id kev = ((id (*)(id, SEL, unsigned long, Pt, unsigned long, double, long, id, id, id, signed char, unsigned short))msg)(NSEvent, S("keyEventWithType:location:modifierFlags:timestamp:windowNumber:context:characters:charactersIgnoringModifiers:isARepeat:keyCode:"), 10, loc, 0, 0.0, winno, NULL, chars, chars, 0, 0);
     id mev = ((id (*)(id, SEL, unsigned long, Pt, unsigned long, double, long, id, long, long, float))msg)(NSEvent, S("mouseEventWithType:location:modifierFlags:timestamp:windowNumber:context:eventNumber:clickCount:pressure:"), 5, loc, 0, 0.0, winno, NULL, 0, 0, 0.0f);
-    ((void (*)(id, SEL, id, signed char))msg)(app, S("postEvent:atStart:"), kev, 0); ((void (*)(id, SEL, id, signed char))msg)(app, S("postEvent:atStart:"), mev, 0);
-    for (int n = 0; n < 20; n++) {
-        id ev = ((id (*)(id, SEL, unsigned long, id, id, signed char))msg)(app, S("nextEventMatchingMask:untilDate:inMode:dequeue:"), ~0ul, NULL, mode, 1); if (!ev) break;
-        unsigned long type = ((unsigned long (*)(id, SEL))msg)(ev, S("type")); if (type == 10) g_key = 'a'; else if (type == 5) { Pt p = ((Pt (*)(id, SEL))msg)(ev, S("locationInWindow")); g_mouse = 1; g_mx = (int)p.x; g_my = (int)p.y; }
+    ((void (*)(id, SEL, signed char))msg)(app, S("activateIgnoringOtherApps:"), 1);
+    printf("PROBE macos: key event object %p, mouse event object %p, window number %ld, run loop mode string %p\n", kev, mev, winno, mode);
+    if (kev) ((void (*)(id, SEL, id, signed char))msg)(app, S("postEvent:atStart:"), kev, 0); if (mev) ((void (*)(id, SEL, id, signed char))msg)(app, S("postEvent:atStart:"), mev, 0);
+    id past = ((id (*)(id, SEL))msg)(getclass("NSDate"), S("distantPast")); int seen = 0;
+    for (int round = 0; round < 40 && !(g_key && g_mouse); round++) {
+        for (int n = 0; n < 20; n++) {
+            id ev = ((id (*)(id, SEL, unsigned long, id, id, signed char))msg)(app, S("nextEventMatchingMask:untilDate:inMode:dequeue:"), ~0ul, past, mode, 1); if (!ev) break; seen++;
+            unsigned long type = ((unsigned long (*)(id, SEL))msg)(ev, S("type")); if (type == 10) g_key = 'a'; else if (type == 5) { Pt p = ((Pt (*)(id, SEL))msg)(ev, S("locationInWindow")); g_mouse = 1; g_mx = (int)p.x; g_my = (int)p.y; }
+            else printf("PROBE macos: other event type %lu\n", type);
+            ((void (*)(id, SEL, id))msg)(app, S("sendEvent:"), ev);
+        }
+        msleep(10);
     }
+    printf("PROBE macos: %d events dequeued\n", seen);
     printf("PROBE input: synthetic NSEvents -> key %d, mouse (%d,%d)\n", g_key, g_mx, g_my);
     void *at = cosmo_dlopen("/System/Library/Frameworks/AudioToolbox.framework/AudioToolbox", RTLD_NOW);
     if (!at) { snprintf(g_audio_note, sizeof g_audio_note, "AudioToolbox not available"); return; }
