@@ -6,7 +6,7 @@ on:
     inputs:
       wn_run: { description: 'wasmtime-nostd run with artifacts lib-x86_64, lib-aarch64 (the static runtime) and cli (the patched compiler)', required: true, default: '41230610646' }
       dawn_run: { description: 'dawn-cosmo run with artifacts lib-x86_64, lib-aarch64 and metal-objs', required: true }
-      ss_run: { description: 'swiftshader-cosmo run(s) whose artifact swiftshader-<arch> (the software Vulkan driver, built by cosmocc) is linked INTO the file; format x86_64:RUNID,aarch64:RUNID, empty = none', required: false, default: '' }
+      ss_run: { description: 'swiftshader-cosmo run(s) whose artifact swiftshader-<arch> (the software Vulkan driver, built by cosmocc) is linked INTO the file; format x86_64:RUNID,aarch64-llvm:RUNID, empty = none', required: false, default: '' }
 env: { COSMOCC: 4.0.2, WT: v50.0.0 }
 jobs:
   build:
@@ -22,7 +22,7 @@ jobs:
           curl -fsSL https://github.com/WebAssembly/wasi-sdk/releases/download/wasi-sdk-34/wasi-sdk-34.0-x86_64-linux.tar.gz | tar xz
           curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
           cp cosmo/bin/ape-x86_64.elf $HOME/.ape-1.10 && chmod +x $HOME/.ape-1.10
-          for kv in $(echo "${{ inputs.ss_run }}" | tr ',' ' '); do a=${kv%%:*}; r=${kv##*:}; gh run download $r -R ${{ github.repository }} -n swiftshader-$a -D ss/$a && ls -la ss/$a; done || true
+          for kv in $(echo "${{ inputs.ss_run }}" | tr ',' ' '); do n=${kv%%:*}; a=${n%%-*}; r=${kv##*:}; gh run download $r -R ${{ github.repository }} -n swiftshader-$n -D ss/$a && ls -la ss/$a; done || true   # entries look like x86_64:RUN or aarch64-llvm:RUN (the artifact is swiftshader-<entry name>)
           curl -fsSL -o mi.tar.gz https://github.com/microsoft/mimalloc/archive/refs/tags/v2.1.7.tar.gz && mkdir mi && tar xzf mi.tar.gz -C mi --strip-components=1
       - name: The wasm guest and its precompiled modules
         run: |
