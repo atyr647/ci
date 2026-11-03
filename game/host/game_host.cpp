@@ -183,10 +183,15 @@ static bool exec_memory_allowed() {
 // (fresh pages, one page fault each) while the first thousands of buffers are created; natively Dawn and the driver share one heap that Dawn already touched. GAME_PREFAULT_KB=N touches N KiB of the driver's heap
 // through its own malloc at start-up and keeps it (M_TRIM_THRESHOLD); GAME_BURST=N creates and releases N 64 KiB buffers, reports the page faults and time of that loop, and exits.
 static double prefault_driver_heap(long kb) {
-    auto t = Clock::now(); void *libc = cosmo_dlopen("libc.so.6", RTLD_NOW); if (!libc || kb <= 0) return 0;
+    auto t = Clock::now(); const bool populate = getenv("GAME_PREFAULT_POPULATE") != nullptr; void *libc = cosmo_dlopen("libc.so.6", RTLD_NOW); if (!libc || kb <= 0) return 0;
     auto pmallopt = reinterpret_cast<int (*)(int, int)>(cosmo_dltramp(cosmo_dlsym(libc, "mallopt"))); auto pmalloc = reinterpret_cast<void *(*)(unsigned long)>(cosmo_dltramp(cosmo_dlsym(libc, "malloc"))); auto pfree = reinterpret_cast<void (*)(void *)>(cosmo_dltramp(cosmo_dlsym(libc, "free")));
     if (!pmallopt || !pmalloc || !pfree) return 0;
     pmallopt(-1, 1 << 30);   // M_TRIM_THRESHOLD: do not give the memory back when it is freed
+    if (populate) {   // blocks of 64 KiB (below glibc's mmap threshold, so they come from the heap), the kernel populates their pages in one call each, then they are freed and stay (trim threshold 64 MiB)
+        pmallopt(-1, 64 << 20); std::vector<void *> bl; for (long k = 0; k < kb; k += 64) { void *b = pmalloc(65536 - 32); if (!b) break; bl.push_back(b);
+            uintptr_t lo = ((uintptr_t)b + 4095) & ~(uintptr_t)4095, hi = ((uintptr_t)b + 65536 - 32) & ~(uintptr_t)4095; if (madvise((void *)lo, hi - lo, 23 /*MADV_POPULATE_WRITE, Linux 5.14*/)) for (uintptr_t a = lo; a < hi; a += 4096) *(volatile char *)a = 0; }
+        for (void *b : bl) pfree(b); return ms_since(t);
+    }
     std::vector<void *> blocks; for (long i = 0; i < kb; i++) { void *b = pmalloc(1024); if (!b) break; memset(b, 0, 1024); blocks.push_back(b); }   // malloc and write: calloc would skip the write on fresh heap memory
     for (void *b : blocks) pfree(b);
     return ms_since(t);
@@ -194,7 +199,8 @@ static double prefault_driver_heap(long kb) {
 static void burst(int n) {
     WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT; b.size = 65536; b.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
     struct rusage r0, r1; getrusage(RUSAGE_SELF, &r0); auto t = Clock::now();
-    for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(g_device, &b); wgpuBufferRelease(x); }
+    const int tick = getenv("GAME_BURST_TICK") ? atoi(getenv("GAME_BURST_TICK")) : 0;   // tick the device every N calls, the way frames do in a game
+    for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(g_device, &b); wgpuBufferRelease(x); if (tick && i % tick == tick - 1) wgpuDeviceTick(g_device); }
     double ms = ms_since(t); getrusage(RUSAGE_SELF, &r1);
     printf("host : burst of %d buffer create+release: %.3f ms (%.3f us each), %ld page faults (%.3f per call)\n", n, ms, ms * 1e3 / n, r1.ru_minflt - r0.ru_minflt, (double)(r1.ru_minflt - r0.ru_minflt) / n);
 }

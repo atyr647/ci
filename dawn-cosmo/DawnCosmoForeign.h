@@ -215,23 +215,32 @@ extern "C" void DawnCosmoForeignInit() {
     }
 #endif
     pthread_sigmask(SIG_SETMASK, &old, nullptr);
-    // Pre-fault the system C library's heap (the driver's malloc). Natively Dawn and the driver share that heap, so the driver reuses pages Dawn and Tint freed during start-up; in this build Dawn has its
-    // own heap (this program's malloc), and the driver's first allocations touch fresh pages: about 700 extra page faults, 1.6-2.7 MiB, in the first burst of buffer creation (the burst of 4,000 buffers
-    // grows the driver's brk heap by about 2.6 MB). Write to a few MiB through the library's own malloc, free it, and tell it not to give the memory back (M_TRIM_THRESHOLD), so those pages are already mapped when the driver asks.
-    // Measured with the game host (GAME_PREFAULT_KB, 15 interleaved rounds, Linux x86-64): 4 MiB takes 2.5 ms at start-up and cuts the 4,000-buffer burst from 6.76 to 5.20 ms median (937 -> 249 page faults, native Dawn has about 240).
-    // It moves the cost to start-up (net +1 ms), so it is OFF by default: DAWN_COSMO_PREFAULT_KB=<KiB> turns it on. (An earlier version used calloc here, which does not write fresh heap memory, so it pre-faulted nothing; the
-    // conclusion drawn from that run, "pre-faulting has no effect", was wrong.)
+    // Pre-populate the system C library's heap (the driver's malloc). Natively Dawn and the driver share that heap, so the driver reuses pages that Dawn and Tint touched during start-up (every process pays for
+    // those pages once, natively at start-up). In this build Dawn's frees go to this file's malloc, so the driver's heap starts nearly empty and the first burst of buffer creation grows it by about 2.6 MB:
+    // about 700 page faults, 1.5-2.5 ms in the middle of a frame. Paying for the pages at start-up instead is what native Dawn does. Take 3 MiB from the library's heap in 64 KiB blocks (below its mmap
+    // threshold), have the kernel populate them in one call each (MADV_POPULATE_WRITE, Linux 5.14; a write per page on older kernels), free them and tell the library not to give them back
+    // (M_TRIM_THRESHOLD 64 MiB). Measured (game host, system lavapipe through this helper, 21 interleaved rounds, Linux x86-64): first burst of 4,000 buffers 8.03 -> 5.52 ms median, page faults 936 -> 261
+    // (native Dawn: about 240), the population itself 1.5 ms once at start-up, so the total is lower too. DAWN_COSMO_PREFAULT_KB=<KiB> changes the size, 0 turns it off. (A first version used calloc, which does not write fresh heap memory,
+    // so it pre-faulted nothing; the conclusion drawn from that run, "pre-faulting has no effect", was wrong.)
     {
-        long kb = 0; if (const char* pk = getenv("DAWN_COSMO_PREFAULT_KB")) kb = atol(pk);
+        long kb = 3072; if (const char* pk = getenv("DAWN_COSMO_PREFAULT_KB")) kb = atol(pk);
         long mmapmb = 0; if (const char* pm = getenv("DAWN_COSMO_MMAP_THRESHOLD_MB")) mmapmb = atol(pm);   // glibc's mmap threshold: measured no effect on the first-loop page faults (0.171 vs 0.173 per call), so off
         auto pmallopt = reinterpret_cast<int (*)(int, int)>(cosmo_dltramp(cosmo_dlsym(libc, "mallopt")));
         auto pmalloc = reinterpret_cast<void* (*)(unsigned long)>(cosmo_dltramp(cosmo_dlsym(libc, "malloc")));
         auto pfree = reinterpret_cast<void (*)(void*)>(cosmo_dltramp(cosmo_dlsym(libc, "free")));
         if (mmapmb > 0 && pmallopt) { pmallopt(-3, (int)(mmapmb << 20)); pmallopt(-1, (int)(mmapmb << 21)); }   // M_MMAP_THRESHOLD, M_TRIM_THRESHOLD
         if (kb > 0 && pmallopt && pmalloc && pfree) {
-            pmallopt(-1, 1 << 30);   // M_TRIM_THRESHOLD: keep freed heap memory
-            void** blocks = static_cast<void**>(malloc(sizeof(void*) * kb)); long got = 0;
-            if (blocks) { for (long i = 0; i < kb; i++) { void* b = pmalloc(1024); if (!b) break; memset(b, 0, 1024); blocks[got++] = b; } for (long i = 0; i < got; i++) pfree(blocks[i]); free(blocks); }   // blocks of 1 KiB: the size class of the driver's per-buffer allocations
+            pmallopt(-1, 64 << 20);   // M_TRIM_THRESHOLD: keep freed heap memory
+            const long n = (kb + 63) / 64; void** blocks = static_cast<void**>(malloc(sizeof(void*) * n)); long got = 0;
+            if (blocks) {
+                for (long i = 0; i < n; i++) {
+                    void* b = pmalloc(65536 - 32); if (!b) break; blocks[got++] = b;
+                    uintptr_t lo = ((uintptr_t)b + 4095) & ~(uintptr_t)4095, hi = ((uintptr_t)b + 65536 - 32) & ~(uintptr_t)4095;
+                    if (madvise((void*)lo, hi - lo, 23 /* MADV_POPULATE_WRITE */) != 0) for (uintptr_t a = lo; a < hi; a += 4096) *(volatile char*)a = 0;
+                }
+                for (long i = 0; i < got; i++) pfree(blocks[i]);
+                free(blocks);
+            }
         }
     }
     if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d), main thread pointer %#lx, offset %#lx, first block %#lx\n", gCount, gDawnCosmoFsgsbase, ReadTp(), off, gCount ? gPool[0] : 0UL);
