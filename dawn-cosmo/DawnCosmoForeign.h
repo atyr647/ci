@@ -99,6 +99,7 @@ thread_local bool gChecked = false;
 }  // namespace
 
 #include "src/dawn/native/vulkan/DawnCosmoDlopenHelper.h"
+#include "src/dawn/native/vulkan/DawnCosmoDlopenHelperMusl.h"
 #include <fcntl.h>
 #include <sys/stat.h>
 extern "C" void DawnCosmoSeedDlopenHelper() {
@@ -123,9 +124,14 @@ extern "C" void DawnCosmoSeedDlopenHelper() {
         if (!ok || rename(tmp, path) != 0) { unlink(tmp); return false; }
         return true;
     };
-    bool a = IsAarch64() ? put(exe, kDlopenHelperArm64, kDlopenHelperArm64Size, 0755) : put(exe, kDlopenHelperX64, kDlopenHelperX64Size, 0755);
+    // A musl system has the musl loader and not glibc's: then the helper must be the one linked against musl (its interpreter is what Cosmopolitan loads into the process).
+    const bool glibc_loader = IsAarch64() ? access("/lib/ld-linux-aarch64.so.1", F_OK) == 0 : access("/lib64/ld-linux-x86-64.so.2", F_OK) == 0;
+    const bool musl_loader = IsAarch64() ? access("/lib/ld-musl-aarch64.so.1", F_OK) == 0 : access("/lib/ld-musl-x86_64.so.1", F_OK) == 0;
+    const bool use_musl = musl_loader && !glibc_loader;
+    bool a = use_musl ? (IsAarch64() ? put(exe, kDlopenHelperMuslAarch64, kDlopenHelperMuslAarch64Size, 0755) : put(exe, kDlopenHelperMuslX86_64, kDlopenHelperMuslX86_64Size, 0755))
+                      : IsAarch64() ? put(exe, kDlopenHelperArm64, kDlopenHelperArm64Size, 0755) : put(exe, kDlopenHelperX64, kDlopenHelperX64Size, 0755);
     bool b = put(src, kDlopenHelperSrc, kDlopenHelperSrcSize, 0600);
-    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: seeded the dlopen helper in %s (%d %d)\n", d, (int)a, (int)b);
+    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: seeded the %s dlopen helper in %s (%d %d)\n", use_musl ? "musl" : "glibc", d, (int)a, (int)b);
 }
 
 // A Vulkan driver linked into this very file (SwiftShader, built by cosmocc: game/platform and .github/workflows/swiftshader-cosmo.yml) needs no dlopen, no system C library and no libvulkan.
