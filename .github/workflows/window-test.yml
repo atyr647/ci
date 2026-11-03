@@ -58,12 +58,16 @@ jobs:
           export XDG_RUNTIME_DIR=$PWD/xdg; rm -rf $XDG_RUNTIME_DIR; mkdir -p $XDG_RUNTIME_DIR; chmod 700 $XDG_RUNTIME_DIR
           printf 'output HEADLESS-1 resolution 800x600\nfor_window [app_id="celori"] floating enable, move position 0 0\n' > sway.conf
           WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman sway -c sway.conf > sway.log 2>&1 &
+          SWAYPID=$!
           sleep 3; export WAYLAND_DISPLAY=$(ls $XDG_RUNTIME_DIR | grep -E '^wayland-[0-9]+$' | head -1); export SWAYSOCK=$(ls $XDG_RUNTIME_DIR/sway-ipc*.sock | head -1); echo "compositor socket: $WAYLAND_DISPLAY"
           (sleep 1.5; swaymsg '[app_id="celori"] focus' >/dev/null; wtype -s 3000 a -s 300 -k Right -s 300 ' ' >/dev/null 2>&1) &
+          H1=$!
           (sleep 2.5; sh ./wl_pointer_inject.com 50 60 800 600 6 >/dev/null 2>&1) &
+          H2=$!
           (sleep 5; grim -o HEADLESS-1 shot_wl.png) &
+          H3=$!
           WINDOW_BACKEND=wayland sh ./window_test.com --seconds=9 --expect=keys 2>&1 | tr '\r' '\n' | tee wl.txt
-          wait; python3 game/tools/check_shot.py shot_wl.png 0 0 | tee -a wl.txt; swaymsg exit >/dev/null 2>&1
+          wait $H1 $H2 $H3; python3 game/tools/check_shot.py shot_wl.png 0 0 | tee -a wl.txt; swaymsg exit >/dev/null 2>&1; sleep 1; kill $SWAYPID 2>/dev/null
           grep -q "input=ok" wl.txt && grep -q "SHOT 0 of" wl.txt
       - name: Windows and macOS - the window and its input from inside the program
         if: runner.os != 'Linux'
