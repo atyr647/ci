@@ -14,7 +14,8 @@ extern "C" int gettid(void);   // Cosmopolitan declares it only under _COSMO_SOU
 extern "C" {
 unsigned long DawnCosmoForeignTcb();   // thread block to run foreign calls on for THIS thread; 0 = none needed (main thread, or not Linux)
 void DawnCosmoForeignInit();           // call on the main thread before other threads call foreign code (idempotent)
-void DawnCosmoWarmDriverHeap();        // call once on the main thread after the device exists: the driver's heap is populated up front instead of during the first burst of buffer creation (Linux)
+void DawnCosmoWarmDriverHeap();        // Linux, glibc: populate the driver's heap (3 MiB) right before a burst of resource creation, on the main thread: the pages are paid for here instead of in the middle of the burst. Work the driver does in between (pipeline compiles) churns the heap again, so call it just before the burst, not at start-up
+void DawnCosmoWarmDriverHeapKB(long kb);   // the same with a size in KiB (the burst of 4,000 buffers of 64 KiB grew the heap by about 2.6 MB)
 extern int gDawnCosmoFsgsbase;         // x86-64: wrfsbase/rdfsbase can be used instead of arch_prctl
 void DawnCosmoSeedDlopenHelper();   // Linux: put the pre-built dlopen helper where Cosmopolitan looks for it, so no C compiler is needed on the user's machine
 void* DawnCosmoDlopen(const char* file, int mode);   // cosmo_dlopen, except that the Vulkan loader loaded ahead of time by the main thread is handed out without a foreign call
@@ -225,9 +226,10 @@ extern "C" void DawnCosmoForeignInit() {
     pthread_sigmask(SIG_SETMASK, &old, nullptr);
     if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d), main thread pointer %#lx, offset %#lx, first block %#lx\n", gCount, gDawnCosmoFsgsbase, ReadTp(), off, gCount ? gPool[0] : 0UL);
 }
-// Pre-populate the system C library's heap (the driver's malloc); call it once on the main thread AFTER the device exists (adapter and device creation allocate megabytes in the driver's heap themselves and would use
-// the pages up if this ran earlier, measured). Linux only, a no-op elsewhere or without the system C library.
-extern "C" void DawnCosmoWarmDriverHeap() {
+// Pre-populate the system C library's heap (the driver's malloc); call it on the main thread right BEFORE the burst of resource creation it is meant for (measured: warming at device creation helps nothing when pipelines are compiled afterwards, the driver's compiler churns the heap). Linux only, a no-op elsewhere or without the system C library.
+extern "C" void DawnCosmoWarmDriverHeapKB(long kb);
+extern "C" void DawnCosmoWarmDriverHeap() { DawnCosmoWarmDriverHeapKB(-1); }
+extern "C" void DawnCosmoWarmDriverHeapKB(long kb_arg) {
     if (!IsLinux() || DawnCosmoStaticIcd()) return;
     void* libc = cosmo_dlopen("libc.so.6", RTLD_NOW);
     if (!libc || !cosmo_dlsym(libc, "gnu_get_libc_version")) return;   // glibc only: its brk heap is what grows during the first burst; musl's allocator works differently (and crashed here on arm64 in the first try)
@@ -239,7 +241,7 @@ extern "C" void DawnCosmoWarmDriverHeap() {
     // (native Dawn: about 240), the population itself 1.5 ms once at start-up, so the total is lower too. DAWN_COSMO_PREFAULT_KB=<KiB> changes the size, 0 turns it off. (A first version used calloc, which does not write fresh heap memory,
     // so it pre-faulted nothing; the conclusion drawn from that run, "pre-faulting has no effect", was wrong.)
     {
-        long kb = 3072; if (const char* pk = getenv("DAWN_COSMO_PREFAULT_KB")) kb = atol(pk);
+        long kb = kb_arg >= 0 ? kb_arg : 3072; if (const char* pk = getenv("DAWN_COSMO_PREFAULT_KB")) kb = atol(pk);
         long mmapmb = 0; if (const char* pm = getenv("DAWN_COSMO_MMAP_THRESHOLD_MB")) mmapmb = atol(pm);   // glibc's mmap threshold: measured no effect on the first-loop page faults (0.171 vs 0.173 per call), so off
         auto pmallopt = reinterpret_cast<int (*)(int, int)>(cosmo_dltramp(cosmo_dlsym(libc, "mallopt")));
         auto pmalloc = reinterpret_cast<void* (*)(unsigned long)>(cosmo_dltramp(cosmo_dlsym(libc, "malloc")));

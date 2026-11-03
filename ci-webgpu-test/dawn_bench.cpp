@@ -168,9 +168,6 @@ static int bench_main(int argc, char **argv) {
     WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT; WGPURequestDeviceCallbackInfo dci = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
     dci.mode = WGPUCallbackMode_AllowProcessEvents; dci.callback = on_device; g_done = 0; wgpuAdapterRequestDevice(g_adapter, &dd, dci); pump();
     if (!g_device) { puts("FAIL no device"); return 3; }
-#ifdef __COSMOPOLITAN__
-    if (!getenv("BENCH_NO_WARM")) DawnCosmoWarmDriverHeap();   // the driver's heap populated now, as a game host does after creating the device (BENCH_NO_WARM=1 for the old behaviour)
-#endif
     bench("start_device_ms", ms_since(t), "ms");
     WGPUDevice dev = g_device; WGPUQueue q = wgpuDeviceGetQueue(dev);
 
@@ -219,6 +216,9 @@ static int bench_main(int argc, char **argv) {
     WGPUBindGroup bg = wgpuDeviceCreateBindGroup(dev, &bgd);
 
     // ---- resource creation
+#ifdef __COSMOPOLITAN__
+    if (!getenv("BENCH_NO_WARM")) DawnCosmoWarmDriverHeap();   // right before the burst of buffer creation (what a game would do before loading a level); BENCH_NO_WARM=1 for the old behaviour
+#endif
     if (const char *rep = getenv("BENCH_BUFFER_REPEAT")) {   // profiling aid: only buffer create/release in a loop
         WGPUBufferDescriptor b0 = WGPU_BUFFER_DESCRIPTOR_INIT; b0.size = 65536; b0.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
         const int n0 = atoi(rep); const bool tick = getenv("BENCH_BUFFER_TICK") != nullptr;   // BENCH_BUFFER_TICK=1: tick the device every 64 iterations (steady state, memory does not grow)

@@ -246,7 +246,6 @@ int main(int argc, char **argv) {
         }
         puts("FAIL gpu init"); return 2;
     } printf("host : GPU ready in %.1f ms\n", ms_since(t0));
-    if (!getenv("GAME_PREFAULT_KB")) DawnCosmoWarmDriverHeap();   // default population of the driver's heap (Dawn loader), now that the device exists
     if (const char *pk = getenv("GAME_PREFAULT_KB")) { double ms = prefault_driver_heap(atol(pk)); printf("host : pre-faulted %s KiB of the driver's heap in %.2f ms\n", pk, ms); }
     if (const char *bn = getenv("GAME_BURST")) { burst(atoi(bn)); return 0; }
     win::Window window; bool win_on = false; pad::Gamepads pads; bool pad_on = false; std::vector<double> pres_ms; int present_fail = 0, verify_mismatch = -2; bool verify_ok = false;
@@ -267,6 +266,7 @@ int main(int argc, char **argv) {
     if (wn_inst_call(inst, "game_init", nullptr, 0, res, 1)) { printf("FAIL game_init: %s\n", wn_inst_error(inst)); return 7; }
     const bool realtime = getenv("GAME_REALTIME") != nullptr || [&] { for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--realtime")) return true; return false; }();
     if (realtime || getenv("GAME_AUDIO")) { if (!g_aout.start(realtime && !getenv("GAME_AUDIO") ? "timed" : nullptr)) { puts("FAIL audio device required but not available"); return 11; } printf("host : audio out [%s]: %s\n", g_aout.st.backend.c_str(), g_aout.st.note.c_str()); }
+    if (!getenv("GAME_PREFAULT_KB") && !getenv("GAME_BURST")) DawnCosmoWarmDriverHeap();   // after the guest created its pipelines and buffers, right before the frames: the driver's heap populated at a time that is not in the middle of a frame
     auto tl = Clock::now(); std::vector<double> ft, gt; int bad = 0; double worst_late = 0; int late_frames = 0;
     for (int f = 0; f < frames; f++) {
         if (realtime) {   // 60 frames a second: frame f starts at its time, the last 0.3 ms by spinning
