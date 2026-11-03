@@ -52,7 +52,8 @@ struct Target { WGPUTexture tex; WGPUTextureView view; int w, h; };
 static std::vector<WGPUShaderModule> g_shaders; static std::vector<Buf> g_bufs; static std::vector<WGPUComputePipeline> g_cpipes; static std::vector<WGPURenderPipeline> g_rpipes; static std::vector<Target> g_targets;
 static WGPUCommandEncoder g_enc; static uint64_t g_submits, g_dispatches, g_draws;
 // GPU timestamp queries (when the adapter has the feature): every compute and render pass writes its start and end; they are resolved at the end of each submission and read once at the end of the run
-static const uint32_t kMaxQ = 2048; static bool g_ts; static WGPUQuerySet g_qs; static WGPUBuffer g_qres, g_qread; static uint32_t g_qn, g_qresolved; static int g_qwork_bad;
+static const uint32_t kMaxQ = 2048; static const uint64_t kQBytes = 256ull * (kMaxQ / 2);   // (a resolve destination must sit at a multiple of 256 bytes: every submission gets its own 256-byte aligned slot, at most kMaxQ/2 submissions)
+static bool g_ts; static WGPUQuerySet g_qs; static WGPUBuffer g_qres, g_qread; static uint32_t g_qn, g_qresolved; static int g_qwork_bad; struct QSeg { uint32_t first, count; uint64_t off; }; static std::vector<QSeg> g_qsegs; static uint64_t g_qoff;
 static bool take_ts(WGPUPassTimestampWrites *w) { if (!g_ts || g_qn + 2 > kMaxQ) return false; w->querySet = g_qs; w->beginningOfPassWriteIndex = g_qn; w->endOfPassWriteIndex = g_qn + 1; g_qn += 2; return true; }
 static void on_work_done(WGPUQueueWorkDoneStatus s, WGPUStringView, void *, void *) { if (s != WGPUQueueWorkDoneStatus_Success) g_qwork_bad++; g_done = 1; }
 
@@ -75,7 +76,7 @@ static bool gpu_init() {
     g_queue = wgpuDeviceGetQueue(g_device);
     if (has_ts) {
         WGPUQuerySetDescriptor qd = WGPU_QUERY_SET_DESCRIPTOR_INIT; qd.type = WGPUQueryType_Timestamp; qd.count = kMaxQ; g_qs = wgpuDeviceCreateQuerySet(g_device, &qd);
-        WGPUBufferDescriptor bd = WGPU_BUFFER_DESCRIPTOR_INIT; bd.size = kMaxQ * 8; bd.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc; g_qres = wgpuDeviceCreateBuffer(g_device, &bd);
+        WGPUBufferDescriptor bd = WGPU_BUFFER_DESCRIPTOR_INIT; bd.size = kQBytes; bd.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc; g_qres = wgpuDeviceCreateBuffer(g_device, &bd);
         bd.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst; g_qread = wgpuDeviceCreateBuffer(g_device, &bd); g_ts = g_qs && g_qres && g_qread;
     }
     printf("host : GPU timestamp queries %s\n", g_ts ? "enabled" : has_ts ? "failed to set up" : "not supported by this adapter");
@@ -108,8 +109,8 @@ CB(gpu_target) { Target t; t.w = (int)a[0]; t.h = (int)a[1]; WGPUTextureDescript
     d.size = {(uint32_t)t.w, (uint32_t)t.h, 1}; d.format = WGPUTextureFormat_RGBA8Unorm; t.tex = wgpuDeviceCreateTexture(g_device, &d); t.view = wgpuTextureCreateView(t.tex, nullptr);
     g_targets.push_back(t); r[0] = (uint32_t)(g_targets.size() - 1); return 0; }
 CB(gpu_begin) { WGPUCommandEncoderDescriptor d = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT; g_enc = wgpuDeviceCreateCommandEncoder(g_device, &d); return 0; }
-CB(gpu_end) { if (g_ts && g_qn > g_qresolved) { uint32_t n = g_qn - g_qresolved; wgpuCommandEncoderResolveQuerySet(g_enc, g_qs, g_qresolved, n, g_qres, (uint64_t)g_qresolved * 8);
-        wgpuCommandEncoderCopyBufferToBuffer(g_enc, g_qres, (uint64_t)g_qresolved * 8, g_qread, (uint64_t)g_qresolved * 8, (uint64_t)n * 8); g_qresolved = g_qn; }
+CB(gpu_end) { if (g_ts && g_qn > g_qresolved) { uint32_t n = g_qn - g_qresolved; uint64_t off = (g_qoff + 255) & ~255ull; wgpuCommandEncoderResolveQuerySet(g_enc, g_qs, g_qresolved, n, g_qres, off);
+        wgpuCommandEncoderCopyBufferToBuffer(g_enc, g_qres, off, g_qread, off, (uint64_t)n * 8); g_qsegs.push_back({g_qresolved, n, off}); g_qoff = off + (uint64_t)n * 8; g_qresolved = g_qn; }
     WGPUCommandBufferDescriptor d = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT; WGPUCommandBuffer cb = wgpuCommandEncoderFinish(g_enc, &d); wgpuQueueSubmit(g_queue, 1, &cb); wgpuCommandBufferRelease(cb); wgpuCommandEncoderRelease(g_enc); g_enc = nullptr; g_submits++; return 0; }
 CB(gpu_dispatch) { uint32_t p = (uint32_t)a[0]; int ids[3] = {(int)a[1], (int)a[2], (int)a[3]}; uint32_t groups = (uint32_t)a[4]; if (p >= g_cpipes.size() || !g_enc) return 1;
     WGPUBindGroupLayout l = wgpuComputePipelineGetBindGroupLayout(g_cpipes[p], 0); WGPUBindGroup bg = make_bg(l, ids, 3);
@@ -209,8 +210,8 @@ int main(int argc, char **argv) {
     printf("host : GPU completion after the submission side finished, per frame: median %.3f ms, p99 %.3f ms, max %.3f ms (%zu frames, work-done failures %d)\n", gmed, gp99, gmax, gt.size(), g_qwork_bad);
     bool ts_ok = true;
     if (g_ts && g_qn) {
-        const uint64_t *tsv = nullptr; if (!map_read(g_qread, (uint64_t)kMaxQ * 8, (const void **)&tsv)) { puts("host : timestamp readback failed"); ts_ok = false; }
-        else { std::vector<double> pass_us; int inverted = 0, zero = 0; for (uint32_t i = 0; i + 1 < g_qn; i += 2) { if (tsv[i] == 0 && tsv[i + 1] == 0) { zero++; continue; } if (tsv[i + 1] < tsv[i]) { inverted++; continue; } pass_us.push_back((double)(tsv[i + 1] - tsv[i]) / 1e3); }
+        const uint64_t *tsv = nullptr; if (!map_read(g_qread, kQBytes, (const void **)&tsv)) { puts("host : timestamp readback failed"); ts_ok = false; }
+        else { std::vector<double> pass_us; int inverted = 0, zero = 0; for (const QSeg &sg : g_qsegs) for (uint32_t i = 0; i + 1 < sg.count; i += 2) { const uint64_t a = tsv[sg.off / 8 + i], b = tsv[sg.off / 8 + i + 1]; if (a == 0 && b == 0) { zero++; continue; } if (b < a) { inverted++; continue; } pass_us.push_back((double)(b - a) / 1e3); }
             std::sort(pass_us.begin(), pass_us.end()); double tot = 0; for (double v : pass_us) tot += v;
             if (pass_us.empty()) { printf("host : GPU timestamps: %u passes written, none usable (%d zero, %d inverted)\n", g_qn / 2, zero, inverted); ts_ok = false; }
             else printf("host : GPU timestamps: %zu passes, per pass median %.1f us, p99 %.1f us, max %.1f us, total GPU pass time %.2f ms over %d frames (%d zero, %d inverted)\n", pass_us.size(), pass_us[pass_us.size() / 2], pass_us[(size_t)(pass_us.size() * 0.99)], pass_us.back(), tot / 1e3, frames, zero, inverted);

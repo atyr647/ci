@@ -24,6 +24,8 @@ int main(int argc, char **argv) {
     printf("audio_test: producer pacing: %d of %d frames started more than 1 ms late, worst %.2f ms\n", late, frames, maxlate);
     bool ok = out.integrity() && out.st.opened;
     if (stall) { bool seen = out.st.underruns >= 1 && out.st.silence > 0; printf("audio_test: the 200 ms stall was %s by the counters (%llu under-run(s), %llu frames of silence)\n", seen ? "seen" : "NOT SEEN", (unsigned long long)out.st.underruns, (unsigned long long)out.st.silence); ok = ok && seen; }
+    bool wanted_device = !strcmp(mode, "device"), got_device = out.st.backend.rfind("timed", 0) != 0;
+    if (ok && wanted_device && !got_device) { printf("RESULT NO-DEVICE audio the ring and the producer ran against the software clock; this machine has no usable sound device, so the device path was not tested\n"); return 0; }
     printf("RESULT %s audio backend=%s underruns=%llu silence=%llu\n", ok ? "PASS" : "FAIL", out.st.backend.c_str(), (unsigned long long)out.st.underruns, (unsigned long long)out.st.silence);
     return ok ? 0 : 1;
 }
