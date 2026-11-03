@@ -12,10 +12,10 @@ jobs:
       - uses: actions/checkout@v4
       - run: |
           set +e; cc -O1 game/policy/mac_jit_test.c -o t_unsigned; echo "=== unsigned"; ./t_unsigned
-          cp t_unsigned t_runtime; codesign --force -s - -o runtime t_runtime; echo "=== ad hoc signed, hardened runtime"; ./t_runtime
+          cp t_unsigned t_runtime; codesign --force -s - -o runtime t_runtime; echo "=== ad hoc signed, hardened runtime"; codesign -dvv t_runtime 2>&1 | grep -E "flags|Signature|Authority"; ./t_runtime
           for ent in com.apple.security.cs.allow-jit com.apple.security.cs.allow-unsigned-executable-memory; do
             printf '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>%s</key><true/></dict></plist>' $ent > e.plist
-            cp t_unsigned t_ent; codesign --force -s - -o runtime --entitlements e.plist t_ent; echo "=== hardened runtime + $ent"; ./t_ent
+            cp t_unsigned t_ent; codesign --force -s - -o runtime --entitlements e.plist t_ent; echo "=== hardened runtime + $ent"; codesign -dvv t_ent 2>&1 | grep -E "flags"; ./t_ent
           done
   windows:
     runs-on: windows-latest
@@ -28,4 +28,7 @@ jobs:
           echo "=== without the policy"; ./acg_test.exe probe
           echo "=== with arbitrary code guard on from the first instruction"; ./acg_test.exe probe-acg
           gh run download ${{ inputs.game_run }} -R ${{ github.repository }} -n game -D g; cp g/game.com g/game.exe
+          gh run download 41615944068 -R ${{ github.repository }} -n modules -D m; cp m/pad_test.com m/pad_test.exe
+          echo "=== a trivial Cosmopolitan program (the gamepad test) without the policy"; ./m/pad_test.exe --seconds=0.2 --allow-none 2>&1 | tr '\r' '\n' | grep -vE "^Warning|^$" | head -5
+          echo "=== the same program under arbitrary code guard"; ./acg_test.exe run "$PWD/m/pad_test.exe" --seconds=0.2 --allow-none 2>&1 | tr '\r' '\n' | grep -vE "^Warning|^$" | head -8
           echo "=== the game file under arbitrary code guard"; ./acg_test.exe run "$PWD/g/game.exe" 2>&1 | tr '\r' '\n' | grep -vE "^Warning|^$" | head -30
