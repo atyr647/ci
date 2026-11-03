@@ -435,3 +435,20 @@ if os.environ.get('DAWN_COSMO_METAL') == '1':
         # the last #include of Instance.cpp sits inside a conditional (perfetto), so the C library headers go before the namespace instead
         s = s.replace('namespace dawn::native {\n', '#include <cstdio>\n#include <cstdlib>\n\nnamespace dawn::native {\n', 1)
         open(p, 'w').write(s); print('patched: Instance.cpp COSMO-PATCH-METAL')
+
+# Surfaces for presentation (swapchain). Dawn accepts a Windows HWND only when DAWN_PLATFORM_IS(WIN32) and a CAMetalLayer only when its Metal backend macro is defined; neither holds in the Cosmopolitan build (one compiler
+# driver for every OS), so ValidateSurfaceDescriptor refused both descriptors. The D3D12 swapchain code (CreateSwapChainForHwnd, through COM) and the Metal one (SwapChainMTL.mm, in the Metal objects) are compiled already.
+def surface_cosmo(s):
+    old = '#if defined(DAWN_ENABLE_BACKEND_METAL)\nbool InheritsFromCAMetalLayer(void* obj);\n#endif  // defined(DAWN_ENABLE_BACKEND_METAL)'
+    new = ('#if defined(DAWN_ENABLE_BACKEND_METAL)\nbool InheritsFromCAMetalLayer(void* obj);\n#elif defined(__COSMOPOLITAN__)  // %s\n'
+           'static bool InheritsFromCAMetalLayer(void* obj) { return obj != nullptr; }   // the class check needs Objective-C; the Metal swapchain works with the layer itself\n#endif') % MARK
+    assert old in s; s = s.replace(old, new, 1)
+    old = '#if defined(DAWN_ENABLE_BACKEND_METAL)\n        case wgpu::SType::SurfaceSourceMetalLayer: {\n            auto* subDesc = descriptor.Get<SurfaceSourceMetalLayer>();\n            DAWN_ASSERT(subDesc != nullptr);'
+    new = '#if defined(DAWN_ENABLE_BACKEND_METAL) || defined(__COSMOPOLITAN__)  // %s\n        case wgpu::SType::SurfaceSourceMetalLayer: {\n            auto* subDesc = descriptor.Get<SurfaceSourceMetalLayer>();\n            DAWN_ASSERT(subDesc != nullptr);' % MARK
+    assert old in s; s = s.replace(old, new, 1)
+    s = s.replace('#endif  // defined(DAWN_ENABLE_BACKEND_METAL)\n#if DAWN_PLATFORM_IS(WIN32)\n        case wgpu::SType::SurfaceSourceWindowsHWND: {', '#endif  // defined(DAWN_ENABLE_BACKEND_METAL)\n#if DAWN_PLATFORM_IS(WIN32) || defined(__COSMOPOLITAN__)  // %s\n        case wgpu::SType::SurfaceSourceWindowsHWND: {' % MARK, 1)
+    old = '            DAWN_INVALID_IF(IsWindow(static_cast<HWND>(subDesc->hwnd)) == 0, "Invalid HWND");'
+    new = '#if defined(__COSMOPOLITAN__)\n            DAWN_INVALID_IF(subDesc->hwnd == nullptr, "Invalid HWND");   // (IsWindow is user32; the window belongs to the host program)\n#else\n' + old + '\n#endif'
+    assert old in s; s = s.replace(old, new, 1)
+    return s
+edit('src/dawn/native/Surface.cpp', surface_cosmo)

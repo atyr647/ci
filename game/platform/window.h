@@ -275,7 +275,7 @@ struct Gdi {
     typedef intptr_t (WMS *WndProc)(void *, unsigned, uintptr_t, intptr_t);
     struct WndClassExW { unsigned cbSize, style; WndProc proc; int cls_extra, wnd_extra; void *inst, *icon, *cursor, *brush; const uint16_t *menu, *name; void *icon_sm; };
     struct BmiHeader { unsigned size; int w, h; unsigned short planes, bits; unsigned comp, imgsize; int xppm, yppm; unsigned used, important; };
-    void *u = nullptr, *g = nullptr, *k = nullptr, *hwnd = nullptr; int w = 0, h = 0; std::string note;
+    void *u = nullptr, *g = nullptr, *k = nullptr, *hwnd = nullptr, *hinst = nullptr; int w = 0, h = 0; bool gpu_surface = false; std::string note;
     static std::vector<Event> &events() { static std::vector<Event> e; return e; }
     static intptr_t WMS wndproc(void *hw, unsigned m, uintptr_t wp, intptr_t lp) {
         auto &ev = events();
@@ -292,7 +292,7 @@ struct Gdi {
         typedef int (WMS *AdjustRect)(int *, unsigned, int); typedef int (WMS *Show)(void *, int);
         GetMod getmod = (GetMod)cosmo_dlsym(k, "GetModuleHandleW"); Reg reg = (Reg)cosmo_dlsym(u, "RegisterClassExW"); Create create = (Create)cosmo_dlsym(u, "CreateWindowExW"); AdjustRect adj = (AdjustRect)cosmo_dlsym(u, "AdjustWindowRect"); Show show = (Show)cosmo_dlsym(u, "ShowWindow");
         static const uint16_t cls[] = {'C', 'e', 'l', 'o', 'r', 'i', 'W', 'i', 'n', 0}; std::vector<uint16_t> t; for (const char *c = title; *c; c++) t.push_back((uint8_t)*c); t.push_back(0);
-        WndClassExW wc; memset(&wc, 0, sizeof wc); wc.cbSize = sizeof wc; wc.proc = wndproc; wc.inst = getmod(nullptr); wc.name = cls; if (!reg(&wc)) { n = "RegisterClassExW failed"; return false; }
+        WndClassExW wc; memset(&wc, 0, sizeof wc); wc.cbSize = sizeof wc; wc.proc = wndproc; wc.inst = getmod(nullptr); hinst = wc.inst; wc.name = cls; if (!reg(&wc)) { n = "RegisterClassExW failed"; return false; }
         const unsigned style = 0x00CA0000u /*WS_CAPTION|WS_SYSMENU|WS_MINIMIZEBOX*/; int rc[4] = {0, 0, width, height}; adj(rc, style, 0);
         hwnd = create(0, cls, t.data(), style, 100, 100, rc[2] - rc[0], rc[3] - rc[1], nullptr, nullptr, wc.inst, nullptr); if (!hwnd) { n = "CreateWindowExW failed"; return false; }
         show(hwnd, 5); typedef int (WMS *Upd)(void *); ((Upd)cosmo_dlsym(u, "UpdateWindow"))(hwnd); typedef int (WMS *SetFg)(void *); ((SetFg)cosmo_dlsym(u, "SetForegroundWindow"))(hwnd); w = width; h = height; pump();
@@ -310,7 +310,7 @@ struct Gdi {
         mismatch = -1; typedef void *(WMS *GetDC)(void *); typedef int (WMS *RelDC)(void *, void *); typedef void *(WMS *CCDC)(void *); typedef void *(WMS *CDIB)(void *, const BmiHeader *, unsigned, void **, void *, unsigned); typedef void *(WMS *Sel)(void *, void *); typedef int (WMS *Blt)(void *, int, int, int, int, void *, int, int, unsigned); typedef int (WMS *Del)(void *);
         GetDC getdc = (GetDC)cosmo_dlsym(u, "GetDC"); RelDC reldc = (RelDC)cosmo_dlsym(u, "ReleaseDC"); CCDC ccdc = (CCDC)cosmo_dlsym(g, "CreateCompatibleDC"); CDIB cdib = (CDIB)cosmo_dlsym(g, "CreateDIBSection"); Sel sel = (Sel)cosmo_dlsym(g, "SelectObject"); Blt blt = (Blt)cosmo_dlsym(g, "BitBlt"); Del delo = (Del)cosmo_dlsym(g, "DeleteObject"); Del deldc = (Del)cosmo_dlsym(g, "DeleteDC");
         void *dc = getdc(hwnd), *mem = ccdc(dc); BmiHeader bi; memset(&bi, 0, sizeof bi); bi.size = sizeof bi; bi.w = fw; bi.h = -fh; bi.planes = 1; bi.bits = 32; void *bits = nullptr; void *bmp = cdib(dc, &bi, 0, &bits, nullptr, 0); if (!bmp || !bits) { reldc(hwnd, dc); return false; }
-        void *old = sel(mem, bmp); int ok = blt(mem, 0, 0, fw, fh, dc, 0, 0, 0x00CC0020 /*SRCCOPY*/); mismatch = 0; const uint8_t *q = (const uint8_t *)bits;
+        void *old = sel(mem, bmp); int ok; if (gpu_surface) { typedef int (WMS *PW)(void *, void *, unsigned); ok = ((PW)cosmo_dlsym(u, "PrintWindow"))(hwnd, mem, 2 /*PW_RENDERFULLCONTENT: what the desktop compositor shows, including a swapchain*/); } else ok = blt(mem, 0, 0, fw, fh, dc, 0, 0, 0x00CC0020 /*SRCCOPY*/); mismatch = 0; const uint8_t *q = (const uint8_t *)bits;
         if (ok) for (int i = 0; i < fw * fh; i++) { if (q[4 * i] != rgba[4 * i + 2] || q[4 * i + 1] != rgba[4 * i + 1] || q[4 * i + 2] != rgba[4 * i]) mismatch++; }
         sel(mem, old); delo(bmp); deldc(mem); reldc(hwnd, dc); return ok != 0;
     }
@@ -319,18 +319,29 @@ struct Gdi {
     std::string inject() {
         typedef int (WMS *SetCur)(int, int); typedef unsigned (WMS *SendIn)(unsigned, const void *, int); typedef int (WMS *Post)(void *, unsigned, uintptr_t, intptr_t); typedef int (WMS *Cl2Sc)(void *, int *);
         SetCur setcur = (SetCur)cosmo_dlsym(u, "SetCursorPos"); SendIn sendin = (SendIn)cosmo_dlsym(u, "SendInput"); Post post = (Post)cosmo_dlsym(u, "PostMessageW"); Cl2Sc c2s = (Cl2Sc)cosmo_dlsym(u, "ClientToScreen");
-        typedef void *(WMS *GetFg)(void); typedef int (WMS *AllowFg)(unsigned);
+        typedef void *(WMS *GetFg)(void); typedef int (WMS *AllowFg)(unsigned); typedef int (WMS *SetFgW)(void *);
         int pt[2] = {0, 0}; c2s(hwnd, pt);
         // a window only gets keys from the system queue when it is the foreground window; a program may take the foreground only in some situations, a real click on the window always gives it
         ((AllowFg)cosmo_dlsym(u, "AllowSetForegroundWindow"))(0xFFFFFFFFu); setcur(pt[0] + 120, pt[1] + 120); win::wsleep_ms(30);
         { uint8_t in[40]; memset(in, 0, sizeof in); *(unsigned *)in = 0; *(unsigned *)(in + 20) = 0x2; sendin(1, in, 40); *(unsigned *)(in + 20) = 0x4; sendin(1, in, 40); }   // left button down, up
         win::wsleep_ms(50); pump(); bool fg = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))() == hwnd;
+        std::string fgnote;
+        if (!fg) {   // other ways to take the foreground, one after the other, each checked: keybd_event(ALT) lifts the foreground lock, SwitchToThisWindow, SetWindowPos topmost, attaching to the foreground thread's input
+            typedef void (WMS *KbEvent)(unsigned char, unsigned char, unsigned, uintptr_t); typedef void (WMS *SwitchTo)(void *, int); typedef int (WMS *SetPos)(void *, void *, int, int, int, int, unsigned); typedef int (WMS *BringTop)(void *);
+            typedef int (WMS *GetCls)(void *, uint16_t *, int); typedef unsigned (WMS *GetTid)(void *, unsigned *); typedef int (WMS *Attach)(unsigned, unsigned, int); typedef unsigned (WMS *CurTid)(void); typedef int (WMS *Iconic)(void *); typedef int (WMS *Visible)(void *);
+            void *fgw = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))(); uint16_t cls[64] = {}; if (fgw) ((GetCls)cosmo_dlsym(u, "GetClassNameW"))(fgw, cls, 63); char c8[64]; for (int i = 0; i < 64; i++) c8[i] = (char)cls[i]; c8[63] = 0;
+            fgnote = std::string("foreground window is ") + (fgw ? (std::string("class \"") + c8 + "\"") : "none") + ", ours " + (((Visible)cosmo_dlsym(u, "IsWindowVisible"))(hwnd) ? "visible" : "not visible") + (((Iconic)cosmo_dlsym(u, "IsIconic"))(hwnd) ? ", minimised" : "") + "; ";
+            ((KbEvent)cosmo_dlsym(u, "keybd_event"))(0x12, 0, 0, 0); ((KbEvent)cosmo_dlsym(u, "keybd_event"))(0x12, 0, 2, 0);
+            ((BringTop)cosmo_dlsym(u, "BringWindowToTop"))(hwnd); ((SwitchTo)cosmo_dlsym(u, "SwitchToThisWindow"))(hwnd, 1); ((SetPos)cosmo_dlsym(u, "SetWindowPos"))(hwnd, (void *)(intptr_t)-1 /*HWND_TOPMOST*/, 0, 0, 0, 0, 0x3 /*NOSIZE|NOMOVE*/);
+            win::wsleep_ms(100); pump(); fg = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))() == hwnd; fgnote += fg ? "taken with the ALT/SwitchToThisWindow/topmost sequence; " : "still not the foreground after ALT, SwitchToThisWindow and topmost; ";
+            if (!fg && fgw) { unsigned pid; unsigned ft = ((GetTid)cosmo_dlsym(u, "GetWindowThreadProcessId"))(fgw, &pid), me = ((CurTid)cosmo_dlsym(k, "GetCurrentThreadId"))(); if (((Attach)cosmo_dlsym(u, "AttachThreadInput"))(me, ft, 1)) { ((SetFgW)cosmo_dlsym(u, "SetForegroundWindow"))(hwnd); win::wsleep_ms(100); pump(); fg = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))() == hwnd; ((Attach)cosmo_dlsym(u, "AttachThreadInput"))(me, ft, 0); fgnote += fg ? "taken by attaching to the foreground thread's input; " : "still not the foreground after attaching to the foreground thread; "; } else fgnote += "AttachThreadInput refused; "; }
+        }
         setcur(pt[0] + 50, pt[1] + 60); win::wsleep_ms(50); pump();
         auto key = [&](unsigned short vk, bool down) { uint8_t in[40]; memset(in, 0, sizeof in); *(unsigned *)in = 1; *(unsigned short *)(in + 8) = vk; *(unsigned *)(in + 12) = down ? 0 : 2; return sendin(1, in, 40); };
         unsigned sent = 0; for (unsigned short vk : {(unsigned short)'A', (unsigned short)0x27, (unsigned short)0x20}) { sent += key(vk, true); sent += key(vk, false); win::wsleep_ms(30); pump(); }
         pump(); bool got = !events().empty() && std::any_of(events().begin(), events().end(), [](const Event &e) { return e.type == EV_KEY_DOWN; });
         if (!got) { post(hwnd, 0x200, 0, (50 & 0xFFFF) | (60 << 16)); for (uintptr_t vk : {(uintptr_t)'A', (uintptr_t)0x27, (uintptr_t)0x20}) { post(hwnd, 0x100, vk, 0); post(hwnd, 0x101, vk, 0); } pump(); }
-        return std::string(fg ? "the window is the foreground window; " : "the window is NOT the foreground window; ") + "SendInput accepted " + std::to_string(sent) + " events; " + (got ? "they arrived through the system queue" : "they did not arrive (foreground window?), posted window messages were used instead");
+        return fgnote + std::string(fg ? "the window is the foreground window; " : "the window is NOT the foreground window; ") + "SendInput accepted " + std::to_string(sent) + " events; " + (got ? "they arrived through the system queue" : "they did not arrive (foreground window?), posted window messages were used instead");
     }
     void close() { if (hwnd) { typedef int (WMS *Dw)(void *); ((Dw)cosmo_dlsym(u, "DestroyWindow"))(hwnd); hwnd = nullptr; } }
 };
@@ -343,7 +354,9 @@ struct Cocoa {
     void *rt = nullptr, *cg = nullptr, *msg = nullptr; SEL (*selreg)(const char *) = nullptr; id (*getclass)(const char *) = nullptr; id app = nullptr, win = nullptr, view = nullptr; int w = 0, h = 0; std::string note;
     void *(*cs_create)() = nullptr; void *(*dp_create)(void *, const void *, size_t, void *) = nullptr; void *(*img_create)(size_t, size_t, size_t, size_t, size_t, void *, unsigned, void *, const double *, signed char, int) = nullptr; void (*img_release)(void *) = nullptr;
     void *(*win_image)(Rc, unsigned, unsigned, unsigned) = nullptr; size_t (*img_w)(void *) = nullptr, (*img_h)(void *) = nullptr, (*img_bpr)(void *) = nullptr; void *(*img_provider)(void *) = nullptr; void *(*prov_copy)(void *) = nullptr; const uint8_t *(*cfdata_ptr)(void *) = nullptr; long (*cfdata_len)(void *) = nullptr; void (*cf_release)(void *) = nullptr;
-    void *space = nullptr; std::vector<Event> pend; std::string why, verify_note; int seen_types[32] = {};
+    void *space = nullptr; std::vector<Event> pend; std::string why, verify_note; id mlayer = nullptr;
+    // a CAMetalLayer as the layer of the content view: what Dawn's Metal swapchain draws into (the CGImage path is then not used)
+    void *make_metal_layer() { void *qc = cosmo_dlopen("/System/Library/Frameworks/QuartzCore.framework/QuartzCore", RTLD_NOW); id cls = getclass("CAMetalLayer"); if (!qc || !cls) { why = "CAMetalLayer not available"; return nullptr; } mlayer = call<id>(cls, "layer"); if (!mlayer) return nullptr; call<void, id>(view, "setLayer:", mlayer); call<void, signed char>(view, "setWantsLayer:", 1); pump(); return mlayer; } int seen_types[32] = {};
     template <class R, class... A> R call(id o, const char *s, A... a) { return ((R (*)(id, SEL, A...))msg)(o, selreg(s), a...); }
     bool open(int width, int height, const char *title, std::string &n) {
         rt = cosmo_dlopen("/usr/lib/libobjc.A.dylib", RTLD_NOW); void *ak = cosmo_dlopen("/System/Library/Frameworks/AppKit.framework/AppKit", RTLD_NOW); cg = cosmo_dlopen("/System/Library/Frameworks/CoreGraphics.framework/CoreGraphics", RTLD_NOW);
@@ -443,6 +456,22 @@ public:
         if (use_ == 2) return c_.verify(rgba, w, h, mismatch);
 #endif
         if (use_ == 3) { mismatch = -1; return false; } return x_.verify(rgba, w, h, mismatch);
+    }
+    // native handles for a GPU swapchain (Dawn surfaces): the HWND and instance on Windows; on macOS a CAMetalLayer made the content view's layer. Null elsewhere.
+    void *native_window() {
+#if defined(__x86_64__)
+        if (use_ == 1) { g_.gpu_surface = true; return g_.hwnd; }
+#endif
+#ifdef __aarch64__
+        if (use_ == 2) return c_.make_metal_layer();
+#endif
+        return nullptr;
+    }
+    void *native_instance() {
+#if defined(__x86_64__)
+        if (use_ == 1) return g_.hinst;
+#endif
+        return nullptr;
     }
     // test input where the program itself can supply it (Windows, macOS); empty on Linux, where the harness types and moves the pointer from outside
     std::string inject() {
