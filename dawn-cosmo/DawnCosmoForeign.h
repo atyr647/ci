@@ -74,6 +74,7 @@ struct DawnCosmoForeignScope {
 #include <time.h>
 #include <unistd.h>
 int gDawnCosmoFsgsbase = 0;
+extern "C" int madvise(void*, unsigned long, int);   // (declared by Cosmopolitan's headers only under _COSMO_SOURCE, which the clang driver wrapper does not define)
 namespace {
 constexpr int kPool = 64;
 unsigned long gPool[kPool];
