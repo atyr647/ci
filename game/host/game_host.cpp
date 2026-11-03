@@ -331,6 +331,7 @@ int main(int argc, char **argv) {
         if (win_on) {   // show the frame, then take what the window and the pads produced for the next frame
             auto tp = Clock::now(); std::vector<uint8_t> rgba;
             if (swap_on) {
+                if (getenv("GAME_SWAP_TRACE") && (f % 10 == 0 || f == frames - 1)) { std::vector<uint8_t> tr; if (read_target_host(g_last_target, tr)) { int g = 0, r = 0; for (size_t i = 0; i + 3 < tr.size(); i += 4) { if (tr[i + 1] > 200 && tr[i] < 60 && tr[i + 2] < 60) g++; if (tr[i] > 200 && tr[i + 1] < 60 && tr[i + 2] < 60) r++; } printf("host : trace frame %d before present: %d green-dominant, %d red-dominant\n", f, g, r); } }
                 std::vector<uint8_t> shown; const bool last = f == frames - 1; if (!swap.present(g_last_target, last ? &shown : nullptr)) present_fail++;
                 if (last && read_target_host(g_last_target, rgba)) {
                     { int g = 0, r = 0; for (size_t i = 0; i + 3 < rgba.size(); i += 4) { if (rgba[i + 1] > 200 && rgba[i] < 60 && rgba[i + 2] < 60) g++; if (rgba[i] > 200 && rgba[i + 1] < 60 && rgba[i + 2] < 60) r++; } printf("host : rendered target after the last present (host read-back): %d green-dominant, %d red-dominant pixels\n", g, r); }

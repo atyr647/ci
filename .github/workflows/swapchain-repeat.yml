@@ -17,10 +17,16 @@ jobs:
     env: { GH_TOKEN: '${{ github.token }}', WGT_BACKEND: '${{ matrix.backend }}' }
     steps:
       - run: gh run download ${{ inputs.game_run }} -R ${{ github.repository }} -n game -D g && cp g/game.com g/game.exe
+      - name: Window size sweep with a trace of the rendered target (green-dominant pixels in the 256x256 target, before each present)
+        run: |
+          set +e
+          for sz in 256x256 512x512 640x480 1024x768 1280x720 1600x900 1920x1080 2560x1440; do
+            echo "=== --swapchain --window=$sz"; ( GAME_SWAP_TRACE=1 ./g/game.exe --swapchain --window=$sz 2>&1 | cat ) | tr '\r' '\n' | grep -E "trace frame (0|10|50|110|119) |rendered target|guest: (green_px|fails)|RESULT" | cut -c1-200
+          done
       - name: Repeats
         run: |
           set +e
           run() { ( ./g/game.exe "$@" 2>&1 | cat ) | tr '\r' '\n' | grep -E "guest: (green_px|fails)|RESULT" | tr '\n' ' '; echo; }
           for mode in "--swapchain --window=1920x1080" "--swapchain --window=256x256" "--present" ""; do
-            echo "=== args: ${mode:-<none>}"; for i in 1 2 3 4 5 6; do run $mode; done
+            echo "=== args: ${mode:-<none>}"; for i in 1 2 3; do run $mode; done
           done
