@@ -20,6 +20,8 @@
 #include "win_shield.h"
 #define AUDIO_FOREIGN 1   // the audio thread may call libasound; the loader machinery comes with the Dawn library
 #include "audio_out.h"
+#include "window.h"
+#include "gamepad.h"
 #include <webgpu/webgpu.h>
 extern "C" void DawnCosmoGpuThreadEnter();
 extern "C" __attribute__((weak)) int vk_icdNegotiateLoaderICDInterfaceVersion(unsigned int *);   // present when the software driver is linked into this file
@@ -55,7 +57,7 @@ static bool pump(double limit_ms = 30000) { auto t = Clock::now(); while (!g_don
 struct Buf { WGPUBuffer b; uint64_t size; };
 struct Target { WGPUTexture tex; WGPUTextureView view; int w, h; };
 static std::vector<WGPUShaderModule> g_shaders; static std::vector<Buf> g_bufs; static std::vector<WGPUComputePipeline> g_cpipes; static std::vector<WGPURenderPipeline> g_rpipes; static std::vector<Target> g_targets;
-static WGPUCommandEncoder g_enc; static uint64_t g_submits, g_dispatches, g_draws;
+static int g_last_target = -1; static WGPUCommandEncoder g_enc; static uint64_t g_submits, g_dispatches, g_draws;
 // GPU timestamp queries (when the adapter has the feature): every compute and render pass writes its start and end; they are resolved at the end of each submission and read once at the end of the run
 static const uint32_t kMaxQ = 2048; static const uint64_t kQBytes = 256ull * (kMaxQ / 2);   // (a resolve destination must sit at a multiple of 256 bytes: every submission gets its own 256-byte aligned slot, at most kMaxQ/2 submissions)
 static bool g_ts; static WGPUQuerySet g_qs; static WGPUBuffer g_qres, g_qread; static uint32_t g_qn, g_qresolved; static int g_qwork_bad; struct QSeg { uint32_t first, count; uint64_t off; }; static std::vector<QSeg> g_qsegs; static uint64_t g_qoff;
@@ -122,7 +124,7 @@ CB(gpu_dispatch) { uint32_t p = (uint32_t)a[0]; int ids[3] = {(int)a[1], (int)a[
     WGPUComputePassDescriptor pd = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT; WGPUPassTimestampWrites tw = WGPU_PASS_TIMESTAMP_WRITES_INIT; if (take_ts(&tw)) pd.timestampWrites = &tw; WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(g_enc, &pd);
     wgpuComputePassEncoderSetPipeline(pass, g_cpipes[p]); wgpuComputePassEncoderSetBindGroup(pass, 0, bg, 0, nullptr); wgpuComputePassEncoderDispatchWorkgroups(pass, groups, 1, 1); wgpuComputePassEncoderEnd(pass);
     wgpuComputePassEncoderRelease(pass); wgpuBindGroupRelease(bg); wgpuBindGroupLayoutRelease(l); g_dispatches++; return 0; }
-CB(gpu_draw) { uint32_t p = (uint32_t)a[0]; int ids[3] = {(int)a[1], (int)a[2], -1}; uint32_t t = (uint32_t)a[3], verts = (uint32_t)a[4], inst = (uint32_t)a[5], clear = (uint32_t)a[6]; if (p >= g_rpipes.size() || t >= g_targets.size() || !g_enc) return 1;
+CB(gpu_draw) { g_last_target = (int)a[3]; uint32_t p = (uint32_t)a[0]; int ids[3] = {(int)a[1], (int)a[2], -1}; uint32_t t = (uint32_t)a[3], verts = (uint32_t)a[4], inst = (uint32_t)a[5], clear = (uint32_t)a[6]; if (p >= g_rpipes.size() || t >= g_targets.size() || !g_enc) return 1;
     WGPUBindGroupLayout l = wgpuRenderPipelineGetBindGroupLayout(g_rpipes[p], 0); WGPUBindGroup bg = make_bg(l, ids, 3);
     WGPURenderPassColorAttachment ca = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT; ca.view = g_targets[t].view; ca.loadOp = WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
     ca.clearValue = {(clear & 255) / 255.0, ((clear >> 8) & 255) / 255.0, ((clear >> 16) & 255) / 255.0, ((clear >> 24) & 255) / 255.0};
@@ -147,6 +149,18 @@ CB(gpu_read_target) { uint32_t t = (uint32_t)a[0], p = (uint32_t)a[1], n = (uint
     WGPUCommandBufferDescriptor cd = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT; WGPUCommandBuffer cb = wgpuCommandEncoderFinish(e, &cd); wgpuQueueSubmit(g_queue, 1, &cb); wgpuCommandBufferRelease(cb); wgpuCommandEncoderRelease(e);
     const uint8_t *m = nullptr; int rc = 1; if (map_read(st, d.size, (const void **)&m)) { for (int y = 0; y < T.h; y++) memcpy(mem + p + (size_t)y * T.w * 4, m + (size_t)y * bpr, (size_t)T.w * 4); rc = 0; } wgpuBufferUnmap(st); wgpuBufferRelease(st); return rc; }
 
+
+// the last rendered target as 4 bytes per pixel (R,G,B,A), top row first, for the window
+static bool read_target_host(int t, std::vector<uint8_t> &out) {
+    if (t < 0 || t >= (int)g_targets.size()) return false; const Target &T = g_targets[t]; uint32_t bpr = ((uint32_t)T.w * 4 + 255) & ~255u;
+    WGPUBufferDescriptor d = WGPU_BUFFER_DESCRIPTOR_INIT; d.size = (uint64_t)bpr * T.h; d.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst; WGPUBuffer st = wgpuDeviceCreateBuffer(g_device, &d);
+    WGPUCommandEncoderDescriptor ed = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT; WGPUCommandEncoder e = wgpuDeviceCreateCommandEncoder(g_device, &ed);
+    WGPUTexelCopyTextureInfo src = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT; src.texture = T.tex; WGPUTexelCopyBufferInfo dst = WGPU_TEXEL_COPY_BUFFER_INFO_INIT; dst.buffer = st; dst.layout.bytesPerRow = bpr; dst.layout.rowsPerImage = (uint32_t)T.h;
+    WGPUExtent3D ext = {(uint32_t)T.w, (uint32_t)T.h, 1}; wgpuCommandEncoderCopyTextureToBuffer(e, &src, &dst, &ext);
+    WGPUCommandBufferDescriptor cd = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT; WGPUCommandBuffer cb = wgpuCommandEncoderFinish(e, &cd); wgpuQueueSubmit(g_queue, 1, &cb); wgpuCommandBufferRelease(cb); wgpuCommandEncoderRelease(e);
+    const uint8_t *m = nullptr; bool ok = map_read(st, d.size, (const void **)&m); if (ok) { out.resize((size_t)T.w * T.h * 4); for (int y = 0; y < T.h; y++) memcpy(&out[(size_t)y * T.w * 4], m + (size_t)y * bpr, (size_t)T.w * 4); }
+    wgpuBufferUnmap(st); wgpuBufferRelease(st); return ok;
+}
 // ---------------------------------------------------------------- input and audio
 struct Ev { uint32_t type, a, b, frame; };
 static std::vector<Ev> g_queue_in; static size_t g_qhead;
@@ -215,6 +229,7 @@ int main(int argc, char **argv) {
     DawnCosmoForeignInit(); DawnCosmoGpuThreadEnter();
     int frames = 120; const char *cw = getenv("GAME_CWASM"); bool force_pulley = getenv("GAME_PULLEY") != nullptr;
     for (int i = 1; i < argc; i++) { if (!strncmp(argv[i], "--frames=", 9)) frames = atoi(argv[i] + 9); else if (!strncmp(argv[i], "--cwasm=", 8)) cw = argv[i] + 8; else if (!strcmp(argv[i], "--pulley")) force_pulley = true; }
+    bool present = getenv("GAME_PRESENT") != nullptr, use_pad = getenv("GAME_GAMEPAD") != nullptr; for (int i = 1; i < argc; i++) { if (!strcmp(argv[i], "--present")) present = true; else if (!strcmp(argv[i], "--gamepad")) use_pad = true; }
     const bool pulley = force_pulley || !exec_ok;
     if (!exec_ok) printf("host : this system refuses executable memory that was written first (a write-xor-execute policy): the wasm runs on the Pulley interpreter and the in-file software GPU driver is not used\n");
     else if (force_pulley) puts("host : Pulley interpreter requested");
@@ -232,6 +247,9 @@ int main(int argc, char **argv) {
     } printf("host : GPU ready in %.1f ms\n", ms_since(t0));
     if (const char *pk = getenv("GAME_PREFAULT_KB")) { double ms = prefault_driver_heap(atol(pk)); printf("host : pre-faulted %s KiB of the driver's heap in %.2f ms\n", pk, ms); }
     if (const char *bn = getenv("GAME_BURST")) { burst(atoi(bn)); return 0; }
+    win::Window window; bool win_on = false; pad::Gamepads pads; bool pad_on = false; std::vector<double> pres_ms; int present_fail = 0, verify_mismatch = -2; bool verify_ok = false;
+    if (present) { win_on = window.open(256, 256, "celori"); printf("host : window [%s]: %s\n", window.backend.c_str(), window.note.c_str()); if (!win_on) { puts("FAIL window"); return 12; } }
+    if (use_pad) { pad_on = pads.init(); printf("host : gamepads [%s]: %s\n", pads.backend.c_str(), pads.note.c_str()); }
     WnEngine *e = wn_engine_new(pulley ? 2 : 0); if (!e) { puts("FAIL engine"); return 3; }
     int rc = 0;
 #define D(n, sg, cb) rc |= wn_engine_define(e, "celori", n, sg, cb, 0)
@@ -259,6 +277,19 @@ int main(int argc, char **argv) {
         // then wait for the GPU to finish this frame's work: the time from the end of the submission side to completion (what a game that must not run ahead of the GPU would wait)
         { auto tw = Clock::now(); g_done = 0; WGPUQueueWorkDoneCallbackInfo wi = WGPU_QUEUE_WORK_DONE_CALLBACK_INFO_INIT; wi.mode = WGPUCallbackMode_AllowProcessEvents; wi.callback = on_work_done;
           wgpuQueueOnSubmittedWorkDone(g_queue, wi); if (!pump()) { printf("FAIL frame %d: work-done callback never came\n", f); return 10; } gt.push_back(ms_since(tw)); }
+        if (win_on) {   // show the frame, then take what the window and the pads produced for the next frame
+            auto tp = Clock::now(); std::vector<uint8_t> rgba;
+            if (read_target_host(g_last_target, rgba)) { if (!window.present(rgba.data(), 256, 256)) present_fail++; if (f == frames - 1) verify_ok = window.verify(rgba.data(), 256, 256, verify_mismatch); } else present_fail++;
+            pres_ms.push_back(ms_since(tp)); std::vector<win::Event> we; window.poll(we);
+            for (auto &x : we) { if (x.type == win::EV_KEY_DOWN) g_queue_in.push_back({EV_KEY_DOWN, (uint32_t)x.a, 0, (uint32_t)f}); else if (x.type == win::EV_KEY_UP) g_queue_in.push_back({EV_KEY_UP, (uint32_t)x.a, 0, (uint32_t)f}); else if (x.type == win::EV_MOUSE) g_queue_in.push_back({EV_MOUSE, (uint32_t)std::max(0, x.a), (uint32_t)std::max(0, x.b), (uint32_t)f}); }
+        }
+        if (pad_on) {   // sticks and the d-pad as the digital keys of the game, button A as fire (XInput conventions, see gamepad.h)
+            static bool kl, kr, ku, kd; std::vector<pad::Event> pe; pads.poll(pe); auto set = [&](bool &k, bool v, uint32_t key) { if (k != v) { k = v; g_queue_in.push_back({v ? (uint32_t)EV_KEY_DOWN : (uint32_t)EV_KEY_UP, key, 0, (uint32_t)f}); } };
+            static int lx, ly; static bool dl, dr, du, dd; for (auto &x : pe) { if (x.type == pad::EV_AXIS && x.index == pad::A_LX) lx = x.value; else if (x.type == pad::EV_AXIS && x.index == pad::A_LY) ly = x.value;
+                else if (x.type == pad::EV_BUTTON && x.index == pad::B_A) g_queue_in.push_back({x.value ? (uint32_t)EV_KEY_DOWN : (uint32_t)EV_KEY_UP, 5, 0, (uint32_t)f});
+                else if (x.type == pad::EV_BUTTON && x.index == pad::B_DLEFT) dl = x.value; else if (x.type == pad::EV_BUTTON && x.index == pad::B_DRIGHT) dr = x.value; else if (x.type == pad::EV_BUTTON && x.index == pad::B_DUP) du = x.value; else if (x.type == pad::EV_BUTTON && x.index == pad::B_DDOWN) dd = x.value; }
+            set(kl, lx < -16000 || dl, 1); set(kr, lx > 16000 || dr, 2); set(ku, ly > 16000 || du, 3); set(kd, ly < -16000 || dd, 4);
+        }
     }
     double loop_ms = ms_since(tl);
     bool aout_ok = true; if (g_aout.st.backend.size() && g_aout.st.backend != "off") { g_aout.finish(); g_aout.report("host"); aout_ok = g_aout.integrity(); if (realtime) printf("host : real-time pacing: %d of %d frames started more than 1 ms after their time, worst %.2f ms\n", late_frames, frames, worst_late); }
@@ -288,7 +319,10 @@ int main(int argc, char **argv) {
     std::sort(ft.begin(), ft.end()); double med = ft[ft.size() / 2], p99 = ft[(size_t)(ft.size() * 0.99)];
     printf("host : %d frames in %.1f ms including the wait for the GPU after each frame (submission-side frame time median %.2f ms, p99 %.2f ms: wasm, GPU encode and submit); submits %llu, dispatches %llu, draws %llu\n", frames, loop_ms, med, p99, (unsigned long long)g_submits, (unsigned long long)g_dispatches, (unsigned long long)g_draws);
     printf("host : audio %llu frames, tone in game frames %d..%d (%d blocks), peak block RMS %.3f -> %s\n", (unsigned long long)g_audio_frames, tone_first, tone_last, tone_blocks, rms_max, audio_ok ? "as scripted" : "WRONG");
-    bool pass = guest_fails == 0 && bad == 0 && g_gpu_errors == 0 && audio_ok && g_qwork_bad == 0 && ts_ok && aout_ok;
+    if (win_on) { std::sort(pres_ms.begin(), pres_ms.end()); printf("host : window: %zu frames presented through [%s], read back and shown in median %.3f ms (p99 %.3f ms), %d failed; read-back of the window after the last frame: %s\n", pres_ms.size(), window.backend.c_str(), pres_ms.empty() ? 0 : pres_ms[pres_ms.size() / 2], pres_ms.empty() ? 0 : pres_ms[(size_t)(pres_ms.size() * 0.99)], present_fail,
+        verify_ok ? (verify_mismatch == 0 ? "exact, 0 pixels differ" : "DIFFERS") : "not possible on this display system"); window.close(); }
+    bool win_ok = !win_on || (present_fail == 0 && (!verify_ok || verify_mismatch == 0));
+    bool pass = win_ok && guest_fails == 0 && bad == 0 && g_gpu_errors == 0 && audio_ok && g_qwork_bad == 0 && ts_ok && aout_ok;
     printf("RESULT %s gameloop frames=%d guest_fails=%d frame_fails=%d gpu_errors=%d audio=%s\n", pass ? "PASS" : "FAIL", frames, guest_fails, bad, g_gpu_errors, audio_ok ? "ok" : "bad");
     fflush(stdout); return pass ? 0 : 1;
 }

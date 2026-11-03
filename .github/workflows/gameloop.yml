@@ -81,6 +81,15 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then cp game.com game.exe; ( ./game.exe 2>&1 | cat ) > out.txt; rc=${PIPESTATUS[0]}; else chmod +x game.com; sh ./game.com > out.txt 2>&1; rc=$?; fi
           tr '\r' '\n' < out.txt | grep -v "^Warning" | head -60; echo "exit status $rc"; ls -la game.wav 2>/dev/null
           grep -q "RESULT PASS" out.txt
+      - name: The frames shown in a window (--present; Linux under Xvfb with the X11 protocol, Windows GDI, macOS AppKit), the window read back after the last frame where the OS allows it
+        env: { WGT_BACKEND: '${{ matrix.backend }}' }
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = Linux ]; then sudo apt-get install -y xvfb >/dev/null 2>&1; xvfb-run -a -s "-screen 0 800x600x24" sh ./game.com --present > out_win.txt 2>&1
+          elif [ "$RUNNER_OS" = Windows ]; then ( ./game.exe --present 2>&1 | cat ) > out_win.txt
+          else sh ./game.com --present > out_win.txt 2>&1; fi
+          tr '\r' '\n' < out_win.txt | grep -E "host : (window|[0-9]+ frames)|RESULT|FAIL"
+          grep -q "RESULT PASS" out_win.txt
       - name: Real-time pacing (60 frames a second) with the audio ring and the game's audio going through it
         env: { WGT_BACKEND: '${{ matrix.backend }}' }
         run: |
