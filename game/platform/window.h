@@ -285,7 +285,7 @@ struct Cocoa {
     typedef void *id; typedef void *SEL; typedef struct { double x, y; } Pt; typedef struct { double x, y, w, h; } Rc;
     void *rt = nullptr, *cg = nullptr, *msg = nullptr; SEL (*selreg)(const char *) = nullptr; id (*getclass)(const char *) = nullptr; id app = nullptr, win = nullptr, view = nullptr; int w = 0, h = 0; std::string note;
     void *(*cs_create)() = nullptr; void *(*dp_create)(void *, const void *, size_t, void *) = nullptr; void *(*img_create)(size_t, size_t, size_t, size_t, size_t, void *, unsigned, void *, const double *, signed char, int) = nullptr; void (*img_release)(void *) = nullptr;
-    void *(*win_image)(Rc, unsigned, unsigned, unsigned) = nullptr; void *(*img_provider)(void *) = nullptr; void *(*prov_copy)(void *) = nullptr; const uint8_t *(*cfdata_ptr)(void *) = nullptr; long (*cfdata_len)(void *) = nullptr; void (*cf_release)(void *) = nullptr;
+    void *(*win_image)(Rc, unsigned, unsigned, unsigned) = nullptr; size_t (*img_w)(void *) = nullptr, (*img_h)(void *) = nullptr, (*img_bpr)(void *) = nullptr; void *(*img_provider)(void *) = nullptr; void *(*prov_copy)(void *) = nullptr; const uint8_t *(*cfdata_ptr)(void *) = nullptr; long (*cfdata_len)(void *) = nullptr; void (*cf_release)(void *) = nullptr;
     void *space = nullptr; std::vector<Event> pend; std::string why, verify_note; int seen_types[32] = {};
     template <class R, class... A> R call(id o, const char *s, A... a) { return ((R (*)(id, SEL, A...))msg)(o, selreg(s), a...); }
     bool open(int width, int height, const char *title, std::string &n) {
@@ -294,7 +294,7 @@ struct Cocoa {
         auto sym = [](void *h, const char *nm) { void *p = h ? cosmo_dlsym(h, nm) : nullptr; return p ? cosmo_dltramp(p) : nullptr; };
         selreg = (decltype(selreg))sym(rt, "sel_registerName"); getclass = (decltype(getclass))sym(rt, "objc_getClass"); msg = sym(rt, "objc_msgSend"); if (!selreg || !getclass || !msg) { n = "objc entry points missing"; return false; }
         cs_create = (decltype(cs_create))sym(cg, "CGColorSpaceCreateDeviceRGB"); dp_create = (decltype(dp_create))sym(cg, "CGDataProviderCreateWithData"); img_create = (decltype(img_create))sym(cg, "CGImageCreate"); img_release = (decltype(img_release))sym(cg, "CGImageRelease");
-        win_image = (decltype(win_image))sym(cg, "CGWindowListCreateImage"); img_provider = (decltype(img_provider))sym(cg, "CGImageGetDataProvider"); prov_copy = (decltype(prov_copy))sym(cg, "CGDataProviderCopyData");
+        win_image = (decltype(win_image))sym(cg, "CGWindowListCreateImage"); img_w = (decltype(img_w))sym(cg, "CGImageGetWidth"); img_h = (decltype(img_h))sym(cg, "CGImageGetHeight"); img_bpr = (decltype(img_bpr))sym(cg, "CGImageGetBytesPerRow"); img_provider = (decltype(img_provider))sym(cg, "CGImageGetDataProvider"); prov_copy = (decltype(prov_copy))sym(cg, "CGDataProviderCopyData");
         void *cf = cosmo_dlopen("/System/Library/Frameworks/CoreFoundation.framework/CoreFoundation", RTLD_NOW); cfdata_ptr = (decltype(cfdata_ptr))sym(cf, "CFDataGetBytePtr"); cfdata_len = (decltype(cfdata_len))sym(cf, "CFDataGetLength"); cf_release = (decltype(cf_release))sym(cf, "CFRelease");
         if (!cs_create || !dp_create || !img_create) { n = "CoreGraphics entry points missing"; return false; }
         id NSApp = getclass("NSApplication"), NSWindow = getclass("NSWindow"), NSString = getclass("NSString"); app = call<id>(NSApp, "sharedApplication"); call<long, long>(app, "setActivationPolicy:", 0);
@@ -307,7 +307,7 @@ struct Cocoa {
         id past = call<id>(getclass("NSDate"), "distantPast"); id mode = call<id, const char *>(getclass("NSString"), "stringWithUTF8String:", "kCFRunLoopDefaultMode");
         for (int i = 0; i < 100; i++) { id ev = call<id, unsigned long, id, id, signed char>(app, "nextEventMatchingMask:untilDate:inMode:dequeue:", ~0ul, past, mode, 1); if (!ev) break;
             unsigned long t = call<unsigned long>(ev, "type"); if (t < 32) seen_types[t]++; auto key = [](unsigned short c) { switch (c) { case 0: case 123: return 1; case 2: case 124: return 2; case 13: case 126: return 3; case 1: case 125: return 4; case 49: return 5; default: return 0; } };
-            if (t == 10 || t == 11) { int k = key(call<unsigned short>(ev, "keyCode")); bool rep = t == 10 && call<signed char>(ev, "isARepeat"); if (k && !rep) pend.push_back({t == 10 ? EV_KEY_DOWN : EV_KEY_UP, k, 0}); }
+            if (t == 10 || t == 11) { unsigned short kcode = call<unsigned short>(ev, "keyCode"); int k = key(kcode); bool rep = t == 10 && (call<signed char>(ev, "isARepeat") & 1); if (getenv("WINDOW_DEBUG")) fprintf(stderr, "appkit key event type %lu keyCode %u -> game key %d repeat %d\n", t, (unsigned)kcode, k, (int)rep); if (k && !rep) pend.push_back({t == 10 ? EV_KEY_DOWN : EV_KEY_UP, k, 0}); }
             else if (t == 5) { Pt p = call<Pt>(ev, "locationInWindow"); pend.push_back({EV_MOUSE, (int)p.x, h - (int)p.y}); }   // origin is the bottom left
             call<void, id>(app, "sendEvent:", ev); } }
     bool present(const uint8_t *rgba, int fw, int fh) {
@@ -317,12 +317,14 @@ struct Cocoa {
     }
     bool verify(const uint8_t *rgba, int fw, int fh, int &mismatch) {   // reads the window back with CGWindowListCreateImage: macOS asks for the Screen Recording permission and otherwise returns nothing or a blank image
         mismatch = -1; if (!win_image || !img_provider || !prov_copy || !cfdata_ptr) return false; long num = call<long>(win, "windowNumber"); Rc null_rect = {INFINITY, INFINITY, 0, 0}; void *img = win_image(null_rect, 8 /*kCGWindowListOptionIncludingWindow*/, (unsigned)num, 1 /*bounds ignore framing*/); if (!img) return false;
-        void *data = prov_copy(img_provider(img)); if (!data) return false; long len = cfdata_len(data); if (len < (long)fw * fh * 4) { cf_release(data); return false; } const uint8_t *q = cfdata_ptr(data); mismatch = 0;
+        size_t iw = img_w ? img_w(img) : (size_t)fw, ih = img_h ? img_h(img) : (size_t)fh, bpr = img_bpr ? img_bpr(img) : iw * 4; void *data = prov_copy(img_provider(img)); if (!data) return false; long len = cfdata_len(data);
+        if (len < (long)(bpr * ih) || iw < (size_t)fw || ih < (size_t)fh) { cf_release(data); img_release(img); verify_note = "captured image " + std::to_string(iw) + "x" + std::to_string(ih) + ", " + std::to_string(len) + " bytes"; return false; } const uint8_t *q0 = cfdata_ptr(data); mismatch = 0;
+        verify_note = "captured image " + std::to_string(iw) + "x" + std::to_string(ih) + " for a " + std::to_string(fw) + "x" + std::to_string(fh) + " frame; ";
         // the captured pixels went through the display's colour management (the layer's colour space to the screen's), so they are close to, not equal to, what was set: count the pixels whose channels are all within 24 levels
         // of the frame (red and blue order of the capture is device dependent: the better of the two orders is used) and keep the mean absolute error for the log
-        long err_a = 0, err_b = 0; int bad_a = 0, bad_b = 0; for (int i = 0; i < fw * fh; i++) { const uint8_t *c = q + 4 * i, *e = rgba + 4 * i;
+        long err_a = 0, err_b = 0; int bad_a = 0, bad_b = 0; for (int y = 0; y < fh; y++) for (int x = 0; x < fw; x++) { const uint8_t *c = q0 + (size_t)(y * ih / fh) * bpr + (size_t)(x * iw / fw) * 4, *e = rgba + ((size_t)y * fw + x) * 4;
             int da = abs(c[0] - e[0]) + abs(c[1] - e[1]) + abs(c[2] - e[2]), db = abs(c[0] - e[2]) + abs(c[1] - e[1]) + abs(c[2] - e[0]); err_a += da; err_b += db; if (abs(c[0] - e[0]) > 24 || abs(c[1] - e[1]) > 24 || abs(c[2] - e[2]) > 24) bad_a++; if (abs(c[0] - e[2]) > 24 || abs(c[1] - e[1]) > 24 || abs(c[2] - e[0]) > 24) bad_b++; }
-        mismatch = std::min(bad_a, bad_b); verify_note = "colour-managed capture: mean absolute error per pixel (sum of three channels) " + std::to_string((double)std::min(err_a, err_b) / (fw * fh)) + ", " + std::to_string(mismatch) + " pixels with a channel more than 24 levels away";
+        mismatch = std::min(bad_a, bad_b); verify_note += "colour-managed capture: mean absolute error per pixel (sum of three channels) " + std::to_string((double)std::min(err_a, err_b) / (fw * fh)) + ", " + std::to_string(mismatch) + " pixels with a channel more than 24 levels away";
         cf_release(data); img_release(img); return true;
     }
     void poll_events(std::vector<Event> &out) { pump(); out.insert(out.end(), pend.begin(), pend.end()); pend.clear(); }
