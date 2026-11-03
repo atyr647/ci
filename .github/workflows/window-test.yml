@@ -74,7 +74,7 @@ jobs:
         run: |
           set +e
           if [ "$RUNNER_OS" = Windows ]; then cp window_test.com window_test.exe; ( ./window_test.exe --seconds=3 --expect=keys 2>&1 | cat ) | tr '\r' '\n'; exit ${PIPESTATUS[0]}
-          else chmod +x window_test.com; sh ./window_test.com --seconds=3 --expect=keys 2>&1 | tr '\r' '\n'; fi
+          else chmod +x window_test.com; WINDOW_DEBUG=1 sh ./window_test.com --seconds=3 --expect=keys 2>&1 | tr '\r' '\n'; fi
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Linux'
         with: { name: 'shots-${{ matrix.label }}', path: "shot*.png\n*.txt" }
