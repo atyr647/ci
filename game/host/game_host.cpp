@@ -333,6 +333,7 @@ int main(int argc, char **argv) {
             if (swap_on) {
                 std::vector<uint8_t> shown; const bool last = f == frames - 1; if (!swap.present(g_last_target, last ? &shown : nullptr)) present_fail++;
                 if (last && read_target_host(g_last_target, rgba)) {
+                    { int g = 0, r = 0; for (size_t i = 0; i + 3 < rgba.size(); i += 4) { if (rgba[i + 1] > 200 && rgba[i] < 60 && rgba[i + 2] < 60) g++; if (rgba[i] > 200 && rgba[i + 1] < 60 && rgba[i + 2] < 60) r++; } printf("host : rendered target after the last present (host read-back): %d green-dominant, %d red-dominant pixels\n", g, r); }
                     if (!shown.empty() && swap.width_ == 256 && swap.height_ == 256) { int bad = 0; for (int i = 0; i < 256 * 256; i++) if (shown[4 * i] != rgba[4 * i] || shown[4 * i + 1] != rgba[4 * i + 1] || shown[4 * i + 2] != rgba[4 * i + 2]) bad++; swap_texture_mismatch = bad; }
                     else if (!shown.empty()) { int nonblack = 0; for (size_t i = 0; i + 3 < shown.size(); i += 4) if (shown[i] | shown[i + 1] | shown[i + 2]) nonblack++; swap_texture_mismatch = -2 - (nonblack > 0 ? 0 : 1); }
                     verify_ok = window.verify(rgba.data(), 256, 256, verify_mismatch);
