@@ -1,0 +1,26 @@
+name: swapchain-repeat
+# The swapchain presentation at 256x256 and 1920x1080, repeated: how often does the guest's end-of-run check of the rendered target fail (green_px 0 was seen at 1920x1080 on Windows x64), and does it depend on presenting at all?
+on:
+  workflow_dispatch:
+    inputs:
+      game_run: { description: 'gameloop run whose artifact "game" is used', required: true }
+jobs:
+  rep:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: win-x64,   os: windows-latest, backend: d3d12 }
+          - { label: win-arm64, os: windows-11-arm, backend: d3d12 }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    env: { GH_TOKEN: '${{ github.token }}', WGT_BACKEND: '${{ matrix.backend }}' }
+    steps:
+      - run: gh run download ${{ inputs.game_run }} -R ${{ github.repository }} -n game -D g && cp g/game.com g/game.exe
+      - name: Repeats
+        run: |
+          set +e
+          run() { ( ./g/game.exe "$@" 2>&1 | cat ) | tr '\r' '\n' | grep -E "guest: (green_px|fails)|RESULT" | tr '\n' ' '; echo; }
+          for mode in "--swapchain --window=1920x1080" "--swapchain --window=256x256" "--present" ""; do
+            echo "=== args: ${mode:-<none>}"; for i in 1 2 3 4 5 6; do run $mode; done
+          done
