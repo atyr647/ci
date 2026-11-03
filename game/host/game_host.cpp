@@ -165,16 +165,16 @@ static bool read_target_host(int t, std::vector<uint8_t> &out) {
 
 // ---- presentation through a GPU swapchain (Dawn surface on the window's HWND or CAMetalLayer): the rendered target is drawn into the swapchain texture by a full-screen triangle, no copy through the CPU
 struct SwapPresenter {
-    WGPUSurface surf = nullptr; WGPURenderPipeline pipe = nullptr; WGPUSampler samp = nullptr; WGPUTextureFormat fmt = WGPUTextureFormat_Undefined; std::string note; int fails = 0; uint64_t frames = 0;
+    WGPUSurface surf = nullptr; WGPURenderPipeline pipe = nullptr; WGPUSampler samp = nullptr; WGPUTextureFormat fmt = WGPUTextureFormat_Undefined; std::string note; int fails = 0; uint64_t frames = 0; bool can_copy = false; int width_ = 0, height_ = 0;
     bool init(void *hwnd, void *hinst, void *layer, int width, int height) {
         WGPUSurfaceDescriptor sd = WGPU_SURFACE_DESCRIPTOR_INIT; WGPUSurfaceSourceWindowsHWND sh = WGPU_SURFACE_SOURCE_WINDOWS_HWND_INIT; WGPUSurfaceSourceMetalLayer sm = WGPU_SURFACE_SOURCE_METAL_LAYER_INIT;
         if (IsWindows() && hwnd) { sh.hwnd = hwnd; sh.hinstance = hinst; sd.nextInChain = &sh.chain; } else if (IsXnu() && layer) { sm.layer = layer; sd.nextInChain = &sm.chain; } else { note = "no native window handle for a swapchain on this system"; return false; }
-        surf = wgpuInstanceCreateSurface(g_inst, &sd); if (!surf) { note = "wgpuInstanceCreateSurface returned nothing"; return false; }
+        width_ = width; height_ = height; surf = wgpuInstanceCreateSurface(g_inst, &sd); if (!surf) { note = "wgpuInstanceCreateSurface returned nothing"; return false; }
         WGPUSurfaceCapabilities caps = WGPU_SURFACE_CAPABILITIES_INIT; if (wgpuSurfaceGetCapabilities(surf, g_adapter, &caps) != WGPUStatus_Success || !caps.formatCount) { note = "the adapter cannot present to this surface"; return false; }
         fmt = caps.formats[0]; for (size_t i = 0; i < caps.formatCount; i++) if (caps.formats[i] == WGPUTextureFormat_BGRA8Unorm) fmt = caps.formats[i];
         WGPUPresentMode pm = caps.presentModes[0]; for (size_t i = 0; i < caps.presentModeCount; i++) if (caps.presentModes[i] == WGPUPresentMode_Immediate) pm = caps.presentModes[i];   // (no wait for the display's refresh: what is measured is the work, not the vsync)
-        char nm[160]; snprintf(nm, sizeof nm, "swapchain format %d, present mode %d, %dx%d", (int)fmt, (int)pm, width, height); note = nm; wgpuSurfaceCapabilitiesFreeMembers(caps);
-        WGPUSurfaceConfiguration cfg = WGPU_SURFACE_CONFIGURATION_INIT; cfg.device = g_device; cfg.format = fmt; cfg.usage = WGPUTextureUsage_RenderAttachment; cfg.width = (uint32_t)width; cfg.height = (uint32_t)height; cfg.presentMode = pm; wgpuSurfaceConfigure(surf, &cfg);
+        can_copy = (caps.usages & WGPUTextureUsage_CopySrc) != 0; char nm[200]; snprintf(nm, sizeof nm, "swapchain format %d, present mode %d, %dx%d, copy from the swapchain texture %s", (int)fmt, (int)pm, width, height, can_copy ? "possible" : "not possible"); note = nm; wgpuSurfaceCapabilitiesFreeMembers(caps);
+        WGPUSurfaceConfiguration cfg = WGPU_SURFACE_CONFIGURATION_INIT; cfg.device = g_device; cfg.format = fmt; cfg.usage = WGPUTextureUsage_RenderAttachment | (can_copy ? WGPUTextureUsage_CopySrc : 0); cfg.width = (uint32_t)width; cfg.height = (uint32_t)height; cfg.presentMode = pm; wgpuSurfaceConfigure(surf, &cfg);
         static const char *wgsl = "@group(0) @binding(0) var t: texture_2d<f32>;\n@group(0) @binding(1) var s: sampler;\nstruct VOut { @builtin(position) p: vec4f, @location(0) uv: vec2f };\n"
             "@vertex fn vs(@builtin(vertex_index) i: u32) -> VOut { var pos = array<vec2f, 3>(vec2f(-1.0, -1.0), vec2f(3.0, -1.0), vec2f(-1.0, 3.0)); let p = pos[i]; var o: VOut; o.p = vec4f(p, 0.0, 1.0); o.uv = vec2f((p.x + 1.0) * 0.5, 1.0 - (p.y + 1.0) * 0.5); return o; }\n"
             "@fragment fn fs(@location(0) uv: vec2f) -> @location(0) vec4f { return textureSample(t, s, uv); }\n";
@@ -184,7 +184,7 @@ struct SwapPresenter {
         WGPUSamplerDescriptor sdsc = WGPU_SAMPLER_DESCRIPTOR_INIT; samp = wgpuDeviceCreateSampler(g_device, &sdsc);
         if (!pipe || !samp) { note = "the presentation pipeline could not be made"; return false; } return true;
     }
-    bool present(int target) {
+    bool present(int target, std::vector<uint8_t> *capture = nullptr) {
         if (target < 0 || target >= (int)g_targets.size()) return false;
         WGPUSurfaceTexture st = WGPU_SURFACE_TEXTURE_INIT; wgpuSurfaceGetCurrentTexture(surf, &st);
         if (st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessOptimal && st.status != WGPUSurfaceGetCurrentTextureStatus_SuccessSuboptimal) { fails++; return false; }
@@ -195,7 +195,14 @@ struct SwapPresenter {
         WGPURenderPassColorAttachment ca = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT; ca.view = v; ca.loadOp = WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store; ca.clearValue = {0, 0, 0, 1};
         WGPURenderPassDescriptor rp = WGPU_RENDER_PASS_DESCRIPTOR_INIT; rp.colorAttachmentCount = 1; rp.colorAttachments = &ca; WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(enc, &rp);
         wgpuRenderPassEncoderSetPipeline(pass, pipe); wgpuRenderPassEncoderSetBindGroup(pass, 0, bg, 0, nullptr); wgpuRenderPassEncoderDraw(pass, 3, 1, 0, 0); wgpuRenderPassEncoderEnd(pass);
+        WGPUBuffer stage = nullptr; uint32_t bpr = ((uint32_t)width_ * 4 + 255) & ~255u;
+        if (capture && can_copy) {   // the last frame: copy what was drawn into the swapchain texture to a buffer
+            WGPUBufferDescriptor bdsc = WGPU_BUFFER_DESCRIPTOR_INIT; bdsc.size = (uint64_t)bpr * height_; bdsc.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst; stage = wgpuDeviceCreateBuffer(g_device, &bdsc);
+            WGPUTexelCopyTextureInfo src = WGPU_TEXEL_COPY_TEXTURE_INFO_INIT; src.texture = st.texture; WGPUTexelCopyBufferInfo dst = WGPU_TEXEL_COPY_BUFFER_INFO_INIT; dst.buffer = stage; dst.layout.bytesPerRow = bpr; dst.layout.rowsPerImage = (uint32_t)height_;
+            WGPUExtent3D ext = {(uint32_t)width_, (uint32_t)height_, 1}; wgpuCommandEncoderCopyTextureToBuffer(enc, &src, &dst, &ext);
+        }
         WGPUCommandBufferDescriptor cd = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT; WGPUCommandBuffer cb = wgpuCommandEncoderFinish(enc, &cd); wgpuQueueSubmit(g_queue, 1, &cb); wgpuCommandBufferRelease(cb);
+        if (stage) { const uint8_t *m = nullptr; if (map_read(stage, (uint64_t)bpr * height_, (const void **)&m)) { capture->resize((size_t)width_ * height_ * 4); for (int y = 0; y < height_; y++) for (int x = 0; x < width_; x++) { const uint8_t *q = m + (size_t)y * bpr + (size_t)x * 4; uint8_t *o = &(*capture)[((size_t)y * width_ + x) * 4]; if (fmt == WGPUTextureFormat_BGRA8Unorm || fmt == WGPUTextureFormat_BGRA8UnormSrgb) { o[0] = q[2]; o[1] = q[1]; o[2] = q[0]; } else { o[0] = q[0]; o[1] = q[1]; o[2] = q[2]; } o[3] = q[3]; } wgpuBufferUnmap(stage); } wgpuBufferRelease(stage); }
         wgpuRenderPassEncoderRelease(pass); wgpuCommandEncoderRelease(enc); wgpuBindGroupRelease(bg); wgpuBindGroupLayoutRelease(l); wgpuTextureViewRelease(v);
         WGPUStatus ps = wgpuSurfacePresent(surf); wgpuTextureRelease(st.texture); frames++; if (ps != WGPUStatus_Success) { fails++; return false; } return true;
     }
@@ -288,7 +295,7 @@ int main(int argc, char **argv) {
     } printf("host : GPU ready in %.1f ms\n", ms_since(t0));
     if (const char *pk = getenv("GAME_PREFAULT_KB")) { double ms = prefault_driver_heap(atol(pk)); printf("host : pre-faulted %s KiB of the driver's heap in %.2f ms\n", pk, ms); }
     if (const char *bn = getenv("GAME_BURST")) { burst(atoi(bn)); return 0; }
-    win::Window window; bool win_on = false; pad::Gamepads pads; bool pad_on = false; std::vector<double> pres_ms; int present_fail = 0, verify_mismatch = -2; bool verify_ok = false;
+    win::Window window; bool win_on = false; pad::Gamepads pads; bool pad_on = false; std::vector<double> pres_ms; int present_fail = 0, verify_mismatch = -2, swap_texture_mismatch = -1; bool verify_ok = false;
     SwapPresenter swap; bool swap_on = false;
     if (present) { win_on = window.open(win_w, win_h, "celori"); printf("host : window [%s]: %s\n", window.backend.c_str(), window.note.c_str()); if (!win_on) { puts("FAIL window"); return 12; }
         if (swapchain) { swap_on = swap.init(window.native_window(), window.native_instance(), window.native_window(), win_w, win_h); printf("host : GPU swapchain: %s\n", swap_on ? swap.note.c_str() : ("not used - " + swap.note).c_str()); if (!swap_on) { puts("FAIL swapchain"); return 13; } } }
@@ -323,7 +330,14 @@ int main(int argc, char **argv) {
           wgpuQueueOnSubmittedWorkDone(g_queue, wi); if (!pump()) { printf("FAIL frame %d: work-done callback never came\n", f); return 10; } gt.push_back(ms_since(tw)); }
         if (win_on) {   // show the frame, then take what the window and the pads produced for the next frame
             auto tp = Clock::now(); std::vector<uint8_t> rgba;
-            if (swap_on) { if (!swap.present(g_last_target)) present_fail++; if (f == frames - 1 && read_target_host(g_last_target, rgba)) verify_ok = window.verify(rgba.data(), 256, 256, verify_mismatch); }
+            if (swap_on) {
+                std::vector<uint8_t> shown; const bool last = f == frames - 1; if (!swap.present(g_last_target, last ? &shown : nullptr)) present_fail++;
+                if (last && read_target_host(g_last_target, rgba)) {
+                    if (!shown.empty() && swap.width_ == 256 && swap.height_ == 256) { int bad = 0; for (int i = 0; i < 256 * 256; i++) if (shown[4 * i] != rgba[4 * i] || shown[4 * i + 1] != rgba[4 * i + 1] || shown[4 * i + 2] != rgba[4 * i + 2]) bad++; swap_texture_mismatch = bad; }
+                    else if (!shown.empty()) { int nonblack = 0; for (size_t i = 0; i + 3 < shown.size(); i += 4) if (shown[i] | shown[i + 1] | shown[i + 2]) nonblack++; swap_texture_mismatch = -2 - (nonblack > 0 ? 0 : 1); }
+                    verify_ok = window.verify(rgba.data(), 256, 256, verify_mismatch);
+                }
+            }
             else if (read_target_host(g_last_target, rgba)) { if (!window.present(rgba.data(), 256, 256)) present_fail++; if (f == frames - 1) verify_ok = window.verify(rgba.data(), 256, 256, verify_mismatch); } else present_fail++;
             pres_ms.push_back(ms_since(tp)); std::vector<win::Event> we; window.poll(we);
             for (auto &x : we) { if (x.type == win::EV_KEY_DOWN) g_queue_in.push_back({EV_KEY_DOWN, (uint32_t)x.a, 0, (uint32_t)f}); else if (x.type == win::EV_KEY_UP) g_queue_in.push_back({EV_KEY_UP, (uint32_t)x.a, 0, (uint32_t)f}); else if (x.type == win::EV_MOUSE) g_queue_in.push_back({EV_MOUSE, (uint32_t)std::max(0, x.a), (uint32_t)std::max(0, x.b), (uint32_t)f}); }
@@ -366,9 +380,10 @@ int main(int argc, char **argv) {
     printf("host : audio %llu frames, tone in game frames %d..%d (%d blocks), peak block RMS %.3f -> %s\n", (unsigned long long)g_audio_frames, tone_first, tone_last, tone_blocks, rms_max, audio_ok ? "as scripted" : "WRONG");
     if (win_on) { std::sort(pres_ms.begin(), pres_ms.end()); printf("host : window: %zu frames presented through [%s], read back and shown in median %.3f ms (p99 %.3f ms), %d failed; read-back of the window after the last frame: %s\n", pres_ms.size(), window.backend.c_str(), pres_ms.empty() ? 0 : pres_ms[pres_ms.size() / 2], pres_ms.empty() ? 0 : pres_ms[(size_t)(pres_ms.size() * 0.99)], present_fail,
         verify_ok ? (verify_mismatch == 0 ? "exact, 0 pixels differ" : "DIFFERS") : "not possible on this display system");
+        if (swap_on) printf("host : swapchain texture read back after the last frame: %s\n", swap_texture_mismatch == -1 ? "not possible (the surface does not allow copies)" : swap_texture_mismatch >= 0 ? (swap_texture_mismatch == 0 ? "identical to the rendered target (0 pixels differ)" : (std::to_string(swap_texture_mismatch) + " pixels differ from the rendered target").c_str()) : swap_texture_mismatch == -2 ? "stretched to the window size, not black" : "ALL BLACK");
         if (verify_ok && !window.detail().empty()) printf("host : window read-back detail: %d pixels differ; %s\n", verify_mismatch, window.detail().c_str());
         window.close(); }
-    bool win_ok = !win_on || (present_fail == 0 && (!verify_ok || verify_mismatch == 0 || window.backend == "appkit" || swap_on));   // (a swapchain window is read back through the desktop compositor: reported with numbers, not gated)   // (macOS: the capture is colour managed and only approximately equal; the numbers are in window_test)
+    bool win_ok = !win_on || (present_fail == 0 && (!swap_on || swap_texture_mismatch == -1 || swap_texture_mismatch == 0 || swap_texture_mismatch == -2) && (!verify_ok || verify_mismatch == 0 || window.backend == "appkit" || swap_on));   // (a swapchain window is read back through the desktop compositor: reported with numbers, not gated)   // (macOS: the capture is colour managed and only approximately equal; the numbers are in window_test)
     bool pass = win_ok && guest_fails == 0 && bad == 0 && g_gpu_errors == 0 && audio_ok && g_qwork_bad == 0 && ts_ok && aout_ok;
     printf("RESULT %s gameloop frames=%d guest_fails=%d frame_fails=%d gpu_errors=%d audio=%s\n", pass ? "PASS" : "FAIL", frames, guest_fails, bad, g_gpu_errors, audio_ok ? "ok" : "bad");
     fflush(stdout); return pass ? 0 : 1;
