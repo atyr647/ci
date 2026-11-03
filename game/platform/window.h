@@ -275,7 +275,7 @@ struct Gdi {
     typedef intptr_t (WMS *WndProc)(void *, unsigned, uintptr_t, intptr_t);
     struct WndClassExW { unsigned cbSize, style; WndProc proc; int cls_extra, wnd_extra; void *inst, *icon, *cursor, *brush; const uint16_t *menu, *name; void *icon_sm; };
     struct BmiHeader { unsigned size; int w, h; unsigned short planes, bits; unsigned comp, imgsize; int xppm, yppm; unsigned used, important; };
-    void *u = nullptr, *g = nullptr, *k = nullptr, *hwnd = nullptr, *hinst = nullptr; int w = 0, h = 0; bool gpu_surface = false; std::string note;
+    void *u = nullptr, *g = nullptr, *k = nullptr, *hwnd = nullptr, *hinst = nullptr; int w = 0, h = 0; bool gpu_surface = false; std::string note, verify_note;
     static std::vector<Event> &events() { static std::vector<Event> e; return e; }
     static intptr_t WMS wndproc(void *hw, unsigned m, uintptr_t wp, intptr_t lp) {
         auto &ev = events();
@@ -311,7 +311,8 @@ struct Gdi {
         GetDC getdc = (GetDC)cosmo_dlsym(u, "GetDC"); RelDC reldc = (RelDC)cosmo_dlsym(u, "ReleaseDC"); CCDC ccdc = (CCDC)cosmo_dlsym(g, "CreateCompatibleDC"); CDIB cdib = (CDIB)cosmo_dlsym(g, "CreateDIBSection"); Sel sel = (Sel)cosmo_dlsym(g, "SelectObject"); Blt blt = (Blt)cosmo_dlsym(g, "BitBlt"); Del delo = (Del)cosmo_dlsym(g, "DeleteObject"); Del deldc = (Del)cosmo_dlsym(g, "DeleteDC");
         void *dc = getdc(hwnd), *mem = ccdc(dc); BmiHeader bi; memset(&bi, 0, sizeof bi); bi.size = sizeof bi; bi.w = fw; bi.h = -fh; bi.planes = 1; bi.bits = 32; void *bits = nullptr; void *bmp = cdib(dc, &bi, 0, &bits, nullptr, 0); if (!bmp || !bits) { reldc(hwnd, dc); return false; }
         void *old = sel(mem, bmp); int ok; if (gpu_surface) { typedef int (WMS *PW)(void *, void *, unsigned); ok = ((PW)cosmo_dlsym(u, "PrintWindow"))(hwnd, mem, 2 /*PW_RENDERFULLCONTENT: what the desktop compositor shows, including a swapchain*/); } else ok = blt(mem, 0, 0, fw, fh, dc, 0, 0, 0x00CC0020 /*SRCCOPY*/); mismatch = 0; const uint8_t *q = (const uint8_t *)bits;
-        if (ok) for (int i = 0; i < fw * fh; i++) { if (q[4 * i] != rgba[4 * i + 2] || q[4 * i + 1] != rgba[4 * i + 1] || q[4 * i + 2] != rgba[4 * i]) mismatch++; }
+        long err = 0; int nonblack = 0; if (ok) for (int i = 0; i < fw * fh; i++) { if (q[4 * i] != rgba[4 * i + 2] || q[4 * i + 1] != rgba[4 * i + 1] || q[4 * i + 2] != rgba[4 * i]) mismatch++; err += abs(q[4 * i] - rgba[4 * i + 2]) + abs(q[4 * i + 1] - rgba[4 * i + 1]) + abs(q[4 * i + 2] - rgba[4 * i]); if (q[4 * i] | q[4 * i + 1] | q[4 * i + 2]) nonblack++; }
+        verify_note = std::string(gpu_surface ? "PrintWindow capture of a swapchain window: " : "BitBlt capture: ") + (ok ? "" : "the capture call failed; ") + "mean absolute error per pixel (three channels summed) " + std::to_string(ok ? (double)err / (fw * fh) : -1.0) + ", " + std::to_string(nonblack) + " of " + std::to_string(fw * fh) + " pixels not black";
         sel(mem, old); delo(bmp); deldc(mem); reldc(hwnd, dc); return ok != 0;
     }
     void poll_events(std::vector<Event> &out) { pump(); auto &e = events(); out.insert(out.end(), e.begin(), e.end()); e.clear(); }
@@ -491,6 +492,9 @@ public:
         return "";
     }
     std::string detail() const {
+#if defined(__x86_64__)
+        if (use_ == 1) return g_.verify_note;
+#endif
 #ifdef __aarch64__
         if (use_ == 2) return c_.why + (c_.verify_note.empty() ? "" : (c_.why.empty() ? "" : "; ") + c_.verify_note);
 #endif
