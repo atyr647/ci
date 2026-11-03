@@ -37,7 +37,7 @@ jobs:
         run: |
           B=$PWD/cosmo/bin; mkdir parts
           for A in x86_64 aarch64; do
-            L=$PWD/dawnlib/$A; INC="-I$L/inc1 -I$L/inc2 -I$PWD/ci-webgpu-test -I$PWD/game/platform"; extra=""
+            L=$PWD/dawnlib/$A; INC="-I$L/inc1 -I$L/inc2 -I$PWD/ci-webgpu-test -I$PWD/game/platform -I$PWD/dawn-cosmo/hostshim"; extra=""
             $B/$A-unknown-cosmo-cc -O2 -Iwasmtime-nostd/platform -DWASMTIME_VIRTUAL_MEMORY -DWASMTIME_NATIVE_SIGNALS -DWASMTIME_CUSTOM_SYNC -c wasmtime-nostd/platform/platform.c -o platform.$A.o
             $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -c alloc-probe/tcache_new.cpp -o tcache_new.$A.o
             $B/$A-unknown-cosmo-cc -O2 -c alloc-probe/nsync_fast.c -o nsync_fast.$A.o
@@ -81,6 +81,13 @@ jobs:
           if [ "$RUNNER_OS" = Windows ]; then cp game.com game.exe; ( ./game.exe 2>&1 | cat ) > out.txt; rc=${PIPESTATUS[0]}; else chmod +x game.com; sh ./game.com > out.txt 2>&1; rc=$?; fi
           tr '\r' '\n' < out.txt | grep -v "^Warning" | head -60; echo "exit status $rc"; ls -la game.wav 2>/dev/null
           grep -q "RESULT PASS" out.txt
+      - name: Real-time pacing (60 frames a second) with the audio ring and the game's audio going through it
+        env: { WGT_BACKEND: '${{ matrix.backend }}' }
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = Windows ]; then ( ./game.exe --realtime 2>&1 | cat ) > out_rt.txt; else sh ./game.com --realtime > out_rt.txt 2>&1; fi
+          tr '\r' '\n' < out_rt.txt | grep -E "host : (audio|real-time|[0-9]+ frames|GPU compl)|RESULT"
+          grep -q "RESULT PASS" out_rt.txt
       - name: In-file software GPU (SwiftShader inside the file), shared libraries watched with strace
         if: always() && runner.os == 'Linux'
         env: { WGT_BACKEND: vulkan, DAWN_COSMO_VK: software }

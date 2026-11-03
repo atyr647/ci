@@ -18,6 +18,7 @@
 #include <sys/resource.h>
 #define WIN_SHIELD_WRAP_THREADS 1
 #include "win_shield.h"
+#define AUDIO_FOREIGN 1   // the audio thread may call libasound; the loader machinery comes with the Dawn library
 #include "audio_out.h"
 #include <webgpu/webgpu.h>
 extern "C" void DawnCosmoGpuThreadEnter();

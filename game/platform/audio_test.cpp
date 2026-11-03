@@ -1,11 +1,17 @@
 // The audio ring and its backends, driven the way the game drives them: 800 stereo frames every 1/60 s from the game thread.
 //   audio_test [--mode=timed|device] [--frames=N] [--stall]      env: GAME_AUDIO_REQUIRE=1 makes a missing device a failure
 // Normal run: every produced frame must come out, in order (integrity). --stall: the producer stops for 200 ms at frame 60; the accounting must see the under-run (silence inserted), which also shows that the counters work.
+#ifdef AUDIO_FOREIGN
+#define DAWN_COSMO_FOREIGN_IMPL   // this program has no Dawn: it carries the loader's foreign-thread machinery itself
+#endif
 #include "audio_out.h"
 #include <cmath>
 using Clock = std::chrono::steady_clock;
 int main(int argc, char **argv) {
     setvbuf(stdout, nullptr, _IONBF, 0); ShowCrashReports();
+#ifdef AUDIO_FOREIGN
+    DawnCosmoForeignInit();   // on the main thread, before any other thread calls the system library
+#endif
     const char *mode = "timed"; int frames = 180; bool stall = false;
     for (int i = 1; i < argc; i++) { if (!strncmp(argv[i], "--mode=", 7)) mode = argv[i] + 7; else if (!strncmp(argv[i], "--frames=", 9)) frames = atoi(argv[i] + 9); else if (!strcmp(argv[i], "--stall")) stall = true; }
     printf("audio_test: platform=%s arch=%s mode=%s frames=%d stall=%d\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", IsAarch64() ? "aarch64" : "x86_64", mode, frames, (int)stall);
