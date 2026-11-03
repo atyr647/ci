@@ -43,14 +43,8 @@ jobs:
           python3 alloc-probe/pf_cost.py "cosmo  thp-disabled"  $R -- ./nothp $C
           PF_ENV="GLIBC_TUNABLES=glibc.malloc.hugetlb=1" python3 alloc-probe/pf_cost.py "native hugetlb=1" $R -- $N
           PF_ENV="GLIBC_TUNABLES=glibc.malloc.hugetlb=1" python3 alloc-probe/pf_cost.py "cosmo  hugetlb=1" $R -- $C
-      - name: Where the burst's faults land (address mapping and code), THP default
+      - name: Where the burst's faults land (diff of N=4000 against N=1, THP default)
         run: |
-          set +e; ulimit -c 0; export WGT_BACKEND=vulkan BENCH_BUFFER_REPEAT=4000
-          for v in native cosmo; do
-            BIN=./benchout/dawn-bench; [ $v = cosmo ] && BIN=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
-            "$PERF" record -e page-faults -c 1 -d -o pf.$v.data -- $BIN > /dev/null 2>&1
-            echo "=== $v: total faults $("$PERF" script -i pf.$v.data -F addr 2>/dev/null | wc -l)"
-            echo "=== $v: by code location"; "$PERF" report -i pf.$v.data --stdio --no-children --sort dso,symbol 2>/dev/null | grep -v '^#' | grep -v '^$' | head -8 | cut -c1-150
-            echo "=== $v: by mapping of the faulting address"; "$PERF" report -i pf.$v.data --stdio --no-children --sort dso_daddr 2>/dev/null | grep -v '^#' | grep -v '^$' | head -8 | cut -c1-150
-            echo "=== $v: faulting addresses 2 MiB-aligned region histogram (top 6)"; "$PERF" script -i pf.$v.data -F addr 2>/dev/null | awk '{a=strtonum("0x"$1); printf "%x\n", int(a/2097152)*2097152}' | sort | uniq -c | sort -rn | head -6
-          done
+          set +e; ulimit -c 0; sudo apt-get install -y strace >/dev/null 2>&1
+          python3 alloc-probe/pf_diff.py native "$PERF" -- ./benchout/dawn-bench
+          python3 alloc-probe/pf_diff.py cosmo  "$PERF" -- ./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
