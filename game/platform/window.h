@@ -333,7 +333,14 @@ struct Gdi {
             fgnote = std::string("foreground window is ") + (fgw ? (std::string("class \"") + c8 + "\"") : "none") + ", ours " + (((Visible)cosmo_dlsym(u, "IsWindowVisible"))(hwnd) ? "visible" : "not visible") + (((Iconic)cosmo_dlsym(u, "IsIconic"))(hwnd) ? ", minimised" : "") + "; ";
             ((KbEvent)cosmo_dlsym(u, "keybd_event"))(0x12, 0, 0, 0); ((KbEvent)cosmo_dlsym(u, "keybd_event"))(0x12, 0, 2, 0);
             ((BringTop)cosmo_dlsym(u, "BringWindowToTop"))(hwnd); ((SwitchTo)cosmo_dlsym(u, "SwitchToThisWindow"))(hwnd, 1); ((SetPos)cosmo_dlsym(u, "SetWindowPos"))(hwnd, (void *)(intptr_t)-1 /*HWND_TOPMOST*/, 0, 0, 0, 0, 0x3 /*NOSIZE|NOMOVE*/);
-            win::wsleep_ms(100); pump(); fg = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))() == hwnd; fgnote += fg ? "taken with the ALT/SwitchToThisWindow/topmost sequence; " : "still not the foreground after ALT, SwitchToThisWindow and topmost; ";
+            win::wsleep_ms(100); pump(); fg = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))() == hwnd;
+            if (!fg) {   // a shell window (the Start menu, search, an overlay) holds the foreground: dismiss it with Escape, then Win+D (show the desktop), then click on ours again
+                KbEvent kb = (KbEvent)cosmo_dlsym(u, "keybd_event"); kb(0x1B, 0, 0, 0); kb(0x1B, 0, 2, 0); win::wsleep_ms(150); kb(0x5B, 0, 0, 0); kb(0x44, 0, 0, 0); kb(0x44, 0, 2, 0); kb(0x5B, 0, 2, 0); win::wsleep_ms(400); pump();
+                setcur(pt[0] + 120, pt[1] + 120); win::wsleep_ms(30); { uint8_t in[40]; memset(in, 0, sizeof in); *(unsigned *)in = 0; *(unsigned *)(in + 20) = 0x2; sendin(1, in, 40); *(unsigned *)(in + 20) = 0x4; sendin(1, in, 40); }
+                win::wsleep_ms(200); pump(); void *fg2 = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))(); fg = fg2 == hwnd; uint16_t c2[64] = {}; if (fg2) ((GetCls)cosmo_dlsym(u, "GetClassNameW"))(fg2, c2, 63); char d8[64]; for (int i = 0; i < 64; i++) d8[i] = (char)c2[i]; d8[63] = 0;
+                fgnote += fg ? "taken after Escape, Win+D and a click; " : (std::string("still not ours after Escape, Win+D and a click (now class \"") + d8 + "\"); ");
+            }
+            fgnote += fg ? "" : "still not the foreground after ALT, SwitchToThisWindow and topmost; ";
             if (!fg && fgw) { unsigned pid; unsigned ft = ((GetTid)cosmo_dlsym(u, "GetWindowThreadProcessId"))(fgw, &pid), me = ((CurTid)cosmo_dlsym(k, "GetCurrentThreadId"))(); if (((Attach)cosmo_dlsym(u, "AttachThreadInput"))(me, ft, 1)) { ((SetFgW)cosmo_dlsym(u, "SetForegroundWindow"))(hwnd); win::wsleep_ms(100); pump(); fg = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))() == hwnd; ((Attach)cosmo_dlsym(u, "AttachThreadInput"))(me, ft, 0); fgnote += fg ? "taken by attaching to the foreground thread's input; " : "still not the foreground after attaching to the foreground thread; "; } else fgnote += "AttachThreadInput refused; "; }
         }
         setcur(pt[0] + 50, pt[1] + 60); win::wsleep_ms(50); pump();
