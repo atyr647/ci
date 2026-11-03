@@ -1,0 +1,76 @@
+name: window-test
+# Showing frames in a window and reading the keyboard and pointer, from a Cosmopolitan program on each OS (game/platform/window.h, window_test.cpp).
+# Linux X11 (the protocol spoken directly, no libX11): Xvfb + xdotool; the window is read back through the protocol and a screenshot is compared. Linux Wayland (protocol directly): sway on its headless backend,
+# keys from wtype, pointer from a persistent virtual pointer (wl_pointer_inject), screenshot by grim compared pixel by pixel. Windows: GDI window, read back with BitBlt, input through SendInput (posted messages as the fallback, named in the output).
+# macOS: AppKit window with the frame as layer contents, input as synthetic NSEvents; reading the window back needs the Screen Recording permission and is reported as not possible if the runner has none.
+on: { workflow_dispatch: {} }
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          B=$PWD/cosmo/bin; mkdir parts out
+          for t in window_test wl_pointer_inject; do
+            for A in x86_64 aarch64; do $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -Igame/platform game/platform/$t.cpp -o parts/$t.$A.com -lpthread 2>&1 | tail -30; done
+            $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o out/$t.com parts/$t.x86_64.com.dbg parts/$t.aarch64.com.dbg; ls -la out/$t.com
+          done
+      - uses: actions/upload-artifact@v4
+        with: { name: window, path: "out/*.com" }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: window, path: . }
+      - name: Linux packages
+        if: runner.os == 'Linux'
+        run: sudo apt-get update >/dev/null && sudo apt-get install -y xvfb xdotool x11-apps imagemagick sway grim wtype 2>&1 | tail -2; chmod +x window_test.com wl_pointer_inject.com
+      - name: Linux, X11 (Xvfb) - presented frame read back through the protocol, keys and pointer from xdotool, screenshot compared
+        if: runner.os == 'Linux'
+        run: |
+          set +e
+          cat > x11run.sh <<'EOS'
+          (sleep 1.5; xdotool mousemove 150 160; sleep 0.2; xdotool mousemove 100 100; sleep 0.2; xdotool key a; xdotool key Right; xdotool key space; sleep 0.2; xwd -root -silent -out shot.xwd; convert shot.xwd shot.png 2>/dev/null) &
+          sh ./window_test.com --seconds=6 --expect=keys
+          wait
+          EOS
+          xvfb-run -a -s "-screen 0 800x600x24" bash x11run.sh 2>&1 | tr '\r' '\n' | tee x11.txt; ls -la shot.png
+          python3 game/tools/check_shot.py shot.png 100 100 | tee -a x11.txt
+          grep -q "RESULT PASS" x11.txt && grep -q "SHOT 0 of" x11.txt
+      - name: Linux, Wayland (sway, headless backend) - frame by shared memory, keys from wtype, pointer from a persistent virtual pointer, screenshot by grim
+        if: runner.os == 'Linux'
+        run: |
+          set +e
+          export XDG_RUNTIME_DIR=$PWD/xdg; rm -rf $XDG_RUNTIME_DIR; mkdir -p $XDG_RUNTIME_DIR; chmod 700 $XDG_RUNTIME_DIR
+          printf 'output HEADLESS-1 resolution 800x600\nfor_window [app_id="celori"] floating enable, move position 0 0\n' > sway.conf
+          WLR_BACKENDS=headless WLR_LIBINPUT_NO_DEVICES=1 WLR_RENDERER=pixman sway -c sway.conf > sway.log 2>&1 &
+          sleep 3; export WAYLAND_DISPLAY=$(ls $XDG_RUNTIME_DIR | grep -E '^wayland-[0-9]+$' | head -1); export SWAYSOCK=$(ls $XDG_RUNTIME_DIR/sway-ipc*.sock | head -1); echo "compositor socket: $WAYLAND_DISPLAY"
+          (sleep 1.5; swaymsg '[app_id="celori"] focus' >/dev/null; wtype -s 3000 a -s 300 -k Right -s 300 ' ' >/dev/null 2>&1) &
+          (sleep 2.5; sh ./wl_pointer_inject.com 50 60 800 600 6 >/dev/null 2>&1) &
+          (sleep 5; grim -o HEADLESS-1 shot_wl.png) &
+          WINDOW_BACKEND=wayland sh ./window_test.com --seconds=9 --expect=keys 2>&1 | tr '\r' '\n' | tee wl.txt
+          wait; python3 game/tools/check_shot.py shot_wl.png 0 0 | tee -a wl.txt; swaymsg exit >/dev/null 2>&1
+          grep -q "input=ok" wl.txt && grep -q "SHOT 0 of" wl.txt
+      - name: Windows and macOS - the window and its input from inside the program
+        if: runner.os != 'Linux'
+        run: |
+          set +e
+          if [ "$RUNNER_OS" = Windows ]; then cp window_test.com window_test.exe; ( ./window_test.exe --seconds=3 --expect=keys 2>&1 | cat ) | tr '\r' '\n'; exit ${PIPESTATUS[0]}
+          else chmod +x window_test.com; sh ./window_test.com --seconds=3 --expect=keys 2>&1 | tr '\r' '\n'; fi
+      - uses: actions/upload-artifact@v4
+        if: always() && runner.os == 'Linux'
+        with: { name: 'shots-${{ matrix.label }}', path: "shot*.png\n*.txt" }
