@@ -15,6 +15,7 @@
 #include <vector>
 #include <cosmo.h>
 #include <sys/mman.h>
+#include <sys/resource.h>
 #define WIN_SHIELD_WRAP_THREADS 1
 #include "win_shield.h"
 #include <webgpu/webgpu.h>
@@ -177,6 +178,26 @@ static bool exec_memory_allowed() {
     bool ok = mprotect(p, 4096, PROT_READ | PROT_EXEC) == 0; munmap(p, 4096); return ok;
 }
 
+// ---- first-burst page faults of the system driver's heap (experiment, FINDINGS "page-fault cost"): Dawn's frees go to this program's allocator, so the driver's glibc heap starts nearly empty and grows
+// (fresh pages, one page fault each) while the first thousands of buffers are created; natively Dawn and the driver share one heap that Dawn already touched. GAME_PREFAULT_KB=N touches N KiB of the driver's heap
+// through its own malloc at start-up and keeps it (M_TRIM_THRESHOLD); GAME_BURST=N creates and releases N 64 KiB buffers, reports the page faults and time of that loop, and exits.
+static double prefault_driver_heap(long kb) {
+    auto t = Clock::now(); void *libc = cosmo_dlopen("libc.so.6", RTLD_NOW); if (!libc || kb <= 0) return 0;
+    auto pmallopt = reinterpret_cast<int (*)(int, int)>(cosmo_dltramp(cosmo_dlsym(libc, "mallopt"))); auto pmalloc = reinterpret_cast<void *(*)(unsigned long)>(cosmo_dltramp(cosmo_dlsym(libc, "malloc"))); auto pfree = reinterpret_cast<void (*)(void *)>(cosmo_dltramp(cosmo_dlsym(libc, "free")));
+    if (!pmallopt || !pmalloc || !pfree) return 0;
+    pmallopt(-1, 1 << 30);   // M_TRIM_THRESHOLD: do not give the memory back when it is freed
+    std::vector<void *> blocks; for (long i = 0; i < kb; i++) { void *b = pmalloc(1024); if (!b) break; memset(b, 0, 1024); blocks.push_back(b); }   // malloc and write: calloc would skip the write on fresh heap memory
+    for (void *b : blocks) pfree(b);
+    return ms_since(t);
+}
+static void burst(int n) {
+    WGPUBufferDescriptor b = WGPU_BUFFER_DESCRIPTOR_INIT; b.size = 65536; b.usage = WGPUBufferUsage_Storage | WGPUBufferUsage_CopyDst;
+    struct rusage r0, r1; getrusage(RUSAGE_SELF, &r0); auto t = Clock::now();
+    for (int i = 0; i < n; i++) { WGPUBuffer x = wgpuDeviceCreateBuffer(g_device, &b); wgpuBufferRelease(x); }
+    double ms = ms_since(t); getrusage(RUSAGE_SELF, &r1);
+    printf("host : burst of %d buffer create+release: %.3f ms (%.3f us each), %ld page faults (%.3f per call)\n", n, ms, ms * 1e3 / n, r1.ru_minflt - r0.ru_minflt, (double)(r1.ru_minflt - r0.ru_minflt) / n);
+}
+
 int main(int argc, char **argv) {
     setvbuf(stdout, nullptr, _IONBF, 0); ShowCrashReports(); win_shield_install();   // a crash prints a report (registers, backtrace) instead of nothing
     // (before Dawn's loader looks at DAWN_COSMO_VK, which it reads once)
@@ -192,6 +213,8 @@ int main(int argc, char **argv) {
     size_t len = 0; uint8_t *bytes = read_all(cw ? cw : path, &len); if (!bytes) bytes = read_all(pulley ? "game.pulley.cwasm" : "game.cwasm", &len); if (!bytes) { fprintf(stderr, "cannot read the game module (%s)\n", cw ? cw : path); return 65; }
     printf("host : platform=%s arch=%s, game module %zu bytes (%s)\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", arch, len, pulley ? "Pulley bytecode" : "native code");
     auto t0 = Clock::now(); if (!gpu_init()) { puts("FAIL gpu init"); return 2; } printf("host : GPU ready in %.1f ms\n", ms_since(t0));
+    if (const char *pk = getenv("GAME_PREFAULT_KB")) { double ms = prefault_driver_heap(atol(pk)); printf("host : pre-faulted %s KiB of the driver's heap in %.2f ms\n", pk, ms); }
+    if (const char *bn = getenv("GAME_BURST")) { burst(atoi(bn)); return 0; }
     WnEngine *e = wn_engine_new(pulley ? 2 : 0); if (!e) { puts("FAIL engine"); return 3; }
     int rc = 0;
 #define D(n, sg, cb) rc |= wn_engine_define(e, "celori", n, sg, cb, 0)
