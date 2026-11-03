@@ -1,0 +1,45 @@
+name: musl-gpu
+# Real GPU drivers on Linux without glibc (Alpine and other musl systems): the system's own Vulkan driver (here Mesa's, built for musl) reached through cosmo_dlopen with a helper program linked against musl.
+# Cosmopolitan loads the helper's own interpreter (PT_INTERP) into the process, so a helper whose interpreter is musl's loader is all that is needed.
+# Builds that helper in an Alpine container, produces the C header with its bytes, and runs the game file in Alpine against Alpine's Vulkan driver (system mode, not the driver inside the file).
+on:
+  workflow_dispatch:
+    inputs:
+      game_run: { description: 'gameloop run whose artifact "game" (game.com) is tested', required: true }
+jobs:
+  musl:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    arch: x86_64 }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          gh run download ${{ inputs.game_run }} -R ${{ github.repository }} -n game -D g; chmod +x g/game.com
+          mkdir -p out; cp dawn-cosmo/dlopen-helper/dlopen-helper.c out/dlopen-helper.c
+      - name: Build the helper against musl (Alpine 3.20)
+        run: |
+          docker run --rm -v $PWD/out:/w alpine:3.20 sh -c 'apk add --no-cache gcc musl-dev >/dev/null && cc -pie -fPIC /w/dlopen-helper.c -o /w/dlopen-helper-musl -Wl,-z,execstack && ls -la /w && readelf -l /w/dlopen-helper-musl 2>/dev/null | grep -i interp -A1 || (apk add --no-cache binutils >/dev/null && readelf -l /w/dlopen-helper-musl | grep -i "interpreter")'
+          ls -la out
+      - name: Header with the helper's bytes
+        run: |
+          python3 - <<'EOF'
+          d = open('out/dlopen-helper-musl','rb').read()
+          open('out/DawnCosmoDlopenHelperMusl_${{ matrix.arch }}.inc','w').write('static const unsigned char kDlopenHelperMusl%s[] = {%s};\nstatic const unsigned long kDlopenHelperMusl%sSize = %d;\n' % ('${{ matrix.arch }}'.capitalize(), ','.join(str(b) for b in d), '${{ matrix.arch }}'.capitalize(), len(d)))
+          EOF
+          ls -la out
+      - name: Alpine, Alpine's own Vulkan driver (Mesa lavapipe built for musl), the pre-built musl helper in the cache directory
+        run: |
+          set +e; sudo rm -rf t; mkdir -p t/.cosmo; cp out/dlopen-helper-musl t/.cosmo/dlopen-helper; cp out/dlopen-helper.c t/.cosmo/dlopen-helper.c; touch t/.cosmo/dlopen-helper t/.cosmo/dlopen-helper.c
+          docker run --rm -v $PWD:/w -w /w/g -e TMPDIR=/w/t -e WGT_BACKEND=vulkan -e DAWN_COSMO_VK=system -e DAWN_COSMO_DIAG=1 alpine:3.20 sh -c '
+            apk add --no-cache mesa-vulkan-swrast vulkan-loader >/dev/null 2>&1; ls /usr/lib/libvulkan* /usr/lib/libvulkan_lvp* 2>&1 | head -3; ls /lib64 /lib/libc.so.6 2>&1 | head -2
+            sh ./game.com > ../musl_out.txt 2>&1; echo "exit status $?"'
+          tr '\r' '\n' < musl_out.txt | grep -v "^Warning" | grep -E "dawn-cosmo|adapter|GPU ready|guest: fails|GPU compl|RESULT|error|FAIL|not found|No such" | head -30
+          grep -q "RESULT PASS" musl_out.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with: { name: 'musl-${{ matrix.label }}', path: "out\nmusl_out.txt" }
