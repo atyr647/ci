@@ -20,22 +20,26 @@ jobs:
       - run: |
           uname -r; systemctl --version | head -1; cat /proc/sys/kernel/yama/ptrace_scope 2>/dev/null; grep -c . /sys/kernel/security/lsm 2>/dev/null && cat /sys/kernel/security/lsm
           gh run download ${{ inputs.game_run }} -R ${{ github.repository }} -n game -D g; chmod +x g/game.com; cc -O2 alloc-probe/mdwe.c -o mdwe; ls -la g
-      - name: Baseline (no policy)
+      - name: Phase 1 - no system Vulkan driver on the machine - without a policy (the driver inside the file is used)
+        env: { WGT_BACKEND: vulkan }
         run: |
-          cd g; set +e; sh ./game.com > ../base.txt 2>&1; echo "exit $?"; tr '\r' '\n' < ../base.txt | grep -E "RESULT|adapter|FAIL|error" | head -5
-      - name: systemd MemoryDenyWriteExecute=yes (what hardened services use), default GPU choice
+          cd g; set +e; sh ./game.com > ../p1_base.txt 2>&1; echo "exit $?"; tr '\r' '\n' < ../p1_base.txt | grep -E "RESULT|adapter|GPU compl" | head -5
+      - name: Phase 1 - systemd MemoryDenyWriteExecute=yes (what hardened services use)
+        env: { WGT_BACKEND: vulkan }
         run: |
-          cd g; set +e; sudo systemd-run --pipe --wait --collect -p MemoryDenyWriteExecute=yes -p WorkingDirectory=$PWD -p User=$(id -un) -p Environment=HOME=$HOME sh ./game.com > ../mdwe_sd.txt 2>&1; echo "exit $?"
-          tr '\r' '\n' < ../mdwe_sd.txt | head -40 | cut -c1-240
-      - name: Kernel MDWE (prctl PR_SET_MDWE, refuse exec gain)
+          cd g; set +e; sudo systemd-run --pipe --wait --collect -p MemoryDenyWriteExecute=yes -p WorkingDirectory=$PWD -p User=$(id -un) -p Environment=HOME=$HOME -p Environment=WGT_BACKEND=vulkan sh ./game.com > ../p1_sd.txt 2>&1; echo "exit $?"
+          tr '\r' '\n' < ../p1_sd.txt | grep -vE "^Warning|^$" | head -20 | cut -c1-240
+      - name: Phase 1 - kernel MDWE (prctl PR_SET_MDWE, refuse exec gain)
+        env: { WGT_BACKEND: vulkan }
         run: |
-          cd g; set +e; ../mdwe sh ./game.com > ../mdwe_k.txt 2>&1; echo "exit $?"
-          tr '\r' '\n' < ../mdwe_k.txt | head -40 | cut -c1-240
-      - name: Same, with strace of the denied calls
+          cd g; set +e; ../mdwe sh ./game.com > ../p1_k.txt 2>&1; echo "exit $?"; tr '\r' '\n' < ../p1_k.txt | grep -vE "^Warning|^$" | head -14 | cut -c1-240
+      - name: Phase 2 - Mesa's Vulkan driver installed (a system driver that itself JITs) - no policy, then the policies
+        env: { WGT_BACKEND: vulkan }
         run: |
-          set +e; sudo apt-get install -y strace >/dev/null 2>&1; cd g
-          ../mdwe strace -f -e trace=mmap,mprotect,pkey_mprotect -o ../st.txt sh ./game.com > /dev/null 2>&1
-          echo "denied calls:"; grep -E "EACCES|EPERM" ../st.txt | head -12 | cut -c1-200; echo "count: $(grep -cE 'EACCES|EPERM' ../st.txt)"
+          set +e; sudo apt-get update >/dev/null; sudo apt-get install -y mesa-vulkan-drivers libvulkan1 >/dev/null 2>&1; cd g
+          echo "=== no policy"; sh ./game.com > ../p2_base.txt 2>&1; echo "exit $?"; tr '\r' '\n' < ../p2_base.txt | grep -E "RESULT|adapter" | head -3
+          echo "=== systemd MemoryDenyWriteExecute=yes"; sudo systemd-run --pipe --wait --collect -p MemoryDenyWriteExecute=yes -p WorkingDirectory=$PWD -p User=$(id -un) -p Environment=HOME=$HOME -p Environment=WGT_BACKEND=vulkan sh ./game.com > ../p2_sd.txt 2>&1; echo "exit $?"; tr '\r' '\n' < ../p2_sd.txt | grep -vE "^Warning|^$" | head -16 | cut -c1-240
+          echo "=== kernel MDWE"; ../mdwe sh ./game.com > ../p2_k.txt 2>&1; echo "exit $?"; tr '\r' '\n' < ../p2_k.txt | grep -vE "^Warning|^$" | head -16 | cut -c1-240
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'wx-${{ matrix.label }}', path: "*.txt" }
