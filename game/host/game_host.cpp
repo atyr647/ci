@@ -51,6 +51,10 @@ struct Buf { WGPUBuffer b; uint64_t size; };
 struct Target { WGPUTexture tex; WGPUTextureView view; int w, h; };
 static std::vector<WGPUShaderModule> g_shaders; static std::vector<Buf> g_bufs; static std::vector<WGPUComputePipeline> g_cpipes; static std::vector<WGPURenderPipeline> g_rpipes; static std::vector<Target> g_targets;
 static WGPUCommandEncoder g_enc; static uint64_t g_submits, g_dispatches, g_draws;
+// GPU timestamp queries (when the adapter has the feature): every compute and render pass writes its start and end; they are resolved at the end of each submission and read once at the end of the run
+static const uint32_t kMaxQ = 2048; static bool g_ts; static WGPUQuerySet g_qs; static WGPUBuffer g_qres, g_qread; static uint32_t g_qn, g_qresolved; static int g_qwork_bad;
+static bool take_ts(WGPUPassTimestampWrites *w) { if (!g_ts || g_qn + 2 > kMaxQ) return false; w->querySet = g_qs; w->beginningOfPassWriteIndex = g_qn; w->endOfPassWriteIndex = g_qn + 1; g_qn += 2; return true; }
+static void on_work_done(WGPUQueueWorkDoneStatus s, WGPUStringView, void *, void *) { if (s != WGPUQueueWorkDoneStatus_Success) g_qwork_bad++; g_done = 1; }
 
 static bool gpu_init() {
     puts("host : creating the instance"); WGPUInstanceDescriptor id = WGPU_INSTANCE_DESCRIPTOR_INIT; g_inst = wgpuCreateInstance(&id); if (!g_inst) return false; puts("host : requesting an adapter");
@@ -63,9 +67,19 @@ static bool gpu_init() {
     WGPUAdapterInfo info = WGPU_ADAPTER_INFO_INIT; wgpuAdapterGetInfo(g_adapter, &info);
     printf("host : adapter backend=%d type=%d device=%s\n", (int)info.backendType, (int)info.adapterType, sv(info.device).c_str());
     WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT; dd.uncapturedErrorCallbackInfo.callback = on_error;
+    WGPUFeatureName feat = WGPUFeatureName_TimestampQuery; const bool has_ts = wgpuAdapterHasFeature(g_adapter, feat) && !getenv("GAME_NO_TIMESTAMPS");
+    if (has_ts) { dd.requiredFeatureCount = 1; dd.requiredFeatures = &feat; }
+    static const char *k_off[] = {"timestamp_quantization"}; WGPUDawnTogglesDescriptor tg = WGPU_DAWN_TOGGLES_DESCRIPTOR_INIT; tg.disabledToggleCount = 1; tg.disabledToggles = k_off; dd.nextInChain = &tg.chain;   // Dawn rounds timestamps to 100 us unless told not to
     WGPURequestDeviceCallbackInfo dci = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT; dci.mode = WGPUCallbackMode_AllowProcessEvents; dci.callback = on_device;
     g_done = 0; wgpuAdapterRequestDevice(g_adapter, &dd, dci); pump(); if (!g_device) return false;
-    g_queue = wgpuDeviceGetQueue(g_device); return true;
+    g_queue = wgpuDeviceGetQueue(g_device);
+    if (has_ts) {
+        WGPUQuerySetDescriptor qd = WGPU_QUERY_SET_DESCRIPTOR_INIT; qd.type = WGPUQueryType_Timestamp; qd.count = kMaxQ; g_qs = wgpuDeviceCreateQuerySet(g_device, &qd);
+        WGPUBufferDescriptor bd = WGPU_BUFFER_DESCRIPTOR_INIT; bd.size = kMaxQ * 8; bd.usage = WGPUBufferUsage_QueryResolve | WGPUBufferUsage_CopySrc; g_qres = wgpuDeviceCreateBuffer(g_device, &bd);
+        bd.usage = WGPUBufferUsage_MapRead | WGPUBufferUsage_CopyDst; g_qread = wgpuDeviceCreateBuffer(g_device, &bd); g_ts = g_qs && g_qres && g_qread;
+    }
+    printf("host : GPU timestamp queries %s\n", g_ts ? "enabled" : has_ts ? "failed to set up" : "not supported by this adapter");
+    return true;
 }
 
 #define CB(n) static int32_t n(void *, WnInst *, uint8_t *mem, size_t memlen, const uint64_t *a, uint64_t *r)
@@ -94,17 +108,19 @@ CB(gpu_target) { Target t; t.w = (int)a[0]; t.h = (int)a[1]; WGPUTextureDescript
     d.size = {(uint32_t)t.w, (uint32_t)t.h, 1}; d.format = WGPUTextureFormat_RGBA8Unorm; t.tex = wgpuDeviceCreateTexture(g_device, &d); t.view = wgpuTextureCreateView(t.tex, nullptr);
     g_targets.push_back(t); r[0] = (uint32_t)(g_targets.size() - 1); return 0; }
 CB(gpu_begin) { WGPUCommandEncoderDescriptor d = WGPU_COMMAND_ENCODER_DESCRIPTOR_INIT; g_enc = wgpuDeviceCreateCommandEncoder(g_device, &d); return 0; }
-CB(gpu_end) { WGPUCommandBufferDescriptor d = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT; WGPUCommandBuffer cb = wgpuCommandEncoderFinish(g_enc, &d); wgpuQueueSubmit(g_queue, 1, &cb); wgpuCommandBufferRelease(cb); wgpuCommandEncoderRelease(g_enc); g_enc = nullptr; g_submits++; return 0; }
+CB(gpu_end) { if (g_ts && g_qn > g_qresolved) { uint32_t n = g_qn - g_qresolved; wgpuCommandEncoderResolveQuerySet(g_enc, g_qs, g_qresolved, n, g_qres, (uint64_t)g_qresolved * 8);
+        wgpuCommandEncoderCopyBufferToBuffer(g_enc, g_qres, (uint64_t)g_qresolved * 8, g_qread, (uint64_t)g_qresolved * 8, (uint64_t)n * 8); g_qresolved = g_qn; }
+    WGPUCommandBufferDescriptor d = WGPU_COMMAND_BUFFER_DESCRIPTOR_INIT; WGPUCommandBuffer cb = wgpuCommandEncoderFinish(g_enc, &d); wgpuQueueSubmit(g_queue, 1, &cb); wgpuCommandBufferRelease(cb); wgpuCommandEncoderRelease(g_enc); g_enc = nullptr; g_submits++; return 0; }
 CB(gpu_dispatch) { uint32_t p = (uint32_t)a[0]; int ids[3] = {(int)a[1], (int)a[2], (int)a[3]}; uint32_t groups = (uint32_t)a[4]; if (p >= g_cpipes.size() || !g_enc) return 1;
     WGPUBindGroupLayout l = wgpuComputePipelineGetBindGroupLayout(g_cpipes[p], 0); WGPUBindGroup bg = make_bg(l, ids, 3);
-    WGPUComputePassDescriptor pd = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT; WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(g_enc, &pd);
+    WGPUComputePassDescriptor pd = WGPU_COMPUTE_PASS_DESCRIPTOR_INIT; WGPUPassTimestampWrites tw = WGPU_PASS_TIMESTAMP_WRITES_INIT; if (take_ts(&tw)) pd.timestampWrites = &tw; WGPUComputePassEncoder pass = wgpuCommandEncoderBeginComputePass(g_enc, &pd);
     wgpuComputePassEncoderSetPipeline(pass, g_cpipes[p]); wgpuComputePassEncoderSetBindGroup(pass, 0, bg, 0, nullptr); wgpuComputePassEncoderDispatchWorkgroups(pass, groups, 1, 1); wgpuComputePassEncoderEnd(pass);
     wgpuComputePassEncoderRelease(pass); wgpuBindGroupRelease(bg); wgpuBindGroupLayoutRelease(l); g_dispatches++; return 0; }
 CB(gpu_draw) { uint32_t p = (uint32_t)a[0]; int ids[3] = {(int)a[1], (int)a[2], -1}; uint32_t t = (uint32_t)a[3], verts = (uint32_t)a[4], inst = (uint32_t)a[5], clear = (uint32_t)a[6]; if (p >= g_rpipes.size() || t >= g_targets.size() || !g_enc) return 1;
     WGPUBindGroupLayout l = wgpuRenderPipelineGetBindGroupLayout(g_rpipes[p], 0); WGPUBindGroup bg = make_bg(l, ids, 3);
     WGPURenderPassColorAttachment ca = WGPU_RENDER_PASS_COLOR_ATTACHMENT_INIT; ca.view = g_targets[t].view; ca.loadOp = WGPULoadOp_Clear; ca.storeOp = WGPUStoreOp_Store;
     ca.clearValue = {(clear & 255) / 255.0, ((clear >> 8) & 255) / 255.0, ((clear >> 16) & 255) / 255.0, ((clear >> 24) & 255) / 255.0};
-    WGPURenderPassDescriptor rd = WGPU_RENDER_PASS_DESCRIPTOR_INIT; rd.colorAttachmentCount = 1; rd.colorAttachments = &ca; WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(g_enc, &rd);
+    WGPURenderPassDescriptor rd = WGPU_RENDER_PASS_DESCRIPTOR_INIT; rd.colorAttachmentCount = 1; rd.colorAttachments = &ca; WGPUPassTimestampWrites tw = WGPU_PASS_TIMESTAMP_WRITES_INIT; if (take_ts(&tw)) rd.timestampWrites = &tw; WGPURenderPassEncoder pass = wgpuCommandEncoderBeginRenderPass(g_enc, &rd);
     wgpuRenderPassEncoderSetPipeline(pass, g_rpipes[p]); wgpuRenderPassEncoderSetBindGroup(pass, 0, bg, 0, nullptr); wgpuRenderPassEncoderDraw(pass, verts, inst, 0, 0); wgpuRenderPassEncoderEnd(pass);
     wgpuRenderPassEncoderRelease(pass); wgpuBindGroupRelease(bg); wgpuBindGroupLayoutRelease(l); g_draws++; return 0; }
 static bool map_read(WGPUBuffer b, uint64_t size, const void **out) {
@@ -167,11 +183,14 @@ int main(int argc, char **argv) {
     char err[512]; WnInst *inst = wn_inst_new(e, err, sizeof err); if (!inst) { printf("FAIL instantiate: %s\n", err); return 6; }
     uint64_t res[2] = {0, 0};
     if (wn_inst_call(inst, "game_init", nullptr, 0, res, 1)) { printf("FAIL game_init: %s\n", wn_inst_error(inst)); return 7; }
-    auto tl = Clock::now(); std::vector<double> ft; int bad = 0;
+    auto tl = Clock::now(); std::vector<double> ft, gt; int bad = 0;
     for (int f = 0; f < frames; f++) {
         script(f); auto t1 = Clock::now(); uint64_t arg[1] = {(uint64_t)f};
         if (wn_inst_call(inst, "game_frame", arg, 1, res, 1)) { printf("FAIL game_frame %d: %s\n", f, wn_inst_error(inst)); return 8; }
         wgpuInstanceProcessEvents(g_inst); ft.push_back(ms_since(t1)); if (res[0]) bad++;
+        // then wait for the GPU to finish this frame's work: the time from the end of the submission side to completion (what a game that must not run ahead of the GPU would wait)
+        { auto tw = Clock::now(); g_done = 0; WGPUQueueWorkDoneCallbackInfo wi = WGPU_QUEUE_WORK_DONE_CALLBACK_INFO_INIT; wi.mode = WGPUCallbackMode_AllowProcessEvents; wi.callback = on_work_done;
+          wgpuQueueOnSubmittedWorkDone(g_queue, wi); if (!pump()) { printf("FAIL frame %d: work-done callback never came\n", f); return 10; } gt.push_back(ms_since(tw)); }
     }
     double loop_ms = ms_since(tl);
     if (wn_inst_call(inst, "game_result", nullptr, 0, res, 1)) { printf("FAIL game_result: %s\n", wn_inst_error(inst)); return 9; }
@@ -185,10 +204,22 @@ int main(int argc, char **argv) {
     bool audio_ok = g_audio_frames == (uint64_t)frames * spf && tone_first == 60 && tone_last == 71 && tone_blocks == 12;
     if (const char *wav = getenv("GAME_WAV")) { FILE *w = fopen(wav, "wb"); if (w) { uint32_t dl = (uint32_t)(g_audio.size() * 2), v; uint16_t h; fwrite("RIFF", 1, 4, w); v = 36 + dl; fwrite(&v, 4, 1, w); fwrite("WAVEfmt ", 1, 8, w); v = 16; fwrite(&v, 4, 1, w);
         h = 1; fwrite(&h, 2, 1, w); h = 2; fwrite(&h, 2, 1, w); v = 48000; fwrite(&v, 4, 1, w); v = 48000 * 4; fwrite(&v, 4, 1, w); h = 4; fwrite(&h, 2, 1, w); h = 16; fwrite(&h, 2, 1, w); fwrite("data", 1, 4, w); fwrite(&dl, 4, 1, w); fwrite(g_audio.data(), 2, g_audio.size(), w); fclose(w); } }
+    // GPU side: completion latency per frame (always) and the GPU's own timestamps of the passes (when supported)
+    std::sort(gt.begin(), gt.end()); double gmed = gt.empty() ? 0 : gt[gt.size() / 2], gp99 = gt.empty() ? 0 : gt[(size_t)(gt.size() * 0.99)], gmax = gt.empty() ? 0 : gt.back();
+    printf("host : GPU completion after the submission side finished, per frame: median %.3f ms, p99 %.3f ms, max %.3f ms (%zu frames, work-done failures %d)\n", gmed, gp99, gmax, gt.size(), g_qwork_bad);
+    bool ts_ok = true;
+    if (g_ts && g_qn) {
+        const uint64_t *tsv = nullptr; if (!map_read(g_qread, (uint64_t)kMaxQ * 8, (const void **)&tsv)) { puts("host : timestamp readback failed"); ts_ok = false; }
+        else { std::vector<double> pass_us; int inverted = 0, zero = 0; for (uint32_t i = 0; i + 1 < g_qn; i += 2) { if (tsv[i] == 0 && tsv[i + 1] == 0) { zero++; continue; } if (tsv[i + 1] < tsv[i]) { inverted++; continue; } pass_us.push_back((double)(tsv[i + 1] - tsv[i]) / 1e3); }
+            std::sort(pass_us.begin(), pass_us.end()); double tot = 0; for (double v : pass_us) tot += v;
+            if (pass_us.empty()) { printf("host : GPU timestamps: %u passes written, none usable (%d zero, %d inverted)\n", g_qn / 2, zero, inverted); ts_ok = false; }
+            else printf("host : GPU timestamps: %zu passes, per pass median %.1f us, p99 %.1f us, max %.1f us, total GPU pass time %.2f ms over %d frames (%d zero, %d inverted)\n", pass_us.size(), pass_us[pass_us.size() / 2], pass_us[(size_t)(pass_us.size() * 0.99)], pass_us.back(), tot / 1e3, frames, zero, inverted);
+            wgpuBufferUnmap(g_qread); }
+    }
     std::sort(ft.begin(), ft.end()); double med = ft[ft.size() / 2], p99 = ft[(size_t)(ft.size() * 0.99)];
-    printf("host : %d frames in %.1f ms (frame time median %.2f ms, p99 %.2f ms; includes wasm, GPU encode and submit); submits %llu, dispatches %llu, draws %llu\n", frames, loop_ms, med, p99, (unsigned long long)g_submits, (unsigned long long)g_dispatches, (unsigned long long)g_draws);
+    printf("host : %d frames in %.1f ms including the wait for the GPU after each frame (submission-side frame time median %.2f ms, p99 %.2f ms: wasm, GPU encode and submit); submits %llu, dispatches %llu, draws %llu\n", frames, loop_ms, med, p99, (unsigned long long)g_submits, (unsigned long long)g_dispatches, (unsigned long long)g_draws);
     printf("host : audio %llu frames, tone in game frames %d..%d (%d blocks), peak block RMS %.3f -> %s\n", (unsigned long long)g_audio_frames, tone_first, tone_last, tone_blocks, rms_max, audio_ok ? "as scripted" : "WRONG");
-    bool pass = guest_fails == 0 && bad == 0 && g_gpu_errors == 0 && audio_ok;
+    bool pass = guest_fails == 0 && bad == 0 && g_gpu_errors == 0 && audio_ok && g_qwork_bad == 0 && ts_ok;
     printf("RESULT %s gameloop frames=%d guest_fails=%d frame_fails=%d gpu_errors=%d audio=%s\n", pass ? "PASS" : "FAIL", frames, guest_fails, bad, g_gpu_errors, audio_ok ? "ok" : "bad");
     fflush(stdout); return pass ? 0 : 1;
 }
