@@ -30,7 +30,9 @@ jobs:
           $S/bin/clang --target=wasm32-wasip1 -O2 -mexec-model=reactor -Wl,--no-entry game/guest/game.c -o game.wasm -lm
           ls -la game.wasm; $S/bin/llvm-objdump --version >/dev/null 2>&1; (strings -a game.wasm | grep -E "wasi_snapshot|celori" | head -5) || true
           F="-W gc-support=n -W concurrency-support=n -W exceptions=n -W component-model=n -W shared-everything-threads=n -W function-references=n -W threads=n"
-          for a in x86_64 aarch64; do cli/wasmtime compile --target $a-unknown-linux-gnu $F -O signals-based-traps=y game.wasm -o out/game.sig.$a.cwasm; done; ls -la out
+          for a in x86_64 aarch64; do cli/wasmtime compile --target $a-unknown-linux-gnu $F -O signals-based-traps=y game.wasm -o out/game.sig.$a.cwasm; done
+          cli/wasmtime compile --target pulley64 $F game.wasm -o out/game.pulley.cwasm   # one interpreter module for every OS and architecture: used where executable memory is refused (and with --pulley)
+          ls -la out
       - name: The host, for both architectures (Wasmtime + Dawn + mimalloc + mutex fast path), one file
         run: |
           B=$PWD/cosmo/bin; mkdir parts
@@ -50,7 +52,7 @@ jobs:
           ls -la parts
           for A in x86_64 aarch64; do $B/$A-linux-cosmo-nm -n -C parts/game.$A.com.dbg > syms.$A.txt 2>/dev/null || $B/$A-unknown-cosmo-nm -n -C parts/game.$A.com.dbg > syms.$A.txt || true; wc -l syms.$A.txt; done
           $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o game.com parts/game.x86_64.com.dbg parts/game.aarch64.com.dbg
-          (cd out && zip -q ../game.com game.sig.x86_64.cwasm game.sig.aarch64.cwasm); ls -la game.com; unzip -l game.com | tail -4
+          (cd out && zip -q ../game.com game.sig.x86_64.cwasm game.sig.aarch64.cwasm game.pulley.cwasm); ls -la game.com; unzip -l game.com | tail -4
       - uses: actions/upload-artifact@v4
         with: { name: game, path: "game.com\ngame.wasm\nsyms.x86_64.txt\nsyms.aarch64.txt\ngame/tools/symbolize.py" }
   run:

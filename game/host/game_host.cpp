@@ -14,6 +14,7 @@
 #include <thread>
 #include <vector>
 #include <cosmo.h>
+#include <sys/mman.h>
 #define WIN_SHIELD_WRAP_THREADS 1
 #include "win_shield.h"
 #include <webgpu/webgpu.h>
@@ -162,16 +163,36 @@ static void script(int f) {
 static uint8_t *read_all(const char *path, size_t *n) { FILE *f = fopen(path, "rb"); if (!f) return nullptr; fseek(f, 0, SEEK_END); long len = ftell(f); fseek(f, 0, SEEK_SET); uint8_t *b = (uint8_t *)malloc(len);
     if (fread(b, 1, len, f) != (size_t)len) { fclose(f); free(b); return nullptr; } fclose(f); *n = len; return b; }
 
+
+// Does this system let a program make memory it has just written executable? Wasmtime's native code and the in-file software GPU driver's JIT both need that; hardened systems refuse it
+// (systemd MemoryDenyWriteExecute=yes, the kernel's MDWE, macOS hardened runtime without the JIT entitlement, Windows arbitrary-code-guard). The policy is respected, never worked around:
+// without it the game runs its wasm on the Pulley interpreter (no machine code is generated) and does not use the in-file software GPU driver.
+static bool exec_memory_allowed() {
+    void *p = mmap(nullptr, 4096, PROT_READ | PROT_WRITE, MAP_PRIVATE | MAP_ANONYMOUS, -1, 0); if (p == MAP_FAILED) return false;
+#ifdef __x86_64__
+    ((uint8_t *)p)[0] = 0xC3;   // ret
+#else
+    *(uint32_t *)p = 0xD65F03C0;   // ret
+#endif
+    bool ok = mprotect(p, 4096, PROT_READ | PROT_EXEC) == 0; munmap(p, 4096); return ok;
+}
+
 int main(int argc, char **argv) {
     setvbuf(stdout, nullptr, _IONBF, 0); ShowCrashReports(); win_shield_install();   // a crash prints a report (registers, backtrace) instead of nothing
+    // (before Dawn's loader looks at DAWN_COSMO_VK, which it reads once)
+    const bool exec_ok = exec_memory_allowed();
+    if (!exec_ok && !getenv("DAWN_COSMO_VK")) setenv("DAWN_COSMO_VK", "system", 1);
     DawnCosmoForeignInit(); DawnCosmoGpuThreadEnter();
-    int frames = 120; const char *cw = getenv("GAME_CWASM");
-    for (int i = 1; i < argc; i++) { if (!strncmp(argv[i], "--frames=", 9)) frames = atoi(argv[i] + 9); else if (!strncmp(argv[i], "--cwasm=", 8)) cw = argv[i] + 8; }
-    const char *arch = IsAarch64() ? "aarch64" : "x86_64"; char path[256]; snprintf(path, sizeof path, "/zip/game.sig.%s.cwasm", arch);
-    size_t len = 0; uint8_t *bytes = read_all(cw ? cw : path, &len); if (!bytes) bytes = read_all("game.cwasm", &len); if (!bytes) { fprintf(stderr, "cannot read the game module (%s)\n", cw ? cw : path); return 65; }
-    printf("host : platform=%s arch=%s, game module %zu bytes\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", arch, len);
+    int frames = 120; const char *cw = getenv("GAME_CWASM"); bool force_pulley = getenv("GAME_PULLEY") != nullptr;
+    for (int i = 1; i < argc; i++) { if (!strncmp(argv[i], "--frames=", 9)) frames = atoi(argv[i] + 9); else if (!strncmp(argv[i], "--cwasm=", 8)) cw = argv[i] + 8; else if (!strcmp(argv[i], "--pulley")) force_pulley = true; }
+    const bool pulley = force_pulley || !exec_ok;
+    if (!exec_ok) printf("host : this system refuses executable memory that was written first (a write-xor-execute policy): the wasm runs on the Pulley interpreter and the in-file software GPU driver is not used\n");
+    else if (force_pulley) puts("host : Pulley interpreter requested");
+    const char *arch = IsAarch64() ? "aarch64" : "x86_64"; char path[256]; if (pulley) snprintf(path, sizeof path, "/zip/game.pulley.cwasm"); else snprintf(path, sizeof path, "/zip/game.sig.%s.cwasm", arch);
+    size_t len = 0; uint8_t *bytes = read_all(cw ? cw : path, &len); if (!bytes) bytes = read_all(pulley ? "game.pulley.cwasm" : "game.cwasm", &len); if (!bytes) { fprintf(stderr, "cannot read the game module (%s)\n", cw ? cw : path); return 65; }
+    printf("host : platform=%s arch=%s, game module %zu bytes (%s)\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", arch, len, pulley ? "Pulley bytecode" : "native code");
     auto t0 = Clock::now(); if (!gpu_init()) { puts("FAIL gpu init"); return 2; } printf("host : GPU ready in %.1f ms\n", ms_since(t0));
-    WnEngine *e = wn_engine_new(0); if (!e) { puts("FAIL engine"); return 3; }
+    WnEngine *e = wn_engine_new(pulley ? 2 : 0); if (!e) { puts("FAIL engine"); return 3; }
     int rc = 0;
 #define D(n, sg, cb) rc |= wn_engine_define(e, "celori", n, sg, cb, 0)
     D("gpu_shader", "ii>i", gpu_shader); D("gpu_buffer", "ii>i", gpu_buffer); D("gpu_write", "iiii", gpu_write); D("gpu_compute_pipeline", "iii>i", gpu_compute_pipeline);
