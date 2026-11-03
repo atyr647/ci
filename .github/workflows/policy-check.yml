@@ -1,0 +1,31 @@
+name: policy-check
+# Hardened executable-memory policies that the Linux runners cannot show: macOS hardened runtime (which pattern needs which entitlement) and Windows arbitrary code guard (also on the real game file, started with the policy on from its first instruction).
+# SELinux cannot be enforced on a GitHub-hosted runner (Ubuntu runs AppArmor) and is not tested here.
+on:
+  workflow_dispatch:
+    inputs:
+      game_run: { description: 'gameloop run whose artifact "game" (game.com) is started under the Windows policy', required: true }
+jobs:
+  mac:
+    runs-on: macos-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set +e; cc -O1 game/policy/mac_jit_test.c -o t_unsigned; echo "=== unsigned"; ./t_unsigned
+          cp t_unsigned t_runtime; codesign --force -s - -o runtime t_runtime; echo "=== ad hoc signed, hardened runtime"; ./t_runtime
+          for ent in com.apple.security.cs.allow-jit com.apple.security.cs.allow-unsigned-executable-memory; do
+            printf '<?xml version="1.0" encoding="UTF-8"?><!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd"><plist version="1.0"><dict><key>%s</key><true/></dict></plist>' $ent > e.plist
+            cp t_unsigned t_ent; codesign --force -s - -o runtime --entitlements e.plist t_ent; echo "=== hardened runtime + $ent"; ./t_ent
+          done
+  windows:
+    runs-on: windows-latest
+    defaults: { run: { shell: bash } }
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          set +e; gcc -O1 game/policy/acg_test.c -o acg_test.exe && echo built || exit 1
+          echo "=== without the policy"; ./acg_test.exe probe
+          echo "=== with arbitrary code guard on from the first instruction"; ./acg_test.exe probe-acg
+          gh run download ${{ inputs.game_run }} -R ${{ github.repository }} -n game -D g; cp g/game.com g/game.exe
+          echo "=== the game file under arbitrary code guard"; ./acg_test.exe run "$PWD/g/game.exe" 2>&1 | tr '\r' '\n' | grep -vE "^Warning|^$" | head -30

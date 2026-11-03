@@ -3,10 +3,10 @@
 #include "window.h"
 #include <chrono>
 int main(int argc, char **argv) {
-    setvbuf(stdout, nullptr, _IONBF, 0); ShowCrashReports(); double secs = 3; bool keys = false;
-    for (int i = 1; i < argc; i++) { if (!strncmp(argv[i], "--seconds=", 10)) secs = atof(argv[i] + 10); else if (!strcmp(argv[i], "--expect=keys")) keys = true; }
+    setvbuf(stdout, nullptr, _IONBF, 0); ShowCrashReports(); double secs = 3; bool keys = false; int W = 256, H = 256;
+    for (int i = 1; i < argc; i++) { if (!strncmp(argv[i], "--seconds=", 10)) secs = atof(argv[i] + 10); else if (!strcmp(argv[i], "--expect=keys")) keys = true; else if (!strncmp(argv[i], "--size=", 7)) sscanf(argv[i] + 7, "%dx%d", &W, &H); }
     printf("window_test: platform=%s arch=%s\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", IsAarch64() ? "aarch64" : "x86_64");
-    win::Window w; const int W = 256, H = 256; if (!w.open(W, H, "celori window test")) { printf("window_test: cannot open (%s): %s\nRESULT FAIL window\n", w.backend.c_str(), w.note.c_str()); return 2; }
+    win::Window w; if (!w.open(W, H, "celori window test")) { printf("window_test: cannot open (%s): %s\nRESULT FAIL window\n", w.backend.c_str(), w.note.c_str()); return 2; }
     printf("window_test: %s: %s\n", w.backend.c_str(), w.note.c_str());
     std::vector<uint8_t> fr((size_t)W * H * 4);
     for (int y = 0; y < H; y++) for (int x = 0; x < W; x++) { uint8_t *p = &fr[((size_t)y * W + x) * 4]; p[0] = (uint8_t)x; p[1] = (uint8_t)y; p[2] = (uint8_t)((x ^ y) & 255); p[3] = 255; if (x >= 100 && x < 140 && y >= 60 && y < 100) { p[0] = 255; p[1] = 0; p[2] = 0; } }

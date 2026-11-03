@@ -27,6 +27,39 @@
 #include <time.h>
 #include <unistd.h>
 
+
+// System V shared memory through the system calls themselves (Cosmopolitan has no <sys/shm.h>): Linux numbers per architecture
+// (Cosmopolitan's syscall() answers ENOSYS for numbers it does not know: the instruction itself)
+static inline long raw_syscall3(long n, long a, long b, long c) {
+#if defined(__x86_64__)
+    long r; __asm__ volatile("syscall" : "=a"(r) : "0"(n), "D"(a), "S"(b), "d"(c) : "rcx", "r11", "memory"); return r;
+#else
+    register long x8 __asm__("x8") = n; register long x0 __asm__("x0") = a; register long x1 __asm__("x1") = b; register long x2 __asm__("x2") = c; __asm__ volatile("svc 0" : "+r"(x0) : "r"(x8), "r"(x1), "r"(x2) : "memory"); return x0;
+#endif
+}
+static inline long sysv_shmget(size_t sz) {
+#if defined(__x86_64__)
+    return raw_syscall3(29, 0L /*IPC_PRIVATE*/, (long)sz, 01000 | 0600L /*IPC_CREAT|0600*/);
+#else
+    return raw_syscall3(194, 0L, (long)sz, 01000 | 0600L);
+#endif
+}
+static inline void *sysv_shmat(long id) {
+#if defined(__x86_64__)
+    long r = raw_syscall3(30, id, 0L, 0L);
+#else
+    long r = raw_syscall3(196, id, 0L, 0L);
+#endif
+    return (r < 0 && r > -4096) ? (void *)-1 : (void *)r;
+}
+static inline void sysv_rmid(long id) {
+#if defined(__x86_64__)
+    raw_syscall3(31, id, 0L /*IPC_RMID*/, 0L);
+#else
+    raw_syscall3(195, id, 0L, 0L);
+#endif
+}
+
 namespace win {
 
 enum { EV_KEY_DOWN = 1, EV_KEY_UP = 2, EV_MOUSE = 3, EV_CLOSE = 4 };
@@ -38,7 +71,7 @@ static inline int game_key_from_keysym(uint32_t ks) { switch (ks) { case 0xff51:
 // ================================================================================================ X11, protocol only
 struct X11 {
     int fd = -1; uint32_t base = 0, mask = 0, root = 0, rootvis = 0, win = 0, gc = 0, wm_protocols = 0, wm_delete = 0; int depth = 0, bpp = 0, w = 0, h = 0; uint32_t maxreq = 0; uint8_t mink = 0, maxk = 0; uint16_t seq = 0;
-    std::vector<uint32_t> keysyms; int per = 0; std::vector<uint8_t> inbuf; std::vector<Event> pending; int errors = 0; std::string note, vendor;
+    int shm_op = 0; uint8_t *shm_mem = nullptr; size_t shm_size = 0; uint32_t shm_seg = 0; bool shm_ok = false; std::vector<uint32_t> keysyms; int per = 0; std::vector<uint8_t> inbuf; std::vector<Event> pending; int errors = 0; std::string note, vendor;
     static size_t pad4(size_t n) { return (n + 3) & ~3u; }
     bool wr(const void *p, size_t n) { const uint8_t *b = (const uint8_t *)p; while (n) { ssize_t k = write(fd, b, n); if (k < 0) { if (errno == EINTR) continue; return false; } b += k; n -= (size_t)k; } return true; }
     bool rd(void *p, size_t n, int timeout_ms = 5000) { uint8_t *b = (uint8_t *)p; while (n) { struct pollfd pf = {fd, POLLIN, 0}; if (poll(&pf, 1, timeout_ms) <= 0) return false; ssize_t k = read(fd, b, n); if (k <= 0) return false; b += k; n -= (size_t)k; } return true; }
@@ -87,7 +120,19 @@ struct X11 {
         std::vector<uint8_t> mp; mp.push_back(8); mp.push_back(0); put16(mp, 2); put32(mp, win); wr(mp.data(), mp.size()); seq++;
         std::vector<uint8_t> km; km.push_back(101); km.push_back(0); put16(km, 2); km.push_back(mink); km.push_back((uint8_t)(maxk - mink + 1)); put16(km, 0); wr(km.data(), km.size()); seq++;
         std::vector<uint8_t> rep; if (read_reply(rep)) { per = rep[1]; size_t cnt = (rep.size() - 32) / 4; keysyms.resize(cnt); for (size_t i = 0; i < cnt; i++) keysyms[i] = get32(rep.data() + 32 + 4 * i); }
-        n = "X11 protocol over /tmp/.X11-unix/X" + std::string(num) + ", vendor \"" + vendor + "\", depth " + std::to_string(depth) + ", " + std::to_string(w) + "x" + std::to_string(h); note = n; return true;
+        try_shm(w, h, idc);
+        n = "X11 protocol over /tmp/.X11-unix/X" + std::string(num) + ", vendor \"" + vendor + "\", depth " + std::to_string(depth) + ", " + std::to_string(w) + "x" + std::to_string(h) + (shm_ok ? ", MIT-SHM image transfer" : ", images through the socket"); note = n; return true;
+    }
+    // MIT-SHM: the frame is written into a SysV shared memory segment that the X server maps too, and one small request names it (no copy through the socket)
+    void try_shm(int fw, int fh, uint32_t &idc) {
+        if (!getenv("WINDOW_SHM")) return;   // opt in: on Xvfb it measured no faster than the socket (the server's own copy dominates), so it is not the default
+        std::string nm = "MIT-SHM"; std::vector<uint8_t> q; q.push_back(98); q.push_back(0); put16(q, (uint32_t)(2 + pad4(nm.size()) / 4)); put16(q, (uint32_t)nm.size()); put16(q, 0); q.insert(q.end(), nm.begin(), nm.end()); q.resize(8 + pad4(nm.size()));
+        static const bool dbg = getenv("WINDOW_DEBUG") != nullptr; if (!wr(q.data(), q.size())) return; seq++; std::vector<uint8_t> rep; if (!read_reply(rep) || rep.size() < 12 || !rep[8]) { if (dbg) fprintf(stderr, "shm: extension not present (reply %zu bytes)\n", rep.size()); return; } shm_op = rep[9]; if (dbg) fprintf(stderr, "shm: MIT-SHM major opcode %d\n", shm_op);
+        shm_size = (size_t)fw * fh * 4; long id = sysv_shmget(shm_size); if (dbg) fprintf(stderr, "shm: shmget -> %ld \n", id); if (id < 0) return; void *m = sysv_shmat(id); if (dbg) fprintf(stderr, "shm: shmat -> %p\n", m); if (m == (void *)-1) { sysv_rmid(id); return; }
+        shm_seg = base | (idc++ & mask); std::vector<uint8_t> a; a.push_back((uint8_t)shm_op); a.push_back(1); put16(a, 4); put32(a, shm_seg); put32(a, (uint32_t)id); a.push_back(0); a.push_back(0); a.push_back(0); a.push_back(0);   // ShmAttach, read-write
+        if (!wr(a.data(), a.size())) { sysv_rmid(id); return; } seq++;
+        std::vector<uint8_t> f; f.push_back(43); f.push_back(0); put16(f, 1); wr(f.data(), f.size()); seq++; int before = errors; if (!read_reply(rep) || errors != before) { if (dbg) fprintf(stderr, "shm: ShmAttach refused (errors %d -> %d)\n", before, errors); sysv_rmid(id); return; }   // GetInputFocus as a round trip: an error to ShmAttach arrives before its reply
+        sysv_rmid(id); shm_mem = (uint8_t *)m; shm_ok = true;   // (the segment goes away when both sides have detached)
     }
     // read packets until the reply to the last request arrives; events that come first are queued
     bool read_reply(std::vector<uint8_t> &rep) {
@@ -113,6 +158,12 @@ struct X11 {
         pending.clear();
     }
     bool present(const uint8_t *rgba, int fw, int fh) {
+        if (shm_ok && (size_t)fw * fh * 4 <= shm_size) {
+            uint8_t *d = shm_mem; for (size_t i = 0, n = (size_t)fw * fh; i < n; i++) { d[4 * i] = rgba[4 * i + 2]; d[4 * i + 1] = rgba[4 * i + 1]; d[4 * i + 2] = rgba[4 * i]; d[4 * i + 3] = 0; }
+            std::vector<uint8_t> r; r.push_back((uint8_t)shm_op); r.push_back(3); put16(r, 10); put32(r, win); put32(r, gc); put16(r, (uint32_t)fw); put16(r, (uint32_t)fh); put16(r, 0); put16(r, 0); put16(r, (uint32_t)fw); put16(r, (uint32_t)fh); put16(r, 0); put16(r, 0);
+            r.push_back((uint8_t)depth); r.push_back(2); r.push_back(0); r.push_back(0); put32(r, shm_seg); put32(r, 0); if (!wr(r.data(), r.size())) return false; seq++;
+            std::vector<uint8_t> f, rep; f.push_back(43); f.push_back(0); put16(f, 1); if (!wr(f.data(), f.size())) return false; seq++; return read_reply(rep);   // the round trip tells that the server has read the segment: it can be written again
+        }
         size_t row = (size_t)fw * 4; size_t rows_per = (size_t)(maxreq * 4 - 64) / row; if (rows_per < 1) rows_per = 1; std::vector<uint8_t> px((size_t)fw * fh * 4);
         for (int i = 0; i < fw * fh; i++) { px[4 * i] = rgba[4 * i + 2]; px[4 * i + 1] = rgba[4 * i + 1]; px[4 * i + 2] = rgba[4 * i]; px[4 * i + 3] = 0; }
         for (int y = 0; y < fh; y += (int)rows_per) { int n = (int)std::min<size_t>(rows_per, (size_t)(fh - y)); std::vector<uint8_t> r; r.push_back(72); r.push_back(2); put16(r, (uint32_t)(6 + (size_t)n * row / 4)); put32(r, win); put32(r, gc);
@@ -268,12 +319,18 @@ struct Gdi {
     std::string inject() {
         typedef int (WMS *SetCur)(int, int); typedef unsigned (WMS *SendIn)(unsigned, const void *, int); typedef int (WMS *Post)(void *, unsigned, uintptr_t, intptr_t); typedef int (WMS *Cl2Sc)(void *, int *);
         SetCur setcur = (SetCur)cosmo_dlsym(u, "SetCursorPos"); SendIn sendin = (SendIn)cosmo_dlsym(u, "SendInput"); Post post = (Post)cosmo_dlsym(u, "PostMessageW"); Cl2Sc c2s = (Cl2Sc)cosmo_dlsym(u, "ClientToScreen");
-        int pt[2] = {0, 0}; c2s(hwnd, pt); setcur(pt[0] + 50, pt[1] + 60); win::wsleep_ms(50); pump();
+        typedef void *(WMS *GetFg)(void); typedef int (WMS *AllowFg)(unsigned);
+        int pt[2] = {0, 0}; c2s(hwnd, pt);
+        // a window only gets keys from the system queue when it is the foreground window; a program may take the foreground only in some situations, a real click on the window always gives it
+        ((AllowFg)cosmo_dlsym(u, "AllowSetForegroundWindow"))(0xFFFFFFFFu); setcur(pt[0] + 120, pt[1] + 120); win::wsleep_ms(30);
+        { uint8_t in[40]; memset(in, 0, sizeof in); *(unsigned *)in = 0; *(unsigned *)(in + 20) = 0x2; sendin(1, in, 40); *(unsigned *)(in + 20) = 0x4; sendin(1, in, 40); }   // left button down, up
+        win::wsleep_ms(50); pump(); bool fg = ((GetFg)cosmo_dlsym(u, "GetForegroundWindow"))() == hwnd;
+        setcur(pt[0] + 50, pt[1] + 60); win::wsleep_ms(50); pump();
         auto key = [&](unsigned short vk, bool down) { uint8_t in[40]; memset(in, 0, sizeof in); *(unsigned *)in = 1; *(unsigned short *)(in + 8) = vk; *(unsigned *)(in + 12) = down ? 0 : 2; return sendin(1, in, 40); };
         unsigned sent = 0; for (unsigned short vk : {(unsigned short)'A', (unsigned short)0x27, (unsigned short)0x20}) { sent += key(vk, true); sent += key(vk, false); win::wsleep_ms(30); pump(); }
         pump(); bool got = !events().empty() && std::any_of(events().begin(), events().end(), [](const Event &e) { return e.type == EV_KEY_DOWN; });
         if (!got) { post(hwnd, 0x200, 0, (50 & 0xFFFF) | (60 << 16)); for (uintptr_t vk : {(uintptr_t)'A', (uintptr_t)0x27, (uintptr_t)0x20}) { post(hwnd, 0x100, vk, 0); post(hwnd, 0x101, vk, 0); } pump(); }
-        return std::string("SendInput accepted ") + std::to_string(sent) + " events; " + (got ? "they arrived through the system queue" : "they did not arrive (foreground window?), posted window messages were used instead");
+        return std::string(fg ? "the window is the foreground window; " : "the window is NOT the foreground window; ") + "SendInput accepted " + std::to_string(sent) + " events; " + (got ? "they arrived through the system queue" : "they did not arrive (foreground window?), posted window messages were used instead");
     }
     void close() { if (hwnd) { typedef int (WMS *Dw)(void *); ((Dw)cosmo_dlsym(u, "DestroyWindow"))(hwnd); hwnd = nullptr; } }
 };

@@ -75,6 +75,14 @@ jobs:
           set +e
           if [ "$RUNNER_OS" = Windows ]; then cp window_test.com window_test.exe; ( ./window_test.exe --seconds=3 --expect=keys 2>&1 | cat ) | tr '\r' '\n'; exit ${PIPESTATUS[0]}
           else chmod +x window_test.com; WINDOW_DEBUG=1 sh ./window_test.com --seconds=3 --expect=keys 2>&1 | tr '\r' '\n'; fi
+      - name: What CPU presentation costs at larger frames (1280x720 and 1920x1080: blit and transfer, per frame)
+        run: |
+          set +e
+          for sz in 1280x720 1920x1080; do echo "=== $sz"
+            if [ "$RUNNER_OS" = Linux ]; then xvfb-run -a -s "-screen 0 2400x1400x24" sh ./window_test.com --size=$sz --seconds=0.2 2>&1 | tr '\r' '\n' | grep -E "presented|read-back"
+            elif [ "$RUNNER_OS" = Windows ]; then ( ./window_test.exe --size=$sz --seconds=0.2 2>&1 | cat ) | tr '\r' '\n' | grep -E "presented|read-back"
+            else sh ./window_test.com --size=$sz --seconds=0.2 2>&1 | tr '\r' '\n' | grep -E "presented|read-back"; fi
+          done
       - uses: actions/upload-artifact@v4
         if: always() && runner.os == 'Linux'
         with: { name: 'shots-${{ matrix.label }}', path: "shot*.png\n*.txt" }
