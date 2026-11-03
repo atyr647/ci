@@ -1,0 +1,78 @@
+name: platform-modules
+# The real-time audio ring and the gamepad back ends (game/platform/audio_out.h, gamepad.h) from a Cosmopolitan program, on the five targets.
+# Linux: audio on the software clock, with a deliberate stall (the counters must see it), and on a kernel sound device (the snd-dummy module: a card that consumes at the sample rate); gamepad through the kernel's uinput simulation.
+# Windows and macOS: what the runners allow (no sound card on Windows, no controllers anywhere); the result lines say which parts only ran as far as the API.
+on: { workflow_dispatch: {} }
+env: { COSMOCC: 4.0.2 }
+jobs:
+  build:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          curl -fsSL -o cosmocc.zip https://github.com/jart/cosmopolitan/releases/download/$COSMOCC/cosmocc-$COSMOCC.zip && mkdir cosmo && unzip -q cosmocc.zip -d cosmo
+          B=$PWD/cosmo/bin; mkdir parts out
+          for t in audio_test pad_test; do
+            for A in x86_64 aarch64; do $B/$A-unknown-cosmo-c++ -O2 -std=c++17 -Igame/platform game/platform/$t.cpp -o parts/$t.$A.com -lpthread 2>&1 | tail -30; done
+            $B/apelink -V -1 -l $B/ape-x86_64.elf -l $B/ape-aarch64.elf -M $B/ape-m1.c -o out/$t.com parts/$t.x86_64.com.dbg parts/$t.aarch64.com.dbg; ls -la out/$t.com
+          done
+      - uses: actions/upload-artifact@v4
+        with: { name: modules, path: "out/*.com" }
+  run:
+    needs: build
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest }
+          - { label: linux-arm64, os: ubuntu-24.04-arm }
+          - { label: win-x64,     os: windows-latest }
+          - { label: win-arm64,   os: windows-11-arm }
+          - { label: mac-arm64,   os: macos-latest }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash } }
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: modules, path: . }
+      - name: Run helper
+        run: |
+          cat > run.sh <<'EOS'
+          #!/bin/bash
+          # usage: run.sh <name> [args...]   runs out of the fat file the way each OS runs it
+          n=$1; shift
+          if [ "$RUNNER_OS" = Windows ]; then cp $n.com $n.exe; ( ./$n.exe "$@" 2>&1 | cat ); exit ${PIPESTATUS[0]}
+          else chmod +x $n.com; sh ./$n.com "$@" 2>&1; fi
+          EOS
+          chmod +x run.sh
+      - name: Audio on the software clock
+        run: |
+          set +e; ./run.sh audio_test --mode=timed --frames=180 | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
+      - name: Audio, deliberate 200 ms stall (the counters must see it)
+        run: |
+          set +e; ./run.sh audio_test --mode=timed --frames=180 --stall | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
+      - name: Audio on this machine's device, if there is one (Windows waveOut, macOS AudioQueue)
+        if: runner.os != 'Linux'
+        run: |
+          set +e; ./run.sh audio_test --mode=device --frames=180 | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
+      - name: Linux - a kernel sound card (snd-dummy) and audio through libasound on it
+        if: runner.os == 'Linux'
+        run: |
+          set +e
+          sudo apt-get update >/dev/null; sudo apt-get install -y libasound2t64 alsa-utils "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 || sudo apt-get install -y libasound2t64 alsa-utils linux-modules-extra-azure >/dev/null 2>&1
+          sudo modprobe snd-dummy; echo "modprobe snd-dummy: $?"; aplay -l 2>&1 | head -5
+          GAME_AUDIO_REQUIRE=1 GAME_AUDIO_DEV=plughw:Dummy ./run.sh audio_test --mode=device --frames=180 | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
+          echo "=== with the stall:"; GAME_AUDIO_REQUIRE=1 GAME_AUDIO_DEV=plughw:Dummy ./run.sh audio_test --mode=device --frames=180 --stall | tr '\r' '\n' | tail -8; echo "exit status ${PIPESTATUS[0]}"
+      - name: Gamepad through the kernel's uinput simulation (Linux)
+        if: runner.os == 'Linux'
+        run: |
+          set +e
+          sudo modprobe uinput; echo "modprobe uinput: $?"; ls -la /dev/uinput /dev/input 2>&1 | head -6
+          cc -O2 game/platform/uinput_feeder.c -o uinput_feeder && ls -la uinput_feeder
+          chmod +x pad_test.com
+          sudo ./uinput_feeder 3 > feeder.txt 2>&1 &
+          sleep 0.5; sudo sh ./pad_test.com --seconds=8 --expect=uinput 2>&1 | tr '\r' '\n'; rc=${PIPESTATUS[0]}; wait; cat feeder.txt; echo "exit status $rc"; exit $rc
+      - name: Gamepad API on this machine (no controller is attached to a CI machine)
+        if: runner.os != 'Linux'
+        run: |
+          set +e; ./run.sh pad_test --seconds=3 --allow-none | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
