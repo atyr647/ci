@@ -55,20 +55,21 @@ jobs:
         if: runner.os != 'Linux'
         run: |
           set +e; ./run.sh audio_test --mode=device --frames=180 | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
-      - name: Linux - a kernel sound card (snd-dummy) and audio through libasound on it
+      - name: Linux - a clocked sound device (a PulseAudio null sink, reached through libasound's pulse plugin) and the ring against it
         if: runner.os == 'Linux'
         run: |
           set +e
-          sudo apt-get update >/dev/null; sudo apt-get install -y libasound2t64 alsa-utils "linux-modules-extra-$(uname -r)" >/dev/null 2>&1 || sudo apt-get install -y libasound2t64 alsa-utils linux-modules-extra-azure >/dev/null 2>&1
-          sudo modprobe snd-dummy; echo "modprobe snd-dummy: $?"; aplay -l 2>&1 | head -5
-          GAME_AUDIO_REQUIRE=1 GAME_AUDIO_DEV=plughw:Dummy ./run.sh audio_test --mode=device --frames=180 | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
-          echo "=== with the stall:"; GAME_AUDIO_REQUIRE=1 GAME_AUDIO_DEV=plughw:Dummy ./run.sh audio_test --mode=device --frames=180 --stall | tr '\r' '\n' | tail -8; echo "exit status ${PIPESTATUS[0]}"
+          sudo apt-get update >/dev/null; sudo apt-get install -y libasound2t64 libasound2-plugins pulseaudio pulseaudio-utils 2>&1 | tail -2
+          pulseaudio --start --exit-idle-time=-1 --disallow-exit 2>&1 | tail -2; sleep 1
+          pactl load-module module-null-sink sink_name=celori_test sink_properties=device.description=celori_test; pactl set-default-sink celori_test; pactl list short sinks
+          GAME_AUDIO_REQUIRE=1 GAME_AUDIO_DEV=pulse ./run.sh audio_test --mode=device --frames=180 | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
+          echo "=== with the stall:"; GAME_AUDIO_REQUIRE=1 GAME_AUDIO_DEV=pulse ./run.sh audio_test --mode=device --frames=180 --stall | tr '\r' '\n' | tail -8; echo "exit status ${PIPESTATUS[0]}"
       - name: Gamepad through the kernel's uinput simulation (Linux)
         if: runner.os == 'Linux'
         run: |
           set +e
           sudo modprobe uinput; echo "modprobe uinput: $?"; ls -la /dev/uinput /dev/input 2>&1 | head -6
-          cc -O2 game/platform/uinput_feeder.c -o uinput_feeder && ls -la uinput_feeder
+          cc -O2 -include stdlib.h game/platform/uinput_feeder.c -o uinput_feeder && ls -la uinput_feeder
           chmod +x pad_test.com
           sudo ./uinput_feeder 3 > feeder.txt 2>&1 &
           sleep 0.5; sudo sh ./pad_test.com --seconds=8 --expect=uinput 2>&1 | tr '\r' '\n'; rc=${PIPESTATUS[0]}; wait; cat feeder.txt; echo "exit status $rc"; exit $rc

@@ -7,6 +7,7 @@
 #pragma once
 #define _COSMO_SOURCE 1
 #include <algorithm>
+#include <cmath>
 #include <chrono>
 #include <cstdint>
 #include <cstdio>
@@ -69,7 +70,7 @@ struct Evdev {
                     else if (e.code == 0x11) { int h = e.value < 0 ? -1 : e.value > 0 ? 1 : 0; if (d.haty != h) { if (d.haty) out.push_back({EV_BUTTON, d.pad, d.haty < 0 ? B_DUP : B_DDOWN, 0}); if (h) out.push_back({EV_BUTTON, d.pad, h < 0 ? B_DUP : B_DDOWN, 1}); d.haty = h; } }
                     else { int ax = map_axis(e.code); if (ax >= 0 && e.code <= 5 && d.amax[e.code] > d.amin[e.code]) {
                         double span = (double)d.amax[e.code] - d.amin[e.code], f = ((double)e.value - d.amin[e.code]) / span;   // 0..1
-                        int v = (ax == A_LT || ax == A_RT) ? (int)(f * 32767.0 + 0.5) : (int)(f * 65535.0 - 32768.0 + 0.5);
+                        int v = (ax == A_LT || ax == A_RT) ? (int)std::floor(f * 32767.0 + 0.5) : (int)std::floor(f * 65535.0 - 32768.0 + 0.5);
                         if (ax == A_LY || ax == A_RY) v = -v - 1;   // evdev has up negative, the standard layout up positive
                         out.push_back({EV_AXIS, d.pad, ax, std::max(-32768, std::min(32767, v))}); } }
                 }
