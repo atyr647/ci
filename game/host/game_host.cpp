@@ -22,6 +22,7 @@
 #include "audio_out.h"
 #include <webgpu/webgpu.h>
 extern "C" void DawnCosmoGpuThreadEnter();
+extern "C" __attribute__((weak)) int vk_icdNegotiateLoaderICDInterfaceVersion(unsigned int *);   // present when the software driver is linked into this file
 extern "C" void DawnCosmoForeignInit();
 
 extern "C" {
@@ -220,7 +221,15 @@ int main(int argc, char **argv) {
     const char *arch = IsAarch64() ? "aarch64" : "x86_64"; char path[256]; if (pulley) snprintf(path, sizeof path, "/zip/game.pulley.cwasm"); else snprintf(path, sizeof path, "/zip/game.sig.%s.cwasm", arch);
     size_t len = 0; uint8_t *bytes = read_all(cw ? cw : path, &len); if (!bytes) bytes = read_all(pulley ? "game.pulley.cwasm" : "game.cwasm", &len); if (!bytes) { fprintf(stderr, "cannot read the game module (%s)\n", cw ? cw : path); return 65; }
     printf("host : platform=%s arch=%s, game module %zu bytes (%s)\n", IsWindows() ? "windows" : IsXnu() ? "macos" : "linux", arch, len, pulley ? "Pulley bytecode" : "native code");
-    auto t0 = Clock::now(); if (!gpu_init()) { puts("FAIL gpu init"); return 2; } printf("host : GPU ready in %.1f ms\n", ms_since(t0));
+    auto t0 = Clock::now();
+    if (!gpu_init()) {
+        // A machine can have the Vulkan loader and no driver at all (many desktops, virtual machines, containers with libvulkan1 only): the loader opens, finds no device, and Dawn reports no adapter. The driver inside this file was never tried
+        // because it is the fallback for "no loader". Start again in software mode; Dawn reads DAWN_COSMO_VK once, so the process is replaced rather than reconfigured.
+        if (IsLinux() && exec_ok && !getenv("DAWN_COSMO_VK") && !getenv("GAME_REEXEC") && vk_icdNegotiateLoaderICDInterfaceVersion) {
+            setenv("DAWN_COSMO_VK", "software", 1); setenv("GAME_REEXEC", "1", 1); puts("host : the system has no usable Vulkan device; starting again with the driver inside this file"); fflush(stdout); execv(GetProgramExecutableName(), argv);
+        }
+        puts("FAIL gpu init"); return 2;
+    } printf("host : GPU ready in %.1f ms\n", ms_since(t0));
     if (const char *pk = getenv("GAME_PREFAULT_KB")) { double ms = prefault_driver_heap(atol(pk)); printf("host : pre-faulted %s KiB of the driver's heap in %.2f ms\n", pk, ms); }
     if (const char *bn = getenv("GAME_BURST")) { burst(atoi(bn)); return 0; }
     WnEngine *e = wn_engine_new(pulley ? 2 : 0); if (!e) { puts("FAIL engine"); return 3; }

@@ -115,6 +115,13 @@ jobs:
           echo "=== crash addresses:"; ls -la syms.x86_64.txt game/tools/symbolize.py 2>&1 | head -3; wc -l syms.x86_64.txt 2>&1; head -2 syms.x86_64.txt 2>&1; python3 game/tools/symbolize.py syms.x86_64.txt out_musl.txt 2>&1 | head -12
           tr '\r' '\n' < out_musl.txt | grep -v "^Warning" | grep -v "^\[vk\]" | head -40; echo "=== last Vulkan calls before the end:"; grep "^\[vk\]" out_musl.txt | tail -12; echo "exit status $rc"
           grep -q "RESULT PASS" out_musl.txt
+      - name: Alpine (musl) with the system's own Vulkan driver (Mesa for musl), nothing seeded by hand - the file puts the musl-linked helper in place itself
+        if: always() && runner.os == 'Linux'
+        run: |
+          set +e
+          docker run --rm -e WGT_BACKEND=vulkan -e DAWN_COSMO_VK=system -e DAWN_COSMO_DIAG=1 -v "$PWD:/w" -w /w alpine:3.20 sh -c 'apk add --no-cache mesa-vulkan-swrast vulkan-loader >/dev/null 2>&1; sh ./game.com > out_musl_sys.txt 2>&1; echo "exit status $?"'
+          tr '\r' '\n' < out_musl_sys.txt | grep -E "seeded the|adapter|GPU compl|RESULT|FAIL|No supported" | head
+          grep -q "RESULT PASS" out_musl_sys.txt && grep -q "seeded the musl" out_musl_sys.txt
       - uses: actions/upload-artifact@v4
         if: always()
         with: { name: 'gameloop-${{ matrix.label }}', path: "out*.txt\ngame.wav\nstrace.txt" }
