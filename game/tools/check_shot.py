@@ -3,11 +3,13 @@
 usage: check_shot.py shot.png [left top]   (the window's top-left corner in the screenshot, default 0 0). Prints SHOT mismatches/total and exits 1 when any pixel differs."""
 import subprocess, sys
 png = sys.argv[1]; left = int(sys.argv[2]) if len(sys.argv) > 2 else 0; top = int(sys.argv[3]) if len(sys.argv) > 3 else 0
+ign = tuple(int(v) for v in sys.argv[4:8]) if len(sys.argv) >= 8 else None   # x y w h inside the window to leave out (the pointer cursor the compositor draws into a screenshot)
 raw = subprocess.run(['convert', png, '-crop', f'256x256+{left}+{top}', '+repage', '-depth', '8', 'rgb:-'], capture_output=True).stdout
 if len(raw) != 256 * 256 * 3: print('SHOT cannot read a 256x256 region'); sys.exit(1)
-bad = 0
+bad = 0; skipped = 0
 for y in range(256):
     for x in range(256):
         i = (y * 256 + x) * 3; exp = (255, 0, 0) if 100 <= x < 140 and 60 <= y < 100 else (x, y, (x ^ y) & 255)
+        if ign and ign[0] <= x < ign[0] + ign[2] and ign[1] <= y < ign[1] + ign[3]: skipped += 1; continue
         if tuple(raw[i:i + 3]) != exp: bad += 1
-print(f'SHOT {bad} of 65536 pixels differ from the presented frame'); sys.exit(1 if bad else 0)
+print(f'SHOT {bad} of {65536 - skipped} pixels differ from the presented frame' + (f' ({skipped} under the pointer cursor not compared)' if skipped else '')); sys.exit(1 if bad else 0)

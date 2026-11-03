@@ -25,6 +25,7 @@
 #ifdef __COSMOPOLITAN__
 extern "C" void DawnCosmoGpuThreadEnter();
 extern "C" void DawnCosmoForeignInit();
+extern "C" void DawnCosmoWarmDriverHeap();
 #endif
 #include <vector>
 #ifndef _WIN32
@@ -167,6 +168,7 @@ static int bench_main(int argc, char **argv) {
     WGPUDeviceDescriptor dd = WGPU_DEVICE_DESCRIPTOR_INIT; WGPURequestDeviceCallbackInfo dci = WGPU_REQUEST_DEVICE_CALLBACK_INFO_INIT;
     dci.mode = WGPUCallbackMode_AllowProcessEvents; dci.callback = on_device; g_done = 0; wgpuAdapterRequestDevice(g_adapter, &dd, dci); pump();
     if (!g_device) { puts("FAIL no device"); return 3; }
+    if (!getenv("BENCH_NO_WARM")) DawnCosmoWarmDriverHeap();   // the driver's heap populated now, as a game host does after creating the device (BENCH_NO_WARM=1 for the old behaviour)
     bench("start_device_ms", ms_since(t), "ms");
     WGPUDevice dev = g_device; WGPUQueue q = wgpuDeviceGetQueue(dev);
 

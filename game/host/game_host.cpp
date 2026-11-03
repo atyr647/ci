@@ -26,6 +26,7 @@
 extern "C" void DawnCosmoGpuThreadEnter();
 extern "C" __attribute__((weak)) int vk_icdNegotiateLoaderICDInterfaceVersion(unsigned int *);   // present when the software driver is linked into this file
 extern "C" void DawnCosmoForeignInit();
+extern "C" void DawnCosmoWarmDriverHeap();
 
 extern "C" {
 typedef struct WnEngine WnEngine; typedef struct WnInst WnInst;
@@ -245,6 +246,7 @@ int main(int argc, char **argv) {
         }
         puts("FAIL gpu init"); return 2;
     } printf("host : GPU ready in %.1f ms\n", ms_since(t0));
+    if (!getenv("GAME_PREFAULT_KB")) DawnCosmoWarmDriverHeap();   // default population of the driver's heap (Dawn loader), now that the device exists
     if (const char *pk = getenv("GAME_PREFAULT_KB")) { double ms = prefault_driver_heap(atol(pk)); printf("host : pre-faulted %s KiB of the driver's heap in %.2f ms\n", pk, ms); }
     if (const char *bn = getenv("GAME_BURST")) { burst(atoi(bn)); return 0; }
     win::Window window; bool win_on = false; pad::Gamepads pads; bool pad_on = false; std::vector<double> pres_ms; int present_fail = 0, verify_mismatch = -2; bool verify_ok = false;

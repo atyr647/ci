@@ -14,6 +14,7 @@ extern "C" int gettid(void);   // Cosmopolitan declares it only under _COSMO_SOU
 extern "C" {
 unsigned long DawnCosmoForeignTcb();   // thread block to run foreign calls on for THIS thread; 0 = none needed (main thread, or not Linux)
 void DawnCosmoForeignInit();           // call on the main thread before other threads call foreign code (idempotent)
+void DawnCosmoWarmDriverHeap();        // call once on the main thread after the device exists: the driver's heap is populated up front instead of during the first burst of buffer creation (Linux)
 extern int gDawnCosmoFsgsbase;         // x86-64: wrfsbase/rdfsbase can be used instead of arch_prctl
 void DawnCosmoSeedDlopenHelper();   // Linux: put the pre-built dlopen helper where Cosmopolitan looks for it, so no C compiler is needed on the user's machine
 void* DawnCosmoDlopen(const char* file, int mode);   // cosmo_dlopen, except that the Vulkan loader loaded ahead of time by the main thread is handed out without a foreign call
@@ -222,6 +223,14 @@ extern "C" void DawnCosmoForeignInit() {
     }
 #endif
     pthread_sigmask(SIG_SETMASK, &old, nullptr);
+    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d), main thread pointer %#lx, offset %#lx, first block %#lx\n", gCount, gDawnCosmoFsgsbase, ReadTp(), off, gCount ? gPool[0] : 0UL);
+}
+// Pre-populate the system C library's heap (the driver's malloc); call it once on the main thread AFTER the device exists (adapter and device creation allocate megabytes in the driver's heap themselves and would use
+// the pages up if this ran earlier, measured). Linux only, a no-op elsewhere or without the system C library.
+extern "C" void DawnCosmoWarmDriverHeap() {
+    if (!IsLinux() || DawnCosmoStaticIcd()) return;
+    void* libc = cosmo_dlopen("libc.so.6", RTLD_NOW);
+    if (!libc || !cosmo_dlsym(libc, "gnu_get_libc_version")) return;   // glibc only: its brk heap is what grows during the first burst; musl's allocator works differently (and crashed here on arm64 in the first try)
     // Pre-populate the system C library's heap (the driver's malloc). Natively Dawn and the driver share that heap, so the driver reuses pages that Dawn and Tint touched during start-up (every process pays for
     // those pages once, natively at start-up). In this build Dawn's frees go to this file's malloc, so the driver's heap starts nearly empty and the first burst of buffer creation grows it by about 2.6 MB:
     // about 700 page faults, 1.5-2.5 ms in the middle of a frame. Paying for the pages at start-up instead is what native Dawn does. Take 3 MiB from the library's heap in 64 KiB blocks (below its mmap
@@ -250,7 +259,6 @@ extern "C" void DawnCosmoForeignInit() {
             }
         }
     }
-    if (getenv("DAWN_COSMO_DIAG")) fprintf(stderr, "dawn-cosmo: %d parked thread blocks (fsgsbase %d), main thread pointer %#lx, offset %#lx, first block %#lx\n", gCount, gDawnCosmoFsgsbase, ReadTp(), off, gCount ? gPool[0] : 0UL);
 }
 extern "C" unsigned long DawnCosmoForeignTcb() {
     if (gChecked) return gSlot.tcb;

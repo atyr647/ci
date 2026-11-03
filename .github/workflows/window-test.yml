@@ -67,7 +67,7 @@ jobs:
           (sleep 5; grim -o HEADLESS-1 shot_wl.png) &
           H3=$!
           WINDOW_BACKEND=wayland sh ./window_test.com --seconds=9 --expect=keys 2>&1 | tr '\r' '\n' | tee wl.txt
-          wait $H1 $H2 $H3; python3 game/tools/check_shot.py shot_wl.png 0 0 | tee -a wl.txt; swaymsg exit >/dev/null 2>&1; sleep 1; kill $SWAYPID 2>/dev/null
+          wait $H1 $H2 $H3; python3 game/tools/check_shot.py shot_wl.png 0 0 45 55 40 45 | tee -a wl.txt; swaymsg exit >/dev/null 2>&1; sleep 1; kill $SWAYPID 2>/dev/null
           grep -q "input=ok" wl.txt && grep -q "SHOT 0 of" wl.txt
       - name: Windows and macOS - the window and its input from inside the program
         if: runner.os != 'Linux'
