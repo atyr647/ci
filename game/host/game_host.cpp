@@ -18,6 +18,7 @@
 #include <sys/resource.h>
 #define WIN_SHIELD_WRAP_THREADS 1
 #include "win_shield.h"
+#include "audio_out.h"
 #include <webgpu/webgpu.h>
 extern "C" void DawnCosmoGpuThreadEnter();
 extern "C" void DawnCosmoForeignInit();
@@ -147,9 +148,9 @@ CB(gpu_read_target) { uint32_t t = (uint32_t)a[0], p = (uint32_t)a[1], n = (uint
 // ---------------------------------------------------------------- input and audio
 struct Ev { uint32_t type, a, b, frame; };
 static std::vector<Ev> g_queue_in; static size_t g_qhead;
-static std::vector<int16_t> g_audio; static uint64_t g_audio_frames;
+static std::vector<int16_t> g_audio; static uint64_t g_audio_frames; static audio::Output g_aout;   // g_aout: the real-time ring and its audio thread (started with --realtime or GAME_AUDIO=...)
 CB(input_poll) { uint32_t p = (uint32_t)a[0], mx = (uint32_t)a[1]; size_t n = 0; while (g_qhead < g_queue_in.size() && n < mx) { if (!OK(p + n * 16, 16)) break; memcpy(mem + p + n * 16, &g_queue_in[g_qhead++], 16); n++; } r[0] = n; return 0; }
-CB(audio_write) { uint32_t p = (uint32_t)a[0], frames = (uint32_t)a[1]; if (!OK(p, frames * 4)) { r[0] = 0; return 0; } const int16_t *s = (const int16_t *)(mem + p); g_audio.insert(g_audio.end(), s, s + (size_t)frames * 2); g_audio_frames += frames; r[0] = frames; return 0; }
+CB(audio_write) { uint32_t p = (uint32_t)a[0], frames = (uint32_t)a[1]; if (!OK(p, frames * 4)) { r[0] = 0; return 0; } const int16_t *s = (const int16_t *)(mem + p); g_audio.insert(g_audio.end(), s, s + (size_t)frames * 2); g_audio_frames += frames; g_aout.submit(s, frames); r[0] = frames; return 0; }
 CB(host_log) { uint32_t p = (uint32_t)a[0], n = (uint32_t)a[1]; if (OK(p, n)) fwrite(mem + p, 1, n, stdout); fflush(stdout); return 0; }
 
 // the scripted input (frame numbers): RIGHT down 10..29, UP down 40..59, FIRE 60, MOUSE (192,64) at 80, RIGHT down 90..99
@@ -228,8 +229,14 @@ int main(int argc, char **argv) {
     char err[512]; WnInst *inst = wn_inst_new(e, err, sizeof err); if (!inst) { printf("FAIL instantiate: %s\n", err); return 6; }
     uint64_t res[2] = {0, 0};
     if (wn_inst_call(inst, "game_init", nullptr, 0, res, 1)) { printf("FAIL game_init: %s\n", wn_inst_error(inst)); return 7; }
-    auto tl = Clock::now(); std::vector<double> ft, gt; int bad = 0;
+    const bool realtime = getenv("GAME_REALTIME") != nullptr || [&] { for (int i = 1; i < argc; i++) if (!strcmp(argv[i], "--realtime")) return true; return false; }();
+    if (realtime || getenv("GAME_AUDIO")) { if (!g_aout.start(realtime && !getenv("GAME_AUDIO") ? "timed" : nullptr)) { puts("FAIL audio device required but not available"); return 11; } printf("host : audio out [%s]: %s\n", g_aout.st.backend.c_str(), g_aout.st.note.c_str()); }
+    auto tl = Clock::now(); std::vector<double> ft, gt; int bad = 0; double worst_late = 0; int late_frames = 0;
     for (int f = 0; f < frames; f++) {
+        if (realtime) {   // 60 frames a second: frame f starts at its time, the last 0.3 ms by spinning
+            auto due = tl + std::chrono::nanoseconds((long long)f * 1000000000LL / 60); std::this_thread::sleep_until(due - std::chrono::microseconds(300)); while (Clock::now() < due) {}
+            double l = std::chrono::duration<double, std::milli>(Clock::now() - due).count(); if (l > worst_late) worst_late = l; if (l > 1.0) late_frames++;
+        }
         script(f); auto t1 = Clock::now(); uint64_t arg[1] = {(uint64_t)f};
         if (wn_inst_call(inst, "game_frame", arg, 1, res, 1)) { printf("FAIL game_frame %d: %s\n", f, wn_inst_error(inst)); return 8; }
         wgpuInstanceProcessEvents(g_inst); ft.push_back(ms_since(t1)); if (res[0]) bad++;
@@ -238,6 +245,7 @@ int main(int argc, char **argv) {
           wgpuQueueOnSubmittedWorkDone(g_queue, wi); if (!pump()) { printf("FAIL frame %d: work-done callback never came\n", f); return 10; } gt.push_back(ms_since(tw)); }
     }
     double loop_ms = ms_since(tl);
+    bool aout_ok = true; if (g_aout.st.backend.size() && g_aout.st.backend != "off") { g_aout.finish(); g_aout.report("host"); aout_ok = g_aout.integrity(); if (realtime) printf("host : real-time pacing: %d of %d frames started more than 1 ms after their time, worst %.2f ms\n", late_frames, frames, worst_late); }
     if (wn_inst_call(inst, "game_result", nullptr, 0, res, 1)) { printf("FAIL game_result: %s\n", wn_inst_error(inst)); return 9; }
     int guest_fails = (int)res[0];
     // audio: 800 stereo frames per game frame; the tone must be exactly in game frames 60..71
@@ -264,7 +272,7 @@ int main(int argc, char **argv) {
     std::sort(ft.begin(), ft.end()); double med = ft[ft.size() / 2], p99 = ft[(size_t)(ft.size() * 0.99)];
     printf("host : %d frames in %.1f ms including the wait for the GPU after each frame (submission-side frame time median %.2f ms, p99 %.2f ms: wasm, GPU encode and submit); submits %llu, dispatches %llu, draws %llu\n", frames, loop_ms, med, p99, (unsigned long long)g_submits, (unsigned long long)g_dispatches, (unsigned long long)g_draws);
     printf("host : audio %llu frames, tone in game frames %d..%d (%d blocks), peak block RMS %.3f -> %s\n", (unsigned long long)g_audio_frames, tone_first, tone_last, tone_blocks, rms_max, audio_ok ? "as scripted" : "WRONG");
-    bool pass = guest_fails == 0 && bad == 0 && g_gpu_errors == 0 && audio_ok && g_qwork_bad == 0 && ts_ok;
+    bool pass = guest_fails == 0 && bad == 0 && g_gpu_errors == 0 && audio_ok && g_qwork_bad == 0 && ts_ok && aout_ok;
     printf("RESULT %s gameloop frames=%d guest_fails=%d frame_fails=%d gpu_errors=%d audio=%s\n", pass ? "PASS" : "FAIL", frames, guest_fails, bad, g_gpu_errors, audio_ok ? "ok" : "bad");
     fflush(stdout); return pass ? 0 : 1;
 }
