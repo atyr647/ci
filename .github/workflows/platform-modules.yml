@@ -55,7 +55,7 @@ jobs:
         if: runner.os != 'Linux'
         run: |
           set +e; ./run.sh audio_test --mode=device --frames=180 | tr '\r' '\n'; echo "exit status ${PIPESTATUS[0]}"
-      - name: Linux - a clocked sound device (a PulseAudio null sink, reached with the PulseAudio native protocol: no library) and the ring against it
+      - name: Linux - a clocked sound device (a PulseAudio null sink, reached with the PulseAudio native protocol, no library) and the ring against it
         if: runner.os == 'Linux'
         run: |
           set +e
