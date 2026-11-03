@@ -1,0 +1,56 @@
+name: pf-cost
+# The first burst of buffer creation costs about 420 more page faults (1.6-1.8 MB, about 0.9 ms) in the Cosmopolitan build than in native Dawn, at one instruction in the driver's C library (a fill of fresh memory).
+# 1.7 MB is about one 2 MiB transparent huge page. Test: does native Dawn get a huge page there (thp_fault_alloc), and does the gap close when THP is disabled for both?
+on:
+  workflow_dispatch:
+    inputs:
+      cosmo_run: { description: 'dawn-cosmo run with artifact dbg-dawn-bench', required: true }
+      reps: { description: 'repetitions per cell', required: false, default: '9' }
+env: { DAWN_SHA: 106704a9ac3fc21b1580ea85aea302ac17d416f1 }
+jobs:
+  pf:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    arch: x86_64 }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, arch: aarch64 }
+    runs-on: ${{ matrix.os }}
+    env: { GH_TOKEN: '${{ github.token }}' }
+    steps:
+      - uses: actions/checkout@v4
+      - run: |
+          sudo apt-get update && sudo apt-get install -y ninja-build clang mesa-vulkan-drivers libvulkan1 linux-tools-common "linux-tools-$(uname -r)" || true
+          echo "PERF=$(command -v perf || ls /usr/lib/linux-tools/*/perf | tail -1)" >> "$GITHUB_ENV"; sudo sysctl -w kernel.perf_event_paranoid=-1 kernel.kptr_restrict=0 || true
+          uname -r; echo "THP enabled: $(cat /sys/kernel/mm/transparent_hugepage/enabled)  defrag: $(cat /sys/kernel/mm/transparent_hugepage/defrag)  page size: $(getconf PAGESIZE)"; grep -E "thp_fault_alloc|thp_fault_fallback " /proc/vmstat; ldd --version | head -1; nproc
+      - uses: actions/cache/restore@v4
+        with:
+          path: dist
+          key: dawn-native-static-${{ matrix.label }}-${{ env.DAWN_SHA }}-v1
+          fail-on-cache-miss: true
+      - name: Build native benchmark, fetch the Cosmopolitan one, build the THP wrapper
+        run: |
+          cmake -S ci-webgpu-test/bench -B benchout -G Ninja -DCMAKE_BUILD_TYPE=Release -DCMAKE_PREFIX_PATH="$PWD/dist" -DCMAKE_CXX_COMPILER=clang++ -DCMAKE_CXX_FLAGS="-g1" && cmake --build benchout --target dawn-bench
+          gh run download ${{ inputs.cosmo_run }} -R ${{ github.repository }} -n dbg-dawn-bench -D dbg; chmod +x dbg/*
+          cc -O2 alloc-probe/nothp.c -o nothp
+      - name: Burst cost, THP on and off, native and Cosmopolitan
+        run: |
+          set +e; ulimit -c 0; R=${{ inputs.reps }}
+          N=./benchout/dawn-bench; C=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+          python3 alloc-probe/pf_cost.py "native thp-default"   $R -- $N
+          python3 alloc-probe/pf_cost.py "cosmo  thp-default"   $R -- $C
+          python3 alloc-probe/pf_cost.py "native thp-disabled"  $R -- ./nothp $N
+          python3 alloc-probe/pf_cost.py "cosmo  thp-disabled"  $R -- ./nothp $C
+          PF_ENV="GLIBC_TUNABLES=glibc.malloc.hugetlb=1" python3 alloc-probe/pf_cost.py "native hugetlb=1" $R -- $N
+          PF_ENV="GLIBC_TUNABLES=glibc.malloc.hugetlb=1" python3 alloc-probe/pf_cost.py "cosmo  hugetlb=1" $R -- $C
+      - name: Where the burst's faults land (address mapping and code), THP default
+        run: |
+          set +e; ulimit -c 0; export WGT_BACKEND=vulkan BENCH_BUFFER_REPEAT=4000
+          for v in native cosmo; do
+            BIN=./benchout/dawn-bench; [ $v = cosmo ] && BIN=./dbg/dawn-bench.${{ matrix.arch }}.com.dbg
+            "$PERF" record -e page-faults -c 1 -d -o pf.$v.data -- $BIN > /dev/null 2>&1
+            echo "=== $v: total faults $("$PERF" script -i pf.$v.data -F addr 2>/dev/null | wc -l)"
+            echo "=== $v: by code location"; "$PERF" report -i pf.$v.data --stdio --no-children --sort dso,symbol 2>/dev/null | grep -v '^#' | grep -v '^$' | head -8 | cut -c1-150
+            echo "=== $v: by mapping of the faulting address"; "$PERF" report -i pf.$v.data --stdio --no-children --sort dso_daddr 2>/dev/null | grep -v '^#' | grep -v '^$' | head -8 | cut -c1-150
+            echo "=== $v: faulting addresses 2 MiB-aligned region histogram (top 6)"; "$PERF" script -i pf.$v.data -F addr 2>/dev/null | awk '{a=strtonum("0x"$1); printf "%x\n", int(a/2097152)*2097152}' | sort | uniq -c | sort -rn | head -6
+          done
