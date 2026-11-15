@@ -1,0 +1,5 @@
+# Ribbon OS session environment for labwc (merged with yours).
+# No keyboard layout here: the one chosen at install is in /etc/xdg/labwc/environment.d (below this layer), the one
+# chosen in Settings in the xdg-input layer (above it); with neither, XKB's own default (us) stands.
+XCURSOR_THEME=Adwaita
+XCURSOR_SIZE=24

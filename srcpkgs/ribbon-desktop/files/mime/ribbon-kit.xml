@@ -1,0 +1,9 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!-- The .kit format (docs/KIT-FORMAT.md): Ribbon's apps. Opening one runs
+     it (kit run, ribbon-kit-run.desktop); Properties shows it in detail. -->
+<mime-info xmlns="http://www.freedesktop.org/standards/shared-mime-info">
+  <mime-type type="application/x-ribbon-kit">
+    <comment>Ribbon kit</comment>
+    <glob pattern="*.kit"/>
+  </mime-type>
+</mime-info>

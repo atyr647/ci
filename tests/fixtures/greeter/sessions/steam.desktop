@@ -1,0 +1,4 @@
+[Desktop Entry]
+Name=Steam
+Exec=gamescope-session-steam
+Type=Application

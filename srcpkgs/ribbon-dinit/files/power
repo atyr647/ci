@@ -1,0 +1,43 @@
+#!/bin/sh
+# halt/poweroff/reboot/shutdown for Ribbon OS. Installed as /usr/bin/{halt,
+# poweroff,reboot,shutdown} (symlinks to /usr/lib/ribbon/power). elogind and
+# desktop "power off" buttons end up here, so this must stay compatible with
+# the common sysvinit/runit command lines and hand everything to dinit.
+
+name=${0##*/}
+action=poweroff
+force=
+
+case "$name" in
+	reboot) action=reboot ;;
+	halt) action=halt ;;
+	poweroff) action=poweroff ;;
+	shutdown) action=poweroff ;;
+esac
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-r|--reboot) action=reboot ;;
+		-h|-H|--halt) [ "$name" = shutdown ] && action=poweroff || action=halt ;;
+		-P|-p|--poweroff) action=poweroff ;;
+		-f|--force) force=1 ;;
+		-k) echo "shutdown -k (warning only) is not supported" >&2; exit 1 ;;
+		-c) echo "shutdown -c: nothing to cancel" >&2; exit 0 ;;
+		-n|-w|-d|-i|--no-wall) ;;
+		now|+0|0) ;;
+		+*|*:*) echo "$name: delayed shutdown is not supported; use 'now'" >&2; exit 1 ;;
+		*) ;; # wall message for shutdown(8); ignored
+	esac
+	shift
+done
+
+case "$action" in
+	reboot) flag=-r ;;
+	halt) flag=-h ;;
+	*) flag=-p ;;
+esac
+
+if [ -n "$force" ]; then
+	exec dinit-shutdown --system "$flag"
+fi
+exec dinit-shutdown "$flag"

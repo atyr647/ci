@@ -1,0 +1,4 @@
+#!/bin/sh
+# ribbon-appearance - Appearance is a page of Settings: this opens Settings on it.
+#   ribbon-appearance [--page theme|colours|desktop|login]
+exec ribbon-settings --page appearance "$@"

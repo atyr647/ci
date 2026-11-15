@@ -1,0 +1,4 @@
+# bad-signature.kit: damaged on purpose; every reader must refuse it as follows
+open ok
+signature invalid
+open-signed fail SIGNATURE

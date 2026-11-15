@@ -1,0 +1,40 @@
+# Template file for 'mk4tcl'
+# Mk4tcl, Metakit for Tcl, which kitfmt reads and kitpack writes kits with (docs/KIT-FORMAT.md),
+# and so `kit` itself (ribbon-kit).  Void has no Metakit package.  Built from the user's fork,
+# branch kit-fixes, at the commit mkkitfs is tested with (it has the crash fix), with Metakit's
+# own TEA build (kit/poc/01-mk4tcl-build) and a config.h that is right on every architecture.
+pkgname=mk4tcl
+version=2.4.9.7
+revision=1
+_mkcommit=bfab99245cc381b961bdf483997d2c5a5595309d
+makedepends="tcl-devel"
+depends="tcl"
+short_desc="Metakit embedded database for Tcl (Mk4tcl), from Ribbon's Metakit fork"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/metakit"
+distfiles="https://github.com/atyr647/metakit/archive/${_mkcommit}.tar.gz"
+checksum=e49d7448221b5a666a53fd8f4c6aba2af420bb1409c69314507b67e4ffc4d118
+wrksrc="metakit-${_mkcommit}"
+
+do_configure() {
+	mkdir -p build
+	cd build
+	CC="${CXX}" sh ../tcl/configure --prefix=/usr \
+		--with-tcl="${XBPS_CROSS_BASE}/usr/lib" --with-tclinclude="${XBPS_CROSS_BASE}/usr/include" \
+		${configure_args}
+	cp "${FILESDIR}/config.h" config.h
+}
+
+do_build() {
+	# Tcl through its stubs: link the stub archive by path (tclConfig.sh may name another libdir)
+	make -C build CC="${CXX}" SHLIB_LD_LIBS="${XBPS_CROSS_BASE}/usr/lib/libtclstub8.6.a"
+}
+
+do_install() {
+	vinstall build/libMk4tcl${version}.so 755 usr/lib/Mk4tcl${version}
+	printf 'package ifneeded Mk4tcl %s [list load [file join $dir libMk4tcl%s.so] Mk4tcl]\n' \
+		"${version}" "${version}" > pkgIndex.tcl
+	vinstall pkgIndex.tcl 644 usr/lib/Mk4tcl${version}
+	vlicense license.terms
+}

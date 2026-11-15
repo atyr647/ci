@@ -1,0 +1,18 @@
+{
+    "file_format_version": "1.2.1",
+    "layer": {
+        "name": "VK_LAYER_RIBBON_hud_frames",
+        "type": "GLOBAL",
+        "library_path": "/usr/lib/ribbon/hud/libribbon-hud-frames.so",
+        "library_arch": "64",
+        "api_version": "1.3.0",
+        "implementation_version": "1",
+        "description": "Ribbon Game HUD: frame times for the overlay",
+        "functions": {
+            "vkNegotiateLoaderLayerInterfaceVersion": "vkNegotiateLoaderLayerInterfaceVersion"
+        },
+        "disable_environment": {
+            "RIBBON_HUD_FRAMES_DISABLE": "1"
+        }
+    }
+}

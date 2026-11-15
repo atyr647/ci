@@ -1,0 +1,400 @@
+UNIX_EXTRA(n)                 Ribbon OS                  UNIX_EXTRA(n)
+
+NAME
+    unix_extra - stream channels that keep passed fds, datagrams and
+    peer credentials for Tcl
+
+SYNOPSIS
+    package require unix_extra 0.3
+
+    unix_extra::connect path
+    unix_extra::listen path handler
+    unix_extra::adopt channel
+    unix_extra::fds channel ?-all? ?-messages?
+    unix_extra::handoff channel target ?data?
+    unix_extra::takeover target ?dataVar?
+    unix_extra::inheritfd channel
+    unix_extra::fdopen fd
+    unix_extra::sendfds channel channels ?data?
+    unix_extra::recvfds channel ?maxbytes?
+    unix_extra::peercred channel
+    unix_extra::socketpair ?stream|dgram?
+    unix_extra::dgram ?path?
+    unix_extra::sendto channel path data
+    unix_extra::recv channel
+    unix_extra::notify state ?path?
+
+DESCRIPTION
+    A companion to unix_sockets (Cyan Ogilvie), which gives Tcl unix
+    stream sockets (unix_sockets::listen, unix_sockets::connect). This
+    package adds the rest of what Ribbon's daemons and helpers need.
+
+    Stream sockets made here (connect, listen, socketpair, adopt, fdopen,
+    takeover) are "unix_extra channels": a channel type of its own that
+    never loses a file descriptor passed with SCM_RIGHTS, whatever Tcl
+    reads (see FD PASSING), and that can be handed to another process
+    whole (see HANDING A CONNECTION TO ANOTHER PROCESS). Datagram sockets and received descriptors are ordinary Tcl
+    file channels. All of them work with gets, read, fileevent, fcopy,
+    fconfigure (-blocking too) and close as usual. Every command that
+    takes a channel works on any channel with a file descriptor:
+    unix_sockets channels, Tcl's own file and pipe channels, and the
+    channels made here (except fds, which needs a unix_extra channel or a
+    unix_sockets channel opened with -passfds 1).
+
+    A path that starts with "@" is an abstract socket name (Linux): the
+    "@" becomes the leading NUL byte and no file is created. Data
+    arguments and results are byte strings; use encoding convertto/from
+    for text that isn't ASCII.
+
+STREAM CHANNELS
+    unix_extra::connect path
+        Connect to a listening unix stream socket and return a unix_extra
+        channel (uxstreamN). Blocks until connected; a missing socket is
+        ENOENT, one nobody listens on ECONNREFUSED.
+
+    unix_extra::listen path handler
+        Listen on path and return the listening channel (uxlistenN; it can
+        only be closed). Each connection is accepted as a unix_extra
+        channel, and handler is called at global level with the channel's
+        name appended, as unix_sockets::listen does. An error in handler
+        is a background error and closes that channel. As with dgram, an
+        existing file at path is an error (EADDRINUSE), and closing the
+        listener removes the file.
+
+    unix_extra::socketpair ?stream|dgram?
+        Return two connected channels: unix_extra channels for stream (the
+        default), file channels for dgram. Hand one to a child with
+        exec ... <@ $chan >@ $chan, then close it in the parent.
+
+    unix_extra::adopt channel
+        Turn a connected unix stream socket channel into a unix_extra
+        channel and return the new channel's name; the old name is gone.
+        It takes a unix_sockets channel, or a Tcl file channel that fds or
+        recvfds made for a passed socket (or stdin under inetd-style
+        activation). A unix_extra channel is returned unchanged. It is safe
+        at any point, from a unix_sockets accept handler too, and
+        guarantees:
+          - Output: everything written to the old channel is sent first
+            (flushed, blocking if need be), so byte order is kept. If that
+            flush fails, adopt fails and the old channel is left as it was.
+          - Input: no byte is lost or reordered. Bytes Tcl had already read
+            into the old channel's buffer move over raw and are the first
+            the new channel returns. Stream offset 0 is the first byte not
+            yet read through the old channel.
+          - Queued fds: a unix_sockets channel opened with -passfds 1 has
+            already taken the passed fds from the kernel. They move over
+            in order, taken or not, with their offsets rebased: those of
+            messages the script had read get offsets <= 0, and fds hands
+            them out at once. (adopt finds them through the channel's
+            read-only -fdqueue option and duplicates them, so the two
+            packages don't link against each other.)
+          - Options: -blocking, -buffering, -buffersize, -encoding,
+            -eofchar and -translation carry over. Fileevent scripts do not:
+            set them again on the new channel.
+          - The old channel is closed. Before that, its descriptor is
+            pointed at a dead socket (dup2), so if something else still
+            holds it (an interp it was shared with, or unix_sockets while
+            its accept handler runs), nothing can read from or write to the
+            real socket through it again: reads see end of file and writes
+            fail with EPIPE.
+        Without -passfds, adopt can't bring back descriptors that came with
+        bytes the old channel had already read, because the kernel
+        discarded them at that read. Adopt such a channel before the peer
+        can send descriptors, e.g. first thing in the accept handler, or
+        open it with -passfds 1. A channel with a transform
+        stacked on it is refused (STACKED), and so is anything that is not
+        a connected unix stream socket (NOTSTREAM).
+
+    Half-close works: close $chan write sends end of file to the peer,
+    which can still answer; close $chan read makes the peer's writes fail.
+    peercred, sendfds and recvfds work on these channels.
+
+FD PASSING
+    A descriptor sent with SCM_RIGHTS travels with the bytes of the
+    sendmsg that carried it. The kernel hands it to the first read that
+    takes some of those bytes. A plain read() can't take it, so the kernel
+    closes it and it is lost. That is what Tcl's gets, read and fileevent
+    do on a unix_sockets or file channel, including when Tcl reads ahead
+    into its buffer.
+
+    A unix_extra channel reads only with recvmsg, so it takes every
+    descriptor. Each message's descriptors are queued on the channel, in
+    order, tagged with the stream offset (bytes since the channel was
+    made or adopted) where the message that carried them ended. This
+    offset is exact, because the kernel always ends a read right after a
+    message that carries descriptors. The one exception is a message
+    larger than the channel's -buffersize (default 4096): its
+    descriptors arrive with its first part, and the offset is where that
+    part ended. Where a message began can't be known, because the read
+    may have started with earlier bytes, and a MSG_PEEK looks past message
+    ends for descriptors.
+
+    So reading works as usual, and fds hands the descriptors out once the
+    script has read their message. From then on fds (without -all) returns
+    them, and it never returns those of a later message. A protocol that
+    knows how many descriptors a message carries (Wayland, D-Bus) can just
+    as well take them from the queue in order. A message counts as read
+    only when all of its bytes are, so a one-byte sendfds message (the
+    default NUL) must be read too.
+
+        # sender
+        puts $c "OPEN image.squashfs"; flush $c
+        unix_extra::sendfds $c [list $f] "FD\n"
+        # receiver, in its readable fileevent
+        while {[gets $c line] >= 0} {
+            if {$line eq "FD"} {set image [lindex [unix_extra::fds $c] 0]}
+        }
+
+    Descriptors still queued when the channel is closed are closed with
+    it, so none leak.
+
+    unix_extra::fds channel ?-all? ?-messages?
+        Take descriptors queued on a unix_extra channel (or on a
+        unix_sockets channel opened with -passfds 1: then this calls
+        unix_sockets::fds, which works the same way) and return a new
+        Tcl channel for each, in the order they were sent (close-on-exec,
+        made as recvfds makes them). Without -all it takes those whose
+        message the script has read. With -all it takes every one Tcl has
+        received, including those of a message still in Tcl's buffer.
+        With -messages the result is one {offset {channel ...}} pair per
+        message instead of a flat list. It returns {} when nothing is
+        queued, and it never blocks or reads. If the kernel could not pass
+        all of a message's descriptors (the open file limit was reached
+        when they arrived), the first fds call that reaches that message
+        fails once with errorCode {UNIX_EXTRA CTRUNC}, and the next call
+        returns those that did arrive.
+
+    unix_extra::sendfds channel channels ?data?
+        Send the file descriptors of the listed channels over a unix
+        stream (or datagram) socket with SCM_RIGHTS, attached to data
+        (default: one NUL byte; it must not be empty). Returns the number
+        of bytes sent. Tcl's pending output on channel is flushed first,
+        so byte order is kept. If a non-blocking channel can't flush it
+        all, nothing is sent (POSIX EAGAIN; retry when it is writable).
+        The sent channels stay open here; close them when done. At most
+        253.
+
+    unix_extra::recvfds channel ?maxbytes?
+        The low-level form, for raw use on any socket channel. On a
+        unix_extra channel, use fds instead. It receives with one recvmsg
+        of at most maxbytes (default 4096) and returns {data {channel
+        ...}}: the bytes and a new Tcl channel for each descriptor that
+        arrived (close-on-exec set, readable and/or writable as the
+        descriptor was opened). At end of stream it returns {{} {}}. The
+        kernel stops a read right after the message that carries
+        descriptors, so stream data sent later stays queued for normal
+        Tcl reads.
+
+        On channels of other types, call recvfds BEFORE reading that
+        message through Tcl. The kernel has already discarded the
+        descriptors of bytes Tcl has buffered, so recvfds refuses (errorCode
+        UNIX_EXTRA BUFFERED) when the channel has buffered input. On a
+        unix_extra channel recvfds also works. Its bytes count in the
+        stream offsets, and it leaves the queue alone.
+
+    Why a channel type and not a transform: a transform pushed onto a
+    unix_sockets channel (Tcl_StackChannel) sees only the bytes that the
+    channel below it read. That channel reads with read(), which has
+    already made the kernel drop the descriptors, and no layer above the
+    driver can get them back. The read itself has to be a recvmsg, so it
+    has to be done by the driver: this one, or unix_sockets' own with
+    the -passfds patch Ribbon carries (srcpkgs/tcl-unix-sockets/patches,
+    offered upstream). Without that patch, adopting a channel onto this
+    driver is the way.
+
+    Limits: nothing else may read the socket. A child given it with exec
+    reads with read() and loses descriptors, as always; to share a
+    connection on purpose, hand it off (next section). Under a transform
+    pushed onto a unix_extra channel, fds counts every byte the transform
+    has taken as read. The kernel passes at most 253 descriptors per
+    message.
+
+HANDING A CONNECTION TO ANOTHER PROCESS
+    unix_extra::handoff channel target ?data?
+        Move the unix_extra channel, a live connection, to the process at
+        the other end of target (a connected unix socket channel, normally
+        a unix_extra channel from connect or socketpair). One message
+        carries everything: the connection's socket, every fd still queued
+        on it (taken or not, with their offsets), the bytes Tcl has read
+        ahead that the script hasn't, the channel's mode and options
+        (-blocking, -buffering, -buffersize, -encoding, -eofchar,
+        -translation), and data (default: none). Output written to the
+        channel is flushed to its peer first, as with adopt. Then the
+        channel is closed here without shutting the socket down: the peer
+        doesn't notice, it is just talking to the other process now. As
+        with adopt, the old fd is first pointed at a dead socket, so an
+        interp that still shares the channel can't touch the connection.
+        Returns an empty string.
+
+        It is atomic: if the send fails (the target's peer has gone, EPIPE;
+        a full non-blocking target, EAGAIN; a target that isn't a socket),
+        the channel is left exactly as it was: same unread bytes, same
+        queue, same options. A non-blocking target that takes only part of
+        the message is finished in blocking mode, because the fds went
+        with that first part. A channel with more than 252 queued fds
+        (NFDS) or a transform stacked on it (STACKED) is refused, and so
+        is handing a channel off over itself (TARGET). Fileevent scripts
+        don't travel.
+
+        Success means the kernel has the message. If the receiver exits
+        without taking it over, the kernel closes everything in it and the
+        connection's peer sees end of stream.
+
+    unix_extra::takeover target ?dataVar?
+        Receive a connection sent with handoff over target (a unix_extra
+        channel) and return it as a new unix_extra channel: the unread
+        bytes come first, then the stream; the fd queue is as it was, with
+        offsets relative to the first unread byte (fds hands out those of
+        messages the sender's script had read at once); mode and options
+        are the sender's. With dataVar, the data is stored there. It
+        blocks until the whole message has arrived (it was sent in one
+        piece), whatever target's -blocking, and it works whatever Tcl had
+        already read ahead on target; other fds queued on target stay
+        there. Not a handoff message, a version it doesn't know, or end of
+        stream: errorCode {UNIX_EXTRA HANDOFF}; fds the kernel couldn't
+        pass: {UNIX_EXTRA CTRUNC}.
+
+    The wire format: one sendmsg, SCM_RIGHTS = the connection's socket,
+    then each queued batch's fds in queue order, and the bytes (integers
+    big-endian):
+        0   "UXHO"
+        4   u8 version (1)
+        5   u8 flags: 1 readable, 2 writable
+        6   u16 0
+        8   u32 nmsg   queued batches
+        12  u32 nopt   bytes of options, a Tcl list {name value ...}
+        16  u32 nbuf   bytes read ahead and not read by the script
+        20  u32 ndata  bytes of data
+        24  nmsg x {i64 end, u32 nfd, u32 lost}, end relative to the
+            first unread byte, then the options, unread bytes and data.
+    The fds ride on the first bytes of the message, so takeover finds them
+    as the first batch queued on target after the header's first byte.
+
+    A receiver must take the message with takeover, or at least read it
+    with recvmsg. A process that reads target with plain read() (a
+    program that doesn't use unix_extra) loses every fd in the message,
+    the connection itself included: the kernel closes them at that read.
+    Nothing on the sending side can prevent that.
+
+    Handing off to a child started with exec: make a socketpair, let the
+    child inherit one end and nothing else, and hand off over the other:
+
+        lassign [unix_extra::socketpair] here there
+        set fd [unix_extra::inheritfd $there]  ;# close-on-exec off, this fd only
+        exec tclsh worker.tcl $fd &
+        close $there                           ;# the child has its own copy
+        unix_extra::handoff $conn $here
+
+        # worker.tcl
+        package require unix_extra
+        set t [unix_extra::fdopen [lindex $argv 0]]
+        set conn [unix_extra::takeover $t]
+
+    All other sockets made here stay close-on-exec, so the child gets
+    only that one fd (and stdin, stdout, stderr, and whatever this
+    process itself inherited without close-on-exec: exec does not
+    close that, and neither does handoff, which starts no process). Close $there right
+    after the exec: until then, any other child exec'd by this process
+    (from another thread, say) inherits it too.
+
+    unix_extra::inheritfd channel
+        Clear close-on-exec on the channel's fd and return the fd number,
+        for a child to pick up with fdopen.
+
+    unix_extra::fdopen fd
+        Make a unix_extra channel of an inherited fd: a connected unix
+        stream socket (else NOTSTREAM; a bad fd is POSIX EBADF). It sets
+        close-on-exec again, so the fd isn't passed further. An fd that
+        already belongs to a channel of this interp is refused (INUSE), and
+        so are 0, 1 and 2 (STDIO): use adopt on stdin, stdout or stderr.
+
+PEER CREDENTIALS
+    unix_extra::peercred channel
+        Return {pid P uid U gid G} of the process at the other end of a
+        connected unix socket (SO_PEERCRED: recorded when it connected,
+        or for a socketpair, when the pair was made). Works on channels
+        accepted by unix_extra::listen or unix_sockets::listen, which is
+        how a root helper authorises its callers.
+
+DATAGRAMS
+    unix_extra::dgram ?path?
+        Create a SOCK_DGRAM socket and return its channel. With path, bind
+        it there; a bound path is removed when the channel is closed. An
+        existing file at path is an error (EADDRINUSE): remove stale
+        sockets first. Read datagrams with unix_extra::recv, not gets/read.
+
+    unix_extra::sendto channel path data
+        Send data as one datagram to path, or to the connected peer when
+        path is "" (a socketpair end). Returns the number of bytes sent.
+
+    unix_extra::recv channel
+        Return the next datagram, whole, whatever its size. Blocks unless
+        the channel is non-blocking; then an empty queue is a POSIX EAGAIN
+        error. Use it from a readable fileevent.
+
+    unix_extra::notify state ?path?
+        sd_notify: send state (e.g. "READY=1", "STATUS=...") as one
+        datagram to path, default $env(NOTIFY_SOCKET). Returns 1 when
+        sent and 0 when NOTIFY_SOCKET is unset or empty.
+
+ERRORS
+    System call failures set errorCode to {POSIX ENAME message} and the
+    result to "call: message". Usage errors set errorCode to
+    {UNIX_EXTRA CODE} with CODE one of PATH, NOFD, NFDS, DATA, MAXBYTES,
+    BUFFERED, CTRUNC, NOTUNIX, NOPEER, NOTSTREAM, STACKED, TARGET,
+    HANDOFF, FDQUEUE, STDIO, INUSE. Errors from unix_sockets::fds (called
+    by fds) keep their {UNIX_SOCKETS CODE}.
+
+NOTES
+    A passed descriptor shares its open file description with the
+    sender, including O_NONBLOCK; a received channel starts in the
+    matching -blocking mode.
+
+EXAMPLES
+    # A dinit/systemd-style service reports readiness
+    unix_extra::notify READY=1
+
+    # kitd: authorise each caller
+    unix_extra::listen /run/kitd.sock {apply {c {
+        set cred [unix_extra::peercred $c]
+        if {[dict get $cred uid] != 0} { ... pkcheck --process [dict get $cred pid] ... }
+    }}}
+
+    # kitd: hand an opened file to the caller
+    set f [open /var/lib/kit/image.squashfs r]
+    unix_extra::sendfds $c [list $f] [binary format I 0]
+    close $f
+
+    # client side: read the status word, then take the file
+    set c [unix_extra::connect /run/kitd.sock]
+    ...
+    binary scan [read $c 4] I status
+    set image [lindex [unix_extra::fds $c] 0]
+
+    # code that already uses unix_sockets
+    unix_sockets::listen $path {apply {c {
+        set c [unix_extra::adopt $c]
+        ...
+    }}}
+
+    # or with the -passfds patch: no fd is lost before adopt either
+    unix_sockets::listen $path {apply {c {
+        chan event $c readable [list serve $c]  ;# unix_extra::fds $c works
+    }}} -passfds 1
+
+    # a supervisor passes an accepted client to a worker process
+    unix_extra::handoff $client $worker [list session $id]
+
+BUILD
+    make [O=builddir] [TCL_CONFIG=/usr/lib/tclConfig.sh]
+    make test [TESTFLAGS="-tmpdir DIR"] [UNIX_SOCKETS_DIR=dir-with-unix_sockets]
+
+    The unix_sockets tests are skipped when it can't be loaded, and the
+    passfds ones when it lacks -passfds (srcpkgs/tcl-unix-sockets/patches).
+    make install DESTDIR=...
+
+    Built against the Tcl stubs library (Tcl 8.6). Socket paths are at
+    most 107 bytes, so tests need a short -tmpdir.
+
+LICENSE
+    MIT, Copyright (c) 2026 Ribbon OS contributors.

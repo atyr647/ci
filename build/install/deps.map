@@ -1,0 +1,213 @@
+# Base-neutral names for the dependencies the srcpkgs/*/template files declare (depends, makedepends,
+# hostmakedepends). One line per name a template uses:
+#   VOID-NAME | NEUTRAL NAME | WHAT IT IS NEEDED FOR
+# build/install/deps.sh joins each template's lists with this table into the dependencies report; a name a
+# template declares that is not here stops the report (so a dependency added to a template later is described).
+# A neutral name of "-" marks a Void-only package that has no counterpart on another base.
+#
+# ---- runtime: the base system
+base-files | base filesystem layout | /etc and /usr skeleton, os-release
+ncurses | ncurses | terminal handling for the console tools
+coreutils | GNU coreutils | every shell script
+findutils | GNU findutils | the tools' and installer's scripts
+diffutils | GNU diffutils | config merges in ribbon-update
+libgcc | libgcc (GCC runtime) | C/C++ binaries
+dash | dash | /bin/sh
+bash | bash | ribbon-theme, ribbon-tools scripts
+grep | GNU grep | every shell script
+gzip | gzip | compressed files, initramfs
+file | file (libmagic) | file type detection
+sed | GNU sed | every shell script
+gawk | GNU awk | the dinit layer, ribbon-tools
+less | less | pager
+util-linux | util-linux | mount, lsblk, findmnt, zramctl, flock
+which | which | scripts locating programs
+tar | tar | archives, the installer
+man-pages | Linux man-pages | manual pages
+mdocml | mandoc | man reader
+shadow | shadow (useradd, passwd) | accounts, the installer, Settings Users
+e2fsprogs | e2fsprogs | ext4 data drives, fsck
+btrfs-progs | btrfs-progs | the btrfs root, snapshots
+xfsprogs | xfsprogs | XFS data drives
+f2fs-tools | f2fs-tools | F2FS data drives
+dosfstools | dosfstools | the EFI system partition
+exfatprogs | exfatprogs | exFAT drives
+ntfs-3g | ntfs-3g | NTFS drives, the installer's Windows detection
+procps-ng | procps-ng | ps, pkill, sysctl
+tzdata | tzdata (IANA time zones) | the clock, Settings Date & Time
+pciutils | pciutils | GPU detection (ribbon-gpu, ribbon-hw)
+usbutils | usbutils | lsusb in ribbon-doctor
+iana-etc | IANA /etc/services and /etc/protocols | networking
+kbd | kbd | console keymaps and fonts
+iproute2 | iproute2 | ip, the dinit network setup
+iputils | iputils | ping
+iw | iw | Wi-Fi regulatory and device queries
+wpa_supplicant | wpa_supplicant | Wi-Fi for NetworkManager
+xbps | - (Void's package manager) | ribbon-update, ribbon-tools' xbps-install wrapper (Void only)
+nvi | nvi (vi) | the console editor
+sudo | sudo | admin commands, the sudoers drop-ins
+wifi-firmware | Wi-Fi firmware | wireless cards
+traceroute | traceroute | network diagnosis
+ethtool | ethtool | network diagnosis
+kmod | kmod | modprobe, modules-load
+eudev | udev (eudev or systemd-udev standalone) | device events, udev-trigger
+removed-packages | - (Void's removed-packages) | removes obsolete Void packages (Void only)
+glibc-locales | glibc locales | LANG=en_US.UTF-8
+bash-completion | bash-completion | shell completion
+dracut | dracut | the initramfs, ribbon's dracut modules
+cryptsetup | cryptsetup | encrypted disks
+lvm2 | lvm2 | LVM volumes
+limine | Limine boot loader | the default boot loader
+efibootmgr | efibootmgr | EFI boot entries
+snapper | snapper | btrfs snapshots
+NetworkManager | NetworkManager | networking, Settings Network
+chrony | chrony | time sync, Settings Date & Time
+cronie | cronie | cron jobs
+nftables | nftables | the firewall (Ribbon's ruleset, /usr/share/ribbon/nftables.conf)
+apparmor | AppArmor userspace | confinement profiles
+linux-firmware-amd | linux-firmware (AMD) | AMD GPUs and CPUs
+linux-firmware-intel | linux-firmware (Intel) | Intel GPUs and CPUs
+linux-firmware-network | linux-firmware (network) | network cards
+linux-firmware-broadcom | linux-firmware (Broadcom) | Broadcom Wi-Fi
+sof-firmware | Sound Open Firmware | laptop audio DSPs
+fwupd | fwupd | firmware updates
+smartmontools | smartmontools | disk health (ribbon-doctor, ribbon-drives)
+wireless-regdb | wireless-regdb | Wi-Fi regulatory domains
+# ---- runtime: init and session
+dinit | dinit | PID 1, system and user services
+dbus | D-Bus (daemon and dbus-send) | the bus the shell, Settings and kit talk on
+elogind | elogind | logind seats and sessions without systemd
+turnstile | turnstile | per-user dinit --user at login
+# ---- runtime: Tcl and Tk
+tcl | Tcl 8.6 (tclsh8.6) | every Ribbon program
+tk | Tk 8.6 (wish8.6) | the shell, Settings, every Ribbon app
+tkdnd | tkdnd 2.9 (Tk drag and drop) | drag and drop in Files and the shell
+tcl-unix-sockets | unix_sockets 0.7 (Tcl extension) | the shell's D-Bus client, mkkitfsd
+mk4tcl | Mk4tcl 2.4.9.7 (Metakit for Tcl, Ribbon's fork) | kit's database
+# ---- runtime: the compositor and Wayland tools
+labwc | labwc | the Wayland compositor
+xorg-server-xwayland | Xwayland | the Tk programs (X11) on Wayland
+wlroots0.20 | wlroots 0.20 | labwc's library
+foot | foot | the terminal emulator
+conky | conky | the desktop widgets
+swaylock | swaylock | the lock screen
+swayidle | swayidle | idle lock and screen blanking
+wlopm | wlopm | output power (screen off)
+kanshi | kanshi | output profiles
+wlr-randr | wlr-randr | Settings Display
+grim | grim | screenshots
+slurp | slurp | screenshot region picking
+wl-clipboard | wl-clipboard | the clipboard bridge
+wtype | wtype | typed input from the shell
+xrdb | xrdb | X resources for Tk
+setxkbmap | setxkbmap | keyboard layouts for Xwayland
+brightnessctl | brightnessctl | the brightness keys and slider
+playerctl | playerctl | media keys and the shell's player
+pulseaudio-utils | pulseaudio-utils (pactl) | the volume control
+xdg-desktop-portal | xdg-desktop-portal | portals for flatpak apps
+xdg-desktop-portal-wlr | xdg-desktop-portal-wlr | screen sharing on wlroots
+xdg-desktop-portal-gtk | xdg-desktop-portal-gtk | file pickers for flatpak apps; the Settings portal (color-scheme for GTK 4, libadwaita, Firefox)
+dconf | dconf | the GSettings store ribbon-theme writes color-scheme, theme, icons, cursor and font to
+gsettings-desktop-schemas | gsettings-desktop-schemas | the org.gnome.desktop.interface keys (color-scheme) the Settings portal reads
+xdg-user-dirs | xdg-user-dirs | the home folders
+xdg-utils | xdg-utils | xdg-open
+greetd | greetd | the login manager
+udisks2 | udisks2 | removable drives
+polkit | polkit | admin actions (the Ribbon polkit agent and helpers)
+upower | UPower | battery state
+iio-sensor-proxy | iio-sensor-proxy | auto-rotation and light sensors
+hwids | hwdata (pci.ids) | the graphics card's name in Settings About
+libdisplay-info | libdisplay-info | display EDID parsing (labwc)
+# ---- runtime: audio, network, Bluetooth
+pipewire | PipeWire | audio and screen capture
+wireplumber | WirePlumber | PipeWire's session manager
+alsa-pipewire | PipeWire ALSA plugin | ALSA programs on PipeWire
+libjack-pipewire | PipeWire JACK library | JACK programs on PipeWire
+rtkit | RealtimeKit | real-time audio threads
+alsa-ucm-conf | alsa-ucm-conf | laptop audio profiles
+bluez | BlueZ | Bluetooth
+# ---- runtime: themes, fonts, apps
+papirus-icon-theme | Papirus icon theme | icons
+adwaita-icon-theme | Adwaita icon theme | fallback icons
+dejavu-fonts-ttf | DejaVu fonts | fallback text, the installer
+noto-fonts-ttf | Noto fonts | wide script coverage
+noto-fonts-emoji | Noto Color Emoji | emoji
+font-inter | Inter font | the shell's text
+font-jetbrains-mono | JetBrains Mono 2.304 font | the monospace face (terminal, editor)
+fontconfig | fontconfig | font lookup (fc-match) in the installer
+firefox | Firefox | the web browser
+flatpak | flatpak | app installs from Flathub
+mesa-vaapi | Mesa VA-API drivers | video decode (AMD) for the wallpaper
+intel-media-driver | Intel media driver (iHD) | video decode (newer Intel)
+libva-intel-driver | Intel VA-API driver (i965) | video decode (older Intel)
+ffmpeg6 | FFmpeg 6 libraries | ribbon-wall's video wallpapers
+bsdtar | bsdtar (libarchive) | Files: Extract here and Compress
+tcltls | tcltls (Tcl TLS) | Mail: IMAP and SMTP over TLS
+# ---- runtime: kit
+minisign | minisign | kit's signature checks
+curl | curl | kit's https downloads
+fuse3 | FUSE 3 (library and fusermount3) | mkkitfs mounts kits
+bubblewrap | bubblewrap (bwrap) | kit runs every kit in a sandbox
+xdg-dbus-proxy | xdg-dbus-proxy | the only way a sandboxed kit reaches the session bus (the names it was granted)
+# ---- runtime: the installer
+gptfdisk | gptfdisk (sgdisk) | partitioning
+parted | parted | partitioning
+rsync | rsync | copying the live system
+dialog | dialog | the text-mode installer
+hivex | hivex | reading Windows registries (dual boot)
+# ---- runtime: tools
+power-profiles-daemon | power-profiles-daemon | power profiles, Settings Power
+bolt | bolt | Thunderbolt authorisation
+scx | sched_ext schedulers (scx) | ribbon-scheduler
+# ---- runtime: gaming
+steam | Steam | games
+gamescope | gamescope | Game Mode session, ribbon-gamescope
+gamemode | GameMode | per-game tuning
+libgamemode-32bit | GameMode library (32-bit) | 32-bit games
+MangoHud | MangoHud | the performance overlay
+MangoHud-32bit | MangoHud (32-bit) | 32-bit games
+vkBasalt | vkBasalt | Vulkan post-processing
+wine | Wine | Windows games
+wine-32bit | Wine (32-bit) | 32-bit Windows games
+winetricks | winetricks | Wine setup
+lutris | Lutris | the game launcher
+protontricks | protontricks | Proton setup
+protonplus | ProtonPlus | Proton version manager
+libgcc-32bit | libgcc (32-bit) | 32-bit games
+libstdc++-32bit | libstdc++ (32-bit) | 32-bit games
+libdrm-32bit | libdrm (32-bit) | 32-bit games
+libglvnd-32bit | libglvnd (32-bit) | 32-bit OpenGL games
+mesa-dri-32bit | Mesa DRI drivers (32-bit) | 32-bit games
+vulkan-loader | Vulkan loader | Vulkan games
+vulkan-loader-32bit | Vulkan loader (32-bit) | 32-bit Vulkan games
+pipewire-32bit | PipeWire libraries (32-bit) | 32-bit games' audio
+git | git | game tools that fetch from git
+# ---- build: what make build compiles with
+pkg-config | pkg-config | finding the C libraries
+wayland-devel | Wayland (headers, libwayland-client, wayland-scanner) | ribbon-shell-watch, ribbon-wall, the HUD overlay, polkit keys
+wayland-protocols | wayland-protocols | the protocol XML ribbon-wall and the HUD overlay use
+python3-fonttools | Python 3 with fontTools | cutting Space Grotesk SemiBold
+tcl-devel | Tcl 8.6 headers and tclConfig.sh | rbnalpha, ribbon-wall, unix_extra
+tk-devel | Tk 8.6 headers | rbnalpha
+libX11-devel | libX11 headers | rbnalpha
+libXext-devel | libXext headers | rbnalpha (shape)
+libXrender-devel | libXrender headers | rbnalpha (alpha)
+libglvnd-devel | EGL and GLES2 headers (libglvnd) | ribbon-wall
+libva-devel | libva headers | ribbon-wall (VA-API decode)
+ffmpeg6-devel | FFmpeg 6 headers | ribbon-wall
+Vulkan-Headers | Vulkan headers | the Game HUD's frame layer (headers only)
+libxkbcommon-devel | libxkbcommon headers | ribbon-shell-switch, polkit keys
+cairo-devel | cairo headers | the HUD overlay
+fuse3-devel | FUSE 3 headers | mkkitfs
+libdeflate-devel | libdeflate headers | mkkitfs
+openssl-devel | OpenSSL headers | mkkitfs
+mpv | mpv | the image viewer's video playback (embedded through its JSON IPC)
+gnome-keyring | GNOME Keyring (org.freedesktop.secrets) | Mail's passwords (the Secret Service)
+desktop-file-utils | desktop-file-utils (update-desktop-database) | the desktop-entry MIME cache at install
+shared-mime-info | shared-mime-info (update-mime-database) | the MIME database (ribbon-kit.xml) at install
+erofs-utils | erofs-utils 1.9 or later (Ribbon's build) | kit's merged /usr view of system kits
+# ---- the kernels (ribbon-kernel: Ribbon's own 6.18 build, build/ci/kernel.yml; Void's linux6.18 is the fallback)
+linux6.18 | Linux 6.18 LTS kernel (Void's) | the fallback boot entry
+linux6.18-headers | Linux 6.18 headers | out-of-tree modules
+ribbon-kernel | Linux 6.18 LTS, Ribbon's build (6.18.N-ribbon_1; Void's linux6.18 as the fallback entry) | booting; built in CI by build/ci/kernel.yml
+font-util | - (Void's font-util: fc-cache and mkfontdir triggers) | the font package's install hooks

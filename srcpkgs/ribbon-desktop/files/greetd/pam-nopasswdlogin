@@ -1,0 +1,2 @@
+# ribbon: Settings → Users, "Log in without a password": the group nopasswdlogin's members pass without one
+auth       sufficient   pam_succeed_if.so user ingroup nopasswdlogin

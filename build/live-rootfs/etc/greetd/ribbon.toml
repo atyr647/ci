@@ -1,0 +1,11 @@
+# Live ISO: log the live user straight into the desktop.
+[terminal]
+vt = 1
+
+[default_session]
+command = "ribbon-greeter"
+user = "_greeter"
+
+[initial_session]
+command = "ribbon-session"
+user = "anon"

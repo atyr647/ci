@@ -1,0 +1,9 @@
+# Ribbon OS greetd config. To customise, copy to /etc/greetd/ribbon.toml
+# (it takes precedence; see /usr/lib/ribbon/greetd-launch).
+[terminal]
+vt = 1
+
+# The Ribbon login screen (Tcl/Tk in labwc; /usr/bin/ribbon-greeter).
+[default_session]
+command = "ribbon-greeter"
+user = "_greeter"

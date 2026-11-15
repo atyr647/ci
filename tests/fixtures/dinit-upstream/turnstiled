@@ -1,0 +1,7 @@
+# turnstile 0.1.11's data/dinit/turnstiled, as the turnstile package installs it in /etc/dinit.d (where dinit
+# looks first). tests/run.sh lints it against Ribbon's services: every name it depends on must exist.
+type = process
+command = /usr/bin/turnstiled
+logfile = /var/log/turnstiled.log
+before: login.target
+depends-on: local.target

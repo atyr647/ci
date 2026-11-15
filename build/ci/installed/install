@@ -1,0 +1,45 @@
+#!/bin/sh
+# install - the live ISO's half of the installed-image test (build/ci/installed-test.sh), started by dinit in the live
+# system that the CI boot put it in (the pre-pivot hook, only with ribbon.ci.install=1). It installs Ribbon onto the
+# empty disk /dev/vda with the real installer, as a person would with the defaults (btrfs, Limine, zram, no
+# encryption), then puts the installed system's probe (build/ci/installed/probe) in the new system as a dinit service
+# and powers the machine off. Every line for the host starts "RIBBON-CI " on the serial console.
+OUT=/dev/ttyS0
+[ -w "$OUT" ] || OUT=/dev/console
+say() { echo "RIBBON-CI $*" > "$OUT"; }
+H=/usr/lib/ribbon-ci
+DISK=/dev/vda
+say "info install: started; kernel $(uname -r)"
+# the installer copies the live system from here (dracut's live root)
+t=0; while [ ! -d /run/rootfsbase/usr ] && [ $t -lt 60 ]; do sleep 1; t=$((t + 1)); done
+[ -d /run/rootfsbase/usr ] || { say "FAIL install: no live root at /run/rootfsbase"; say "install-done"; poweroff; exit 1; }
+[ -b "$DISK" ] || { say "FAIL install: no disk $DISK"; say "install-done"; poweroff; exit 1; }
+if [ -d /sys/firmware/efi ]; then say "info install: booted by UEFI"; else say "info install: legacy BIOS boot (no /sys/firmware/efi)"; fi
+start=$(date +%s)
+# the account's password reaches the installer the way the Tcl/Tk installer hands it over (a Tcl dict on stdin)
+printf 'password %s\n' "ribbon-ci-pass" |
+	ribbon-install --disk "$DISK" --fs btrfs --bootloader limine --swap zram --gpu none \
+		--user tester --fullname "CI Tester" --hostname ribbon-ci --timezone UTC --yes --secrets-stdin \
+		> /tmp/ribbon-install.log 2>&1
+st=$?
+tail -n 120 /tmp/ribbon-install.log | sed 's/\x1b\[[0-9;]*m//g' | while IFS= read -r l; do say "info install| $l"; done
+if [ $st -ne 0 ]; then say "FAIL install: ribbon-install exited $st"; say "install-done"; sync; poweroff; exit 1; fi
+say "ok   install: ribbon-install finished in $(( $(date +%s) - start )) s"
+# the installed root: the btrfs partition, subvolume @
+dev=$(blkid -o device -t TYPE=btrfs "$DISK"* 2>/dev/null | head -n1)
+m=/run/ribbon-ci-target
+mkdir -p "$m"
+if [ -n "$dev" ] && mount -o subvol=@ "$dev" "$m"; then
+	mkdir -p "$m$H" "$m/etc/dinit.d/boot.d" "$m/var/lib/ribbon-ci"
+	cp "$H/probe" "$m$H/probe"; chmod 755 "$m$H/probe"
+	cp "$H/ribbon-ci-installed" "$m/etc/dinit.d/ribbon-ci-installed"
+	ln -sfn ../ribbon-ci-installed "$m/etc/dinit.d/boot.d/ribbon-ci-installed"
+	echo 1 > "$m/var/lib/ribbon-ci/phase"
+	sync; umount "$m"
+	say "ok   install: the probe is in the installed system ($dev)"
+else
+	say "FAIL install: cannot mount the installed root (btrfs: ${dev:-none})"
+fi
+say "install-done"
+sync
+poweroff

@@ -1,0 +1,59 @@
+#!/bin/bash
+# ribbon - Ribbon OS system tool
+set -u
+. /usr/lib/ribbon/common.sh
+
+usage() {
+	cat <<EOF
+Usage: ribbon <command> [args]
+
+System
+  update [--no-snapshot]   snapshot, then update everything (system packages, kits, flatpak)
+  snapshot <cmd>           list | create [desc] | rollback <id> | prune | mark-good
+  rollback [id]            make a snapshot the running system (default: last good boot)
+  reserve <cmd>            status | cleanup [items] | release: disk space kept for the system
+  doctor                   check the system for problems
+  boot [status|update]     boot loader in use, kernel flags; rewrite the boot menu
+  reset <component>        restore Ribbon defaults: panel, labwc, conky, theme, gtk, all
+
+Hardware
+  gpu <cmd>                detect | install [--auto|nvidia|nvidia580|nvidia470|amd|intel] | status
+  swap <cmd>               status | set [zram=SIZE|off] [file=SIZE|off] [hibernate=yes|no]
+  drives <cmd>             list | add <device> [name] | remove <name> | fixup-fstab
+  hdr <cmd>                status | on | off | sdr-white <nits>
+  scheduler <cmd>          status | set <scx_lavd|scx_bpfland|scx_rusty|off> | list
+
+Run 'ribbon <command> --help' for details.
+EOF
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case "$cmd" in
+	update)    exec /usr/bin/ribbon-update "$@" ;;
+	snapshot)  exec /usr/bin/ribbon-snapshot "$@" ;;
+	rollback)  exec /usr/bin/ribbon-snapshot rollback "$@" ;;
+	reserve)   exec /usr/bin/ribbon-reserve "$@" ;;
+	doctor)    exec /usr/bin/ribbon-doctor "$@" ;;
+	boot)
+		case "${1:-status}" in
+			status)
+				echo "boot loader:  $(boot_loader)"
+				echo "kernel flags: $(sed -n 's/^RIBBON_CMDLINE="\(.*\)"$/\1/p' "$(boot_conf)") $(cmdline_extra)"
+				echo "settings:     $(boot_conf)"
+				case "$(boot_loader)" in
+					limine) echo "menu:         /boot/limine.conf ($(grep -c '^/[^/]' /boot/limine.conf 2>/dev/null || echo 0) kernels, $(grep -c '^//' /boot/limine.conf 2>/dev/null || echo 0) snapshots)" ;;
+					grub) echo "menu:         /boot/grub/grub.cfg" ;;
+				esac ;;
+			update) need_root boot update; update_bootloader && ok "boot menu updated ($(boot_loader))" ;;
+			*) err "usage: ribbon boot [status|update]"; exit 2 ;;
+		esac ;;
+	reset)     exec /usr/bin/ribbon-reset "$@" ;;
+	gpu)       exec /usr/bin/ribbon-gpu "$@" ;;
+	swap)      exec /usr/bin/ribbon-swap "$@" ;;
+	drives)    exec /usr/bin/ribbon-drives "$@" ;;
+	hdr)       exec /usr/bin/ribbon-hdr "$@" ;;
+	scheduler) exec /usr/bin/ribbon-scheduler "$@" ;;
+	""|-h|--help|help) usage ;;
+	*) err "unknown command '$cmd'"; usage >&2; exit 2 ;;
+esac

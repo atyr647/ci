@@ -1,0 +1,28 @@
+# runit services ribbon-sv2dinit never converts: early boot / login /
+# supervision pieces that Ribbon provides natively (see /usr/lib/dinit.d).
+agetty-console
+agetty-generic
+agetty-hvc0
+agetty-hvsi0
+agetty-serial
+agetty-tty1
+agetty-tty2
+agetty-tty3
+agetty-tty4
+agetty-tty5
+agetty-tty6
+agetty-ttyAMA0
+agetty-ttyS0
+agetty-ttyUSB0
+sulogin
+udevd
+dbus
+elogind
+turnstiled
+greetd
+seatd
+runsvdir
+socklog-unix
+socklog-klog
+# zramen: swap is handled by ribbon-swap at early boot
+zramen

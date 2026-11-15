@@ -1,0 +1,36 @@
+ribbon-kit-index 1
+format	1.0
+requires	
+manifest	kind	app
+manifest	license	MIT
+manifest	name	org.ribbon.golden.app
+manifest	publisher	Ribbon tests
+manifest	summary	Golden test kit (app)
+manifest	version	1.2.0
+need	org.ribbon.runtime.tcl	>=8.6
+need	org.ribbon.runtime.tk	>=8.6
+provide	golden-api	1
+perm	display	wayland
+perm	folders	Documents ro
+perm	home	none
+perm	network	no
+entry	hello	bin/hello		app
+entry	main	main.tcl		cli
+effect	desktop	share/applications/hello.desktop
+effect	icon	share/icons/hello.png
+rootdir	493
+dir	bin	493
+dir	docs	493
+dir	lib	493
+dir	share	493
+dir	share/applications	493
+dir	share/icons	493
+file	bin/hello	493	1700000000	32	raw	16384	a7d67401acc2dbbaac32fe238a93feee5b7725617afe79712944b9f81bf1abaf
+file	docs/résumé.txt	420	1700000000	26	raw	16384	e4fa4a963fba9390ad1337da7ee413ea62959a73dacb778e2bd68627baad2c36
+file	empty	420	1700000000	0	raw	16384	
+file	lib/big.txt	420	1700000000	46342	deflate	16384	c149efbc7137bd7b399df5f8dbe783e826e48850f3f27f72576d3837c0d673f1,8e76d227903d326f81cdc22231ffe5d9c19fa030357a18802e5b91682e0f71e5,fe86a6d487678c156886d6e78043494260a9fcb21b1ac5034e31877c3962b19c
+file	lib/noise.bin	420	1700000000	3000	raw	16384	50ce4257583304a09f9fb56b5aca78fd23a974b9fee82d9c1d590a5f13c7cc73
+file	main.tcl	420	1700000000	92	classic	0	5f298bf9ad0064fdf4b527e449e2dac554f76c0a720d436f3030262a29c67e27
+file	share/applications/hello.desktop	420	1700000000	49	raw	16384	074832a79d7c018375ab2f76a0c58f525c966d1117cdb221855022fe5ec9cd7e
+file	share/icons/hello.png	420	1700000000	626	raw	16384	56230d949fdff2ca40142da92871898526579a3aa7d8705b50e1cbd0daefce2d
+link	lib/hello-link	511	1700000000	../bin/hello

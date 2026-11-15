@@ -1,0 +1,83 @@
+# ribbon-desktop: srcpkgs/ribbon-desktop/template's do_install, line for line (see build/install/README).
+# @files = srcpkgs/ribbon-desktop/files, @build = what build.sh made for this package, @dist = DISTDIR.
+bin @build/ribbon-shell-watch
+bin @build/ribbon-shell-switch
+bin @build/ribbon-fswatch
+bin @build/ribbon-wall
+file 644 usr/lib/ribbon/wall @files/ribbon-wall/wall.tcl
+file 644 usr/lib/ribbon/wall @files/ribbon-wall/look.tcl
+file 644 usr/share/ribbon/looks @files/ribbon-wall/looks/*
+bin @files/bin/ribbon-session
+bin @files/bin/ribbon-firstrun
+bin @files/bin/ribbon-conky
+bin @files/bin/ribbon-theme
+bin @files/bin/ribbon-welcome
+bin @files/bin/ribbon-shell
+bin @files/bin/ribbon-shell-ctl
+bin @files/bin/ribbon-wallpaper
+bin @files/bin/ribbon-files
+bin @files/bin/ribbon-appearance
+bin @files/bin/ribbon-properties
+bin @files/bin/ribbon-screenshot
+bin @files/bin/ribbon-browser
+bin @files/bin/ribbon-notify-wait
+bin @files/bin/ribbon-lock
+bin @files/bin/ribbon-osd
+file 644 usr/share/dbus-1/services @files/dbus-services/*.service
+file 644 usr/share/xdg-desktop-portal/portals @files/xdg-desktop-portal/portals/ribbon.portal
+file 644 usr/lib/ribbon/shell @files/shell/*.tcl
+file 644 usr/lib/ribbon/shell @files/shell/fonts.conf
+file 644 usr/share/fontconfig/conf.avail @files/shell/fonts.conf 30-ribbon-fonts.conf
+dir etc/fonts/conf.d
+link etc/fonts/conf.d/30-ribbon-fonts.conf ../../../usr/share/fontconfig/conf.avail/30-ribbon-fonts.conf
+file 644 usr/lib/ribbon/greeter @files/greeter/*.tcl
+bin @files/greeter/ribbon-greeter
+file 755 usr/lib/ribbon/rbnalpha @build/librbnalpha.so
+file 644 usr/lib/ribbon/rbnalpha @files/rbnalpha/rbnalpha.tcl
+file 644 usr/lib/ribbon/rbnalpha @files/rbnalpha/pkgIndex.tcl
+file 644 usr/lib/ribbon/dbus @files/dbus/*.tcl
+file 644 usr/lib/ribbon/appearance @files/appearance/*.tcl
+file 644 usr/lib/ribbon/welcome @files/welcome/main.tcl
+file 644 usr/lib/ribbon/properties @files/properties/*.tcl
+file 644 usr/share/mime/packages @files/mime/ribbon-kit.xml
+file 644 usr/share/polkit-1/rules.d @files/greeter/50-ribbon-greeter.rules
+file 755 usr/lib/ribbon @files/bin/ribbon-login-theme
+file 644 usr/share/polkit-1/actions @files/polkit/org.ribbon.login-theme.policy
+file 644 usr/share/polkit-1/rules.d @files/polkit/50-ribbon-login-theme.rules
+# Space Grotesk: the template's distfiles (DISTDIR/SpaceGrotesk-wght.ttf, DISTDIR/SpaceGrotesk-OFL.txt, checked
+# against the template's checksums); without them these three are left out, and the install says so
+file 644 usr/share/fonts/TTF/ribbon ?@dist/SpaceGrotesk-wght.ttf SpaceGrotesk[wght].ttf
+file 644 usr/share/fonts/TTF/ribbon ?@build/SpaceGrotesk-SemiBold.ttf
+license ?@dist/SpaceGrotesk-OFL.txt SpaceGrotesk-OFL.txt
+file 755 usr/lib/ribbon/polkit @build/ribbon-polkit-keys
+file 755 usr/lib/ribbon/hud @build/ribbon-hud-surface
+file 755 usr/lib/ribbon/hud @build/libribbon-hud-frames.so
+file 644 usr/share/vulkan/implicit_layer.d @files/apps/hud/native/ribbon-hud-frames.json
+bin @files/apps/viewer/ribbon-viewer
+file 644 usr/share/applications @files/apps/viewer/org.ribbon.imageviewer.desktop
+file 755 usr/lib/ribbon @files/greetd/greetd-launch
+# the drop-in apps loop (apps:begin .. apps:end)
+apps @files/apps
+dir usr/share/ribbon
+tree @files/xdg usr/share/ribbon
+tree @files/themes usr/share/ribbon
+file 644 usr/share/ribbon/conky/layouts @files/conky/layouts/*.conf
+file 644 usr/share/ribbon/conky/lua @files/conky/lua/ribbon.lua
+# every colour scheme's wallpaper, pre-rendered by build.sh (ribbon-theme render-from), and the system window theme
+file 644 usr/share/ribbon/wallpapers @build/wallpapers/*.svg
+tree @build/render/ribbon/themes/Ribbon usr/share/themes
+file 644 usr/share/ribbon/flatpak @files/flatpak/flathub.flatpakrepo
+file 644 usr/share/ribbon/greetd @files/greetd/config.toml
+file 644 usr/share/ribbon/greetd @files/greetd/pam-nopasswdlogin
+pam etc/pam.d/greetd @files/greetd/pam-nopasswdlogin
+file 644 usr/share/wayland-sessions @files/sessions/ribbon.desktop
+file 644 usr/share/applications @files/applications/ribbon-files.desktop
+file 644 usr/share/applications @files/applications/ribbon-appearance.desktop
+file 644 usr/share/applications @files/applications/ribbon-properties.desktop
+file 644 usr/share/applications @files/applications/ribbon-kit-run.desktop
+file 644 usr/lib/dinit.d @files/services/greetd
+file 644 usr/lib/dinit.d @files/services/ribbon-power-limit
+file 644 usr/share/licenses/ribbon-desktop @repo/LICENSE
+# the package's state directory (make_dirs): the login screen's last login and cache, owned by _greeter
+account _greeter /var/lib/greetd video,input
+state /var/lib/greetd 0750 _greeter _greeter

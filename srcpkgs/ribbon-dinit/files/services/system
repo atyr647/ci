@@ -1,0 +1,13 @@
+# Everything the base system needs before any daemon starts.
+type = internal
+depends-on: early-pseudofs
+depends-on: early-kmods
+depends-on: udevd
+waits-for: early-udev-settle
+depends-on: early-console
+depends-on: early-devices
+depends-on: early-filesystems
+depends-on: early-swap
+depends-on: early-sysctl
+depends-on: early-misc
+waits-for: early-apparmor

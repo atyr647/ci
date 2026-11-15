@@ -1,0 +1,8 @@
+# BlueZ (Settings → Bluetooth and the shell's Bluetooth menu speak to it on the system bus). Ribbon's own
+# description, for a base that has no other (a service in /etc/dinit.d or /run/dinit.d wins). Enabled by the installer.
+type = process
+command = /usr/libexec/bluetooth/bluetoothd -n
+smooth-recovery = true
+logfile = /var/log/dinit/bluetoothd.log
+depends-on: system
+depends-on: dbus

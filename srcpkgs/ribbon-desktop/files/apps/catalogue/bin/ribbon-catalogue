@@ -1,0 +1,4 @@
+#!/bin/sh
+# ribbon-catalogue - the Catalogue (Tcl/Tk, /usr/lib/ribbon/catalogue): find and install apps from
+# Ribbon's kits and Flathub. ribbon-catalogue [FILE.flatpakref]
+exec wish -encoding utf-8 /usr/lib/ribbon/catalogue/main.tcl -name ribbon-catalogue -- "$@"

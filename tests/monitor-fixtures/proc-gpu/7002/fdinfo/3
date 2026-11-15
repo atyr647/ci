@@ -1,0 +1,7 @@
+drm-driver:	xe
+drm-client-id:	9
+drm-cycles-rcs:	4000
+drm-total-cycles-rcs:	10000
+drm-cycles-ccs:	1000
+drm-total-cycles-ccs:	10000
+drm-resident-gtt:	1 MiB

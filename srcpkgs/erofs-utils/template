@@ -1,0 +1,46 @@
+# Template file for 'erofs-utils'
+# Ribbon's erofs-utils, pinned: system kits' images are written by mkfs.erofs on Ribbon's builders, which need 1.9
+# or later (docs/SYSTEM-UPDATES.md 2.5 and D68 A: 1.7.1 maps deduplicated chunks wrongly and merges xattr values;
+# 1.8.x overflows the chunk index), and every image it writes is verified in full (build/ci/kernel.sh verify-image).
+# Built in CI only (build/ci/kernel.yml). It replaces Void's erofs-utils of the same name in Ribbon's repository.
+# Compressors: deflate through libdeflate (Ribbon's kit images, D38), zlib, lz4/lz4hc and lzma; no zstd (D38), and
+# none of the OCI, S3 or FUSE front ends, which builders and the system do not use.
+pkgname=erofs-utils
+version=1.9.4
+revision=1
+build_style=gnu-configure
+configure_args="
+ --enable-lz4
+ --enable-lzma
+ --enable-multithreading
+ --with-libdeflate
+ --with-zlib
+ --without-json-c
+ --without-libcurl
+ --without-libnl3
+ --without-libxml2
+ --without-libzstd
+ --without-openssl
+ --without-qpl
+ --without-selinux
+ --without-xxhash
+ --disable-fuse
+ --disable-oci
+ --disable-s3"
+hostmakedepends="automake libtool pkg-config"
+makedepends="libdeflate-devel liblz4-devel liblzma-devel libuuid-devel zlib-devel"
+short_desc="User-space tools for the EROFS filesystem (Ribbon's builders)"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="GPL-2.0-or-later OR MIT"
+homepage="https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git/about/"
+changelog="https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git/plain/ChangeLog"
+distfiles="https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git/snapshot/erofs-utils-${version}.tar.gz"
+checksum=7d135aa2550326a5acf20f53c518aea5a8900015ce50700044e40f818c31dd80
+
+pre_configure() {
+	autoreconf -fi
+}
+
+post_install() {
+	vlicense LICENSES/MIT
+}

@@ -1,0 +1,185 @@
+#!/bin/bash
+# ribbon-gpu - detect GPUs and install/configure the right drivers.
+# Used by the installer (inside the target system) and afterwards by hand.
+set -u
+. "${RIBBON_LIB:-/usr/lib/ribbon}/common.sh"
+
+# Package ids (pkg.sh; the base's names are in its pkg-names file). Each
+# brings its 32-bit parts, for Steam and Wine.
+PKGS_AMD="mesa mesa-vulkan-amd va-amd firmware-amd"
+PKGS_INTEL="mesa mesa-vulkan-intel va-intel firmware-intel"
+PKGS_NOUVEAU="mesa mesa-vulkan-nouveau firmware-nvidia"
+# NVIDIA's 590+ drivers dropped Maxwell/Pascal/Volta; 580 is their last branch.
+PKGS_NVIDIA="nvidia va-nvidia vulkan-loader"
+# Video decoding: ribbon-wall (and FFmpeg players) use NVDEC through CUDA on
+# every proprietary branch; va-nvidia (the VA-API driver, 525 and later) is
+# the path for Firefox and the fallback. nouveau decodes in software.
+PKGS_NVIDIA580="nvidia580 va-nvidia vulkan-loader"
+PKGS_NVIDIA470="nvidia470 vulkan-loader"
+
+usage() {
+	cat <<EOF
+Usage: ribbon-gpu <command>
+  detect               list GPUs and the driver Ribbon recommends for each
+  install --auto       install recommended drivers for every GPU found
+  install <driver>...  nvidia | nvidia580 | nvidia470 | nouveau | amd | intel
+  packages <driver>... the package ids a driver installs (the installer's probe reads them)
+  status               show which kernel driver each GPU is using
+EOF
+}
+
+# Prints "vendor<TAB>driver<TAB>description" for each display controller.
+detect() {
+	lspci -mm -nn -d ::0300 2>/dev/null
+	lspci -mm -nn -d ::0302 2>/dev/null
+	lspci -mm -nn -d ::0380 2>/dev/null
+}
+
+classify() {
+	# Input: lspci -mm -nn lines. Output: vendor<TAB>driver<TAB>name
+	while IFS= read -r line; do
+		[ -n "$line" ] || continue
+		local vend dev
+		vend=$(printf '%s' "$line" | awk -F'"' '{print $4}')
+		dev=$(printf '%s' "$line" | awk -F'"' '{print $6}')
+		case "$vend" in
+			*'[10de]'*)
+				# pci.ids names include the chip code, e.g. "AD102 [GeForce RTX 4090]".
+				case "$dev" in
+					TU1*|GA1*|AD1*|GB1*|GB2*|GH1*|GN2*) printf 'nvidia\tnvidia\t%s\n' "$dev" ;;
+					GM1*|GM2*|GP1*|GV1*) printf 'nvidia\tnvidia580\t%s\n' "$dev" ;;
+					GK1*|GK2*) printf 'nvidia\tnvidia470\t%s\n' "$dev" ;;
+					*) printf 'nvidia\tnouveau\t%s\n' "$dev" ;;
+				esac ;;
+			*'[1002]'*) printf 'amd\tamd\t%s\n' "$dev" ;;
+			*'[8086]'*) printf 'intel\tintel\t%s\n' "$dev" ;;
+			*) printf 'other\t-\t%s\n' "$dev" ;;
+		esac
+	done
+}
+
+cmd_detect() {
+	detect | classify | while IFS=$'\t' read -r v d n; do
+		printf '%-7s %-10s %s\n' "$v" "$d" "$n"
+	done
+}
+
+# The ISO carries NVIDIA's drivers (and the DKMS toolchain), so they install
+# without internet; online, newer builds win (pkg_install does both).
+install_pkgs() {
+	pkg_install "$@" || die "package installation failed"
+}
+
+configure_nvidia() {
+	local r=${RIBBON_ROOT}
+	mkdir -p "$r/etc/modprobe.d" "$r/etc/dracut.conf.d" "$r/etc/ribbon/session.d"
+	cat > "$r/etc/modprobe.d/ribbon-nvidia.conf" <<'EOF'
+# Written by ribbon-gpu. Kernel modesetting is required for Wayland; the
+# video-memory options keep suspend/resume working.
+options nvidia_drm modeset=1 fbdev=1
+options nvidia NVreg_PreserveVideoMemoryAllocations=1 NVreg_TemporaryFilePath=/var/tmp
+blacklist nouveau
+EOF
+	cat > "$r/etc/dracut.conf.d/20-ribbon-nvidia.conf" <<'EOF'
+# Written by ribbon-gpu: load NVIDIA early so the console and greeter use it.
+add_drivers+=" nvidia nvidia_modeset nvidia_uvm nvidia_drm "
+install_items+=" /etc/modprobe.d/ribbon-nvidia.conf "
+EOF
+	cat > "$r/etc/ribbon/session.d/20-nvidia.sh" <<'EOF'
+# Written by ribbon-gpu (NVIDIA proprietary driver)
+export GBM_BACKEND=nvidia-drm
+export __GLX_VENDOR_LIBRARY_NAME=nvidia
+export LIBVA_DRIVER_NAME=nvidia
+export NVD_BACKEND=direct
+# Shader cache: large enough for big games (Star Citizen alone uses several GB)
+export __GL_SHADER_DISK_CACHE_SIZE=12000000000
+export __GL_SHADER_DISK_CACHE_SKIP_CLEANUP=1
+EOF
+	# elogind runs these around suspend/hibernate (replaces nvidia-suspend.service).
+	mkdir -p "$r/etc/elogind/system-sleep"
+	cat > "$r/etc/elogind/system-sleep/ribbon-nvidia" <<'EOF'
+#!/bin/sh
+# Written by ribbon-gpu: save/restore NVIDIA video memory across sleep.
+command -v nvidia-sleep.sh >/dev/null 2>&1 || exit 0
+case "$1/$2" in
+	pre/suspend|pre/hybrid-sleep) exec nvidia-sleep.sh suspend ;;
+	pre/hibernate) exec nvidia-sleep.sh hibernate ;;
+	post/*) exec nvidia-sleep.sh resume ;;
+esac
+EOF
+	chmod 755 "$r/etc/elogind/system-sleep/ribbon-nvidia"
+	cmdline_add nvidia_drm.modeset=1 nvidia_drm.fbdev=1
+}
+
+configure_hybrid() {
+	# Laptop with an iGPU plus a discrete GPU: provide `prime-run <cmd>`.
+	local r=${RIBBON_ROOT}
+	mkdir -p "$r/usr/local/bin"
+	cat > "$r/usr/local/bin/prime-run" <<'EOF'
+#!/bin/sh
+# Written by ribbon-gpu: run a program on the discrete GPU.
+if lspci -d 10de::0300 >/dev/null 2>&1 && [ -e /proc/driver/nvidia/version ]; then
+	export __NV_PRIME_RENDER_OFFLOAD=1 __GLX_VENDOR_LIBRARY_NAME=nvidia __VK_LAYER_NV_optimus=NVIDIA_only
+else
+	export DRI_PRIME=1
+fi
+exec "$@"
+EOF
+	chmod 755 "$r/usr/local/bin/prime-run"
+}
+
+# The package list for drivers (one line), shared with the installer.
+driver_pkgs() {
+	local d pkgs=""
+	for d; do
+		case "$d" in
+			nvidia) pkgs="$pkgs $PKGS_NVIDIA" ;;
+			nvidia580) pkgs="$pkgs $PKGS_NVIDIA580" ;;
+			nvidia470) pkgs="$pkgs $PKGS_NVIDIA470" ;;
+			nouveau) pkgs="$pkgs $PKGS_NOUVEAU" ;;
+			amd) pkgs="$pkgs $PKGS_AMD" ;;
+			intel) pkgs="$pkgs $PKGS_INTEL" ;;
+			*) die "unknown driver '$d'" ;;
+		esac
+	done
+	# shellcheck disable=SC2086
+	printf '%s\n' $pkgs | awk '!seen[$0]++' | tr '\n' ' ' | sed 's/ $//'
+	echo
+}
+
+cmd_install() {
+	local drivers=() pkgs="" d vendors
+	if [ "${1:-}" = "--auto" ] || [ $# -eq 0 ]; then
+		mapfile -t drivers < <(detect | classify | cut -f2 | grep -v '^-$' | sort -u)
+		[ ${#drivers[@]} -gt 0 ] || { warn "no GPU detected; installing generic Mesa"; drivers=(amd); }
+	else
+		drivers=("$@")
+	fi
+	pkgs=$(driver_pkgs "${drivers[@]}") || exit 1
+	# CPU microcode (AMD's is in firmware-amd, already in ribbon-base).
+	grep -q GenuineIntel /proc/cpuinfo 2>/dev/null && pkgs="$pkgs microcode-intel"
+
+	msg "Installing GPU drivers: ${drivers[*]}"
+	# shellcheck disable=SC2046,SC2086
+	install_pkgs $(printf '%s\n' $pkgs | sort -u)
+
+	case " ${drivers[*]} " in *" nvidia"*) configure_nvidia ;; esac
+	vendors=$(detect | classify | cut -f1 | sort -u | wc -l)
+	[ "$vendors" -gt 1 ] && configure_hybrid
+	regen_initramfs   # and the boot menu
+	ok "GPU drivers installed (reboot to use them)"
+}
+
+cmd_status() {
+	lspci -k -d ::0300; lspci -k -d ::0302; lspci -k -d ::0380
+	[ -r /proc/driver/nvidia/version ] && head -n1 /proc/driver/nvidia/version
+}
+
+case "${1:-}" in
+	detect) cmd_detect ;;
+	install) need_root; shift; cmd_install "$@" ;;
+	status) cmd_status ;;
+	packages) shift; driver_pkgs "$@" ;;
+	-h|--help|"") usage ;;
+	*) usage >&2; exit 2 ;;
+esac

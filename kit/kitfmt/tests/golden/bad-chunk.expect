@@ -1,0 +1,4 @@
+# bad-chunk.kit: damaged on purpose; every reader must refuse it as follows
+open ok
+verify fail lib/big.txt 1
+read lib/big.txt HASH

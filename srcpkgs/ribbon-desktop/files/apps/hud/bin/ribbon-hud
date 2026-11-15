@@ -1,0 +1,43 @@
+#!/bin/sh
+# ribbon-hud - the Game HUD (apps/hud). A small daemon draws it on a layer-shell overlay (ribbon-hud-surface);
+# this command talks to it and starts it when it is not running.
+#   ribbon-hud cycle               Off -> FPS -> Compact -> Full -> Off  (the Super+F12 bind; brings a closed HUD back)
+#   ribbon-hud layout off|fps|compact|full
+#   ribbon-hud pin [0|1]           toggle or set the pin; close: hide it until the next cycle
+#   ribbon-hud menu 0|1            the quick menu is open: the HUD moves to 358 px from the right edge
+#   ribbon-hud quick [0|1]         the in-game quick menu (the Super+Esc bind; the controller's home button opens it too)
+#   ribbon-hud name TEXT           the game's name for the header
+#   ribbon-hud configure KEY VALUE ...   layout position scale opacity contents (the settings store's keys)
+#   ribbon-hud interactive 0|1     1: the pin and close buttons take clicks (the pointer is free); default 0: no input at all
+#   ribbon-hud start               the session's start (labwc's autostart): the daemon comes up only when the store has
+#                                  "Show when a game starts" on somewhere, and then shows the HUD for each game
+#   ribbon-hud reload              Settings changed the store: read it now (starts the daemon like start does)
+#   ribbon-hud state | quit
+# The Super+F12 bind in rc.xml:  <keybind key="W-F12"><action name="Execute" command="ribbon-hud cycle" /></keybind>
+d=${XDG_RUNTIME_DIR:-/tmp}
+f=$d/ribbon-hud; pidf=$d/ribbon-hud.pid
+lib=${RIBBON_HUD_DIR:-/usr/lib/ribbon/hud}
+alive() { [ -p "$f" ] && [ -f "$pidf" ] && kill -0 "$(cat "$pidf" 2>/dev/null)" 2>/dev/null; }
+auto=
+case ${1:-cycle} in start|reload) auto=--auto ;; esac
+if ! alive; then
+	[ "${1:-}" = quit ] && exit 0
+	rm -f "$f" "$pidf"
+	if command -v setsid >/dev/null 2>&1; then
+		setsid wish -encoding utf-8 "$lib/main.tcl" -name ribbon-hud $auto >/dev/null 2>&1 &
+	else
+		wish -encoding utf-8 "$lib/main.tcl" -name ribbon-hud $auto >/dev/null 2>&1 &
+	fi
+	p=$!
+	i=0
+	while [ $i -lt 100 ] && ! { [ -p "$f" ] && [ -f "$pidf" ] && grep -q . "$pidf" 2>/dev/null; }; do
+		# with --auto the daemon leaves at once when nothing asks for it
+		[ -n "$auto" ] && ! kill -0 "$p" 2>/dev/null && exit 0
+		sleep 0.1; i=$((i + 1))
+	done
+	alive || { [ -n "$auto" ] && exit 0; echo "ribbon-hud: could not start" >&2; exit 1; }
+	# a daemon that has just started has read the store
+	[ -n "$auto" ] && exit 0
+fi
+[ "${1:-}" = start ] && exit 0
+printf '%s\n' "${*:-cycle}" > "$f"

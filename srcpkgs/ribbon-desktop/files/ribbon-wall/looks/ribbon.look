@@ -1,0 +1,11 @@
+# The Ribbon design (the default wallpaper): the same as shell/wall.tcl and
+# ribbon-wallpaper's SVG on an ordinary screen. Data, read by look.tcl.
+# Lengths are CSS px times the scale unless they say vw/vh/vmin/vmax;
+# colours are palette keys, so the design follows the colour scheme.
+name Ribbon
+safe {top 54 bottom 54 left 8 right 8}
+gradient {DESK_TOP DESK_BOTTOM}
+layers {
+	stripes {angle 45 period 150 width 44 offset 106 colour DESK_STRIPE alpha DESK_STRIPE_ALPHA}
+	mark {glyphs ribbon-wordmark.glyphs size 148 fit 0.8 colour DESK_MARK alpha DESK_MARK_ALPHA}
+}

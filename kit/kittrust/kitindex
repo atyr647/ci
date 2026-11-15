@@ -1,0 +1,133 @@
+#!/bin/sh
+# kitindex -- build, re-sign and check a kit repository's signed index (docs/KIT-TRUST.md).
+# A packager and CI tool; it is not a verb of `kit`.
+# The next line restarts with tclsh \
+exec tclsh "$0" "$@"
+#
+#   kitindex build -key SECKEY -keys LIST [-state DIR] [-expires DUR] [-snapshot-expires DUR]
+#                  [-mirror URL ...] [-flag NAME=FLAG,... ...] [-revoke KEYID=REASON ...]
+#                  [-serial N] [-prune] [-mk4tcl DIR] [-now WHEN] KITSDIR REPODIR
+#         every *.kit in KITSDIR, each checked against the key list (its kind's key, every chunk),
+#         becomes REPODIR's index: kits/<root>, chunks/, keys, snapshots/<serial>, then index and
+#         index.minisig, signed by an index key.  The serial is the published one + 1.
+#         -expires: how long the index may install (default 7d); -snapshot-expires: its snapshot
+#         (default 90d).  -flag: index flags of a kit (security).  -revoke: announce a revoked key
+#         at once, before the root signs a new key list.  -prune: drop manifests and chunks that
+#         neither the index nor a snapshot uses.  Needs Mk4tcl (-mk4tcl or KITFMT_MK4TCL).
+#   kitindex refresh -key SECKEY -keys LIST [-state DIR] [-expires DUR] [-snapshot-expires DUR]
+#                  [-mirror URL ...] [-revoke KEYID=REASON ...] [-now WHEN] REPODIR
+#         re-sign the published index unchanged but for serial + 1 and a new expiry (run it from a
+#         timer well inside -expires, so the index never lapses).  No Mk4tcl needed.
+#   kitindex check -keys LIST [-state DIR] [-prev INDEX] [-pinned] [-now WHEN] INDEX
+#         what a client checks: the signature by an index key, the repository, the key list's
+#         serial, the expiry, not a snapshot (unless -pinned), and with -prev no replay.
+#
+# Exit codes: 0 done, 1 an error, 2 bad usage, 4 a check failed (an expired index included).
+
+set here [file dirname [file normalize [info script]]]
+source [file join $here kittrust.tcl]
+source [file join $here cli.tcl]
+source [file join $here publish.tcl]
+namespace import ::kittrust::cli::*
+
+set usage "kitindex build|refresh|check ... (see the top of kitindex)"
+if {![llength $argv]} { die 2 "usage: $usage" }
+set verb [lindex $argv 0]
+set argv [lrange $argv 1 end]
+
+proc dur {s} {
+    if {![regexp {^[0-9]+[mhdwy]$} $s]} { die 2 "not a duration: $s (7d, 12h, 2w, 1y)" }
+    return [::kittrust::When $s 0]
+}
+proc pairs {list what} {
+    set out [dict create]
+    foreach p $list {
+        if {![regexp {^([^=]+)=(.*)$} $p -> k v]} { die 2 "$what takes NAME=VALUE, not $p" }
+        dict set out $k $v
+    }
+    return $out
+}
+proc publishOpts {o} {
+    set rev [dict create]
+    dict for {id why} [pairs [dict get $o -revoke] -revoke] {
+        set id [string toupper $id]
+        if {![regexp {^[0-9A-F]{16}$} $id]} { die 2 "-revoke takes a key id (16 hex digits), not $id" }
+        dict set rev $id $why
+    }
+    return [list -key [dict get $o -key] \
+        -expires [dur [expr {[dict get $o -expires] eq "" ? "7d" : [dict get $o -expires]}]] \
+        -snapshotExpires [dur [expr {[dict get $o -snapshot-expires] eq "" ? "90d" : [dict get $o -snapshot-expires]}]] \
+        -mirrors [dict get $o -mirror] -revoke $rev -serial [dict get $o -serial]]
+}
+proc report {repo r} {
+    say "$repo: index serial [dict get $r serial] of [dict get $r repository], [dict get $r kits] kits, expires [date [dict get $r expires]], signed by [dict get $r signer] ([dict get $r name])"
+}
+set common {-key one -keys one -state one -expires one -snapshot-expires one -mirror many -revoke many -serial one -now one}
+
+guard {
+switch -- $verb {
+    build {
+        lassign [getopts [dict merge $common {-flag many -prune flag -mk4tcl one}] $argv "kitindex build -key SECKEY -keys LIST ... KITSDIR REPODIR"] o pos
+        if {[llength $pos] != 2 || [dict get $o -key] eq "" || [dict get $o -keys] eq ""} { die 2 "usage: kitindex build -key SECKEY -keys LIST ... KITSDIR REPODIR" }
+        lassign $pos kits repo
+        now $o
+        ::kittrust load -anchor [dict get $o -keys] -state [dict get $o -state]
+        mk4 [dict get $o -mk4tcl]
+        trustKitfmt
+        set prev [::kittrust::repo::Previous $repo 0]
+        set oldflags [dict create]
+        if {$prev ne ""} { foreach r [dict get $prev kits] { dict set oldflags [lindex $r 3] [lindex $r 8] } }
+        set flags [pairs [dict get $o -flag] -flag]
+        set records {} ; set seen [dict create]
+        set files [lsort [glob -nocomplain -directory $kits -type f *.kit]]
+        if {![llength $files]} { die 1 "no .kit files in $kits" }
+        foreach f $files {
+            # flags: given for the kit's name or short name, else what the published index said
+            set r [::kittrust::repo::AddKit $f $repo ""]
+            lassign $r name - - root - - - short
+            if {[dict exists $flags $name]} { lset r 8 [dict get $flags $name]
+            } elseif {[dict exists $flags $short]} { lset r 8 [dict get $flags $short]
+            } elseif {[dict exists $oldflags $root]} { lset r 8 [dict get $oldflags $root] }
+            set key "[lindex $r 0] [lindex $r 1]"
+            if {[dict exists $seen $key]} { die 4 "$f: $key is also [dict get $seen $key]" }
+            dict set seen $key [file tail $f]
+            lappend records $r
+            say "  [lindex $r 2] [lindex $r 0] [lindex $r 1]  [string range [lindex $r 3] 0 15]"
+        }
+        set res [::kittrust::repo::Publish $repo $prev $records {*}[publishOpts $o]]
+        report $repo $res
+        if {[dict get $o -prune]} { say "pruned [::kittrust::repo::Prune $repo] files" }
+    }
+    refresh {
+        lassign [getopts $common $argv "kitindex refresh -key SECKEY -keys LIST ... REPODIR"] o pos
+        if {[llength $pos] != 1 || [dict get $o -key] eq "" || [dict get $o -keys] eq ""} { die 2 "usage: kitindex refresh -key SECKEY -keys LIST ... REPODIR" }
+        set repo [lindex $pos 0]
+        now $o
+        ::kittrust load -anchor [dict get $o -keys] -state [dict get $o -state]
+        set prev [::kittrust::repo::Previous $repo 1]
+        if {$prev eq ""} { die 1 "$repo has no index to refresh (kitindex build makes one)" }
+        set res [::kittrust::repo::Publish $repo $prev [dict get $prev kits] {*}[publishOpts $o]]
+        report $repo $res
+    }
+    check {
+        lassign [getopts {-keys one -state one -prev one -pinned flag -now one} $argv {kitindex check -keys LIST [-state DIR] [-prev INDEX] [-pinned] [-now WHEN] INDEX}] o pos
+        if {[llength $pos] != 1 || [dict get $o -keys] eq ""} { die 2 {usage: kitindex check -keys LIST [-state DIR] [-prev INDEX] [-pinned] [-now WHEN] INDEX} }
+        now $o
+        ::kittrust load -anchor [dict get $o -keys] -state [dict get $o -state]
+        set f [lindex $pos 0]
+        set text [::kittrust::Slurp $f]
+        set sig "" ; catch {set sig [::kittrust::Slurp $f.minisig]}
+        set args [list -pinned [dict get $o -pinned]]
+        if {[dict get $o -prev] ne ""} {
+            set pf [dict get $o -prev]
+            set ps "" ; catch {set ps [::kittrust::Slurp $pf.minisig]}
+            lappend args -prev [::kittrust::Slurp $pf] -prevsig $ps
+        }
+        set r [::kittrust index $text $sig {*}$args]
+        if {[dict get $r expired]} { die 4 "$f: the index expired on [date [dict get $r expires]]: it can't install anything" }
+        set snap [expr {[dict get $r snapshot] ne "" ? ", a snapshot of serial [dict get $r snapshot]" : ""}]
+        say "$f: ok, serial [dict get $r serial]$snap, [dict get $r kits] kits, key list [dict get $r keys], expires [date [dict get $r expires]], signed by [dict get $r signer] ([dict get $r name])"
+    }
+    default { die 2 "unknown command $verb\nusage: $usage" }
+}
+}

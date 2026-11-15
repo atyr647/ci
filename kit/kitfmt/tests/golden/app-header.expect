@@ -1,0 +1,30 @@
+# app-header.kit: what a reader of KIT-FORMAT.md 1.0 must find (signature state with tests/keys/test.pub trusted)
+open ok
+kind app
+name org.ribbon.golden.app
+version 1.2.0
+root e381c2a83bd601e89f753abef37163af5364b8c0cc14d38774a0c01265db971c
+header 80
+entries 15
+chunks 8
+stored 10524
+bytes 50167
+format 1.0
+requires 
+signature unsigned 
+entry bin dir 493
+entry bin/hello file 493 32 raw 1 32 a7d67401acc2dbbaac32fe238a93feee5b7725617afe79712944b9f81bf1abaf
+entry docs dir 493
+entry docs/résumé.txt file 420 26 raw 1 26 e4fa4a963fba9390ad1337da7ee413ea62959a73dacb778e2bd68627baad2c36
+entry empty file 420 0 raw 0 0 e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855
+entry lib dir 493
+entry lib/big.txt file 420 46342 deflate 3 6703 6c7723973312f97fd2d8a9da16976af65087f807d489a10666a76225d90f1dd9
+entry lib/hello-link link 511 ../bin/hello
+entry lib/noise.bin file 420 3000 raw 1 3000 50ce4257583304a09f9fb56b5aca78fd23a974b9fee82d9c1d590a5f13c7cc73
+entry main.tcl file 420 92 classic 0 88 df1713979cdf847b37918c60b3a1a32f740702b25a320a0f200681b4284de15c
+entry share dir 493
+entry share/applications dir 493
+entry share/applications/hello.desktop file 420 49 raw 1 49 074832a79d7c018375ab2f76a0c58f525c966d1117cdb221855022fe5ec9cd7e
+entry share/icons dir 493
+entry share/icons/hello.png file 420 626 raw 1 626 56230d949fdff2ca40142da92871898526579a3aa7d8705b50e1cbd0daefce2d
+verify ok 1 image none

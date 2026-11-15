@@ -1,0 +1,36 @@
+#!/bin/sh
+# Minimal sv(8) for runit run scripts executed by dinit (Ribbon OS).
+# Only on PATH inside generated services; the real sv(8) is untouched.
+# Supports: check/status/start/up/once/stop/down/restart [-w N] [-v] NAME...
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		-w) shift 2 ;;
+		-v) shift ;;
+		*) break ;;
+	esac
+done
+cmd=$1
+[ $# -gt 0 ] && shift
+
+map_name() {
+	for f in /usr/share/ribbon/sv2dinit/map /etc/ribbon/sv2dinit/map; do
+		[ -r "$f" ] || continue
+		m=$(awk -v n="$1" '$1 == n { print $2; exit }' "$f")
+		[ -n "$m" ] && { printf '%s' "$m"; return; }
+	done
+	printf '%s' "$1"
+}
+
+rc=0
+for s; do
+	s=$(map_name "${s##*/}")
+	case "$cmd" in
+		check|c|status|s) dinitctl is-started "$s" >/dev/null 2>&1 || rc=1 ;;
+		start|up|u|once|o) dinitctl start "$s" >/dev/null 2>&1 || rc=1 ;;
+		stop|down|d|force-stop) dinitctl stop "$s" >/dev/null 2>&1 || rc=1 ;;
+		restart|t|force-restart) dinitctl restart "$s" >/dev/null 2>&1 || rc=1 ;;
+		*) echo "sv (ribbon compat): unsupported command '$cmd'" >&2; rc=1 ;;
+	esac
+done
+exit $rc

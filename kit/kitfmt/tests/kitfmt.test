@@ -1,0 +1,458 @@
+# kitfmt.test -- the reference reader against the golden kits, and the writer round trip.
+#
+#   KITFMT_MK4TCL=<dir with Mk4tcl> tclsh tests/all.tcl          (or a tclkit, which has Mk4tcl built in)
+#
+# The golden kits (tests/golden/*.kit) are committed; tests/mkgolden.tcl makes them.  Their .expect
+# files say what every implementation of docs/KIT-FORMAT.md must find, so a second reader (the C++
+# one in mkkitfs) can run against the same files.
+
+package require tcltest 2
+namespace import ::tcltest::*
+
+set here [file dirname [file normalize [info script]]]
+set top [file dirname $here]
+set gold $here/golden
+if {[info exists env(KITFMT_MK4TCL)]} { lappend auto_path $env(KITFMT_MK4TCL) }
+lappend auto_path $top
+package require Mk4tcl
+package require kitfmt
+
+proc slurp {path} { set ch [open $path rb] ; set d [read $ch] ; close $ch ; return $d }
+proc spit {path data} {
+    file mkdir [file dirname $path]
+    set ch [open $path {WRONLY CREAT TRUNC}] ; fconfigure $ch -translation binary ; puts -nonewline $ch $data ; close $ch
+}
+set testKey [lindex [split [string trim [slurp $here/keys/test.pub]] \n] 1]
+# a well-formed minisign public key that is not the test key (key id 0102030405060708)
+set otherKey RWQIBwYFBAMCARERERERERERERERERERERERERERERERERERERERERER
+proc trustTest {} { kitfmt configure -keys [list $::testKey] -verifier ::kitfmt::MinisignVerify }
+proc trustNone {} { kitfmt configure -keys {} -verifier ::kitfmt::MinisignVerify }
+proc code {script} {
+    if {![catch {uplevel 1 $script} res opts]} { return ok }
+    set ec [dict get $opts -errorcode]
+    if {[lindex $ec 0] eq "KITFMT"} { return [lindex $ec 1] }
+    return "ERROR: $res"
+}
+proc tmpdir {name} {
+    set d [file join [::tcltest::temporaryDirectory] kitfmt-$name-[pid]]
+    file delete -force $d ; file mkdir $d ; return $d
+}
+set hasMinisign [expr {[auto_execok minisign] ne ""}]
+testConstraint minisign $hasMinisign
+testConstraint helper [expr {[::kitfmt::HelperPath] ne ""}]
+testConstraint tool [expr {[::kitfmt::ToolCmd] ne ""}]
+testConstraint unix [expr {$tcl_platform(platform) eq "unix"}]
+testConstraint zlibstream [expr {![catch {zlib stream decompress} s] && ![catch {$s close}]}]
+testConstraint tcl86 [package vsatisfies [info patchlevel] 8.6]
+testConstraint mk4vfs [expr {![catch {package require vfs::mk4}]}]
+testConstraint pack [expr {[auto_execok [info nameofexecutable]] ne "" && [package vsatisfies [info patchlevel] 8.6]}]
+
+# ---- SHA-256 ------------------------------------------------------------------------------
+test sha256-1 {pure Tcl SHA-256: FIPS 180-4 vectors and padding edges} {
+    set out {}
+    foreach s [list "" abc abcdbcdecdefdefgefghfghighijhijkijkljklmklmnlmnomnopnopq [string repeat a 55] [string repeat a 56] [string repeat a 64]] {
+        lappend out [string range [::kitfmt::sha256::hex $s] 0 15]
+    }
+    set out
+} {e3b0c44298fc1c14 ba7816bf8f01cfea 248d6a61d20638b8 9f4390f8d30c2dd9 b35439a4ac6f0948 ffe054fe7ae0cb6d}
+
+test sha256-2 {every hash backend present gives the same digests} {
+    set data {}
+    expr {srand(7)}
+    foreach n {0 1 63 64 65 4096 70001} {
+        set s "" ; for {set i 0} {$i < $n} {incr i} { append s [binary format c [expr {int(rand() * 256)}]] }
+        lappend data $s
+    }
+    set want {} ; foreach s $data { lappend want [::kitfmt::sha256::hex $s] }
+    set bad {}
+    foreach b {helper tool tcl} {
+        if {$b eq "helper" && [::kitfmt::HelperPath] eq ""} continue
+        if {$b eq "tool" && [::kitfmt::ToolCmd] eq ""} continue
+        kitfmt configure -hash $b
+        if {[::kitfmt::HashMany $data] ne $want} { lappend bad $b }
+    }
+    kitfmt configure -hash auto
+    set bad
+} {}
+
+# ---- probing (no Metakit) -------------------------------------------------------------------
+test probe-1 {the valid golden kits are recognised by their frame and seal} {
+    set out {}
+    foreach k {app app-header system} {
+        set p [kitfmt probe $gold/$k.kit]
+        lappend out [dict get $p kit] [dict get $p kind] [dict get $p header] [dict get $p signed] [dict get $p image]
+    }
+    set out
+} {1 app 0 1 0 1 app 80 0 0 1 system 0 1 1}
+
+test probe-2 {a plain Metakit file is Metakit but not a kit; other files are neither} {
+    set d [tmpdir probe]
+    mk::file open p $d/plain.mk ; mk::view layout p.v {a:S} ; mk::row append p.v a 1 ; mk::file commit p ; mk::file close p
+    spit $d/text.txt [string repeat "not a kit\n" 20]
+    spit $d/empty ""
+    set out {}
+    foreach f {plain.mk text.txt empty} {
+        set p [kitfmt probe $d/$f]
+        lappend out [dict get $p kit] [dict get $p metakit] [dict get $p code]
+    }
+    file delete -force $d
+    set out
+} {0 1 SEAL 0 0 TRUNCATED 0 0 TRUNCATED}
+
+test probe-3 {a starkit header in front of the seal: the store is still found from the end} {
+    set fr [::kitfmt::Frame $gold/app-header.kit]
+    list [dict get $fr sealStart] [expr {[dict get $fr storeStart] - [dict get $fr sealStart]}] [string range [slurp $gold/app-header.kit] 0 8]
+} [list 80 4096 "#!/bin/sh"]
+
+# ---- the golden kits against their .expect files ---------------------------------------------------
+proc expectLines {name} {
+    set out {}
+    foreach line [split [encoding convertfrom utf-8 [slurp $::gold/$name.expect]] \n] {
+        if {$line eq "" || [string index $line 0] eq "#"} continue
+        lappend out $line
+    }
+    return $out
+}
+proc actualLines {name} {
+    set h [kitfmt open $::gold/$name.kit]
+    set i [kitfmt info $h]
+    set out [list "open ok"]
+    foreach k {kind name version root header entries chunks stored bytes} { lappend out "$k [dict get $i $k]" }
+    lappend out "format [join [dict get $i format] .]" "requires [dict get $i requires]" \
+        "signature [dict get $i signature state] [dict get $i signature keyid]"
+    set im [kitfmt image $h]
+    if {$im ne ""} { lappend out "image [dict get $im fs] [dict get $im offset] [dict get $im length] [dict get $im verity] [dict get $im salt]" }
+    foreach p [kitfmt walk $h] {
+        set s [kitfmt stat $h $p]
+        switch -- [dict get $s type] {
+            dir { lappend out [list entry $p dir [dict get $s mode]] }
+            link { lappend out [list entry $p link [dict get $s mode] [dict get $s link]] }
+            file { lappend out [list entry $p file [dict get $s mode] [dict get $s size] [dict get $s codec] [dict get $s chunks] [dict get $s stored] [::kitfmt::Hash [kitfmt read $h $p]]] }
+        }
+    }
+    set v [kitfmt verify $h]
+    lappend out "verify ok [dict get $v ok] image [dict get $v image]"
+    set idx [kitfmt index $h]
+    kitfmt close $h
+    return [list $out $idx]
+}
+foreach k {app app-header system} {
+    test golden-$k {listing, sizes, codecs, content hashes, root, signature and verify as expected} -setup trustTest -body {
+        lassign [actualLines $k] got idx
+        set want [expectLines $k]
+        set diff {}
+        foreach w $want g $got { if {$w ne $g} { lappend diff "want: $w" "got:  $g" } }
+        set diff
+    } -cleanup trustNone -result {}
+    test golden-$k-index {the index (what the root hashes) is byte for byte the published one} -body {
+        lassign [actualLines $k] got idx
+        expr {[encoding convertto utf-8 $idx] eq [slurp $gold/$k.index]}
+    } -result 1
+}
+test golden-index-root {the root is SHA-256 of the published index} {
+    set fr [::kitfmt::Frame $gold/app.kit]
+    expr {[::kitfmt::sha256::hex [slurp $gold/app.index]] eq [dict get $fr st root]}
+} 1
+
+# ---- the damaged golden kits ------------------------------------------------------------------------
+test damaged-bad-chunk {a changed chunk: the kit opens, verify names the chunk, reading it is an error} -body {
+    set h [kitfmt open $gold/bad-chunk.kit]
+    set v [kitfmt verify $h]
+    set r [code {kitfmt read $h lib/big.txt}]
+    set r2 [code {kitfmt read $h lib/big.txt 0 100}]
+    set r3 [code {kitfmt read $h lib/big.txt 40000 100}]
+    kitfmt close $h
+    list [dict get $v ok] [lrange [lindex [dict get $v bad] 0] 0 1] $r $r2 $r3
+} -result {0 {lib/big.txt 1} HASH ok ok}
+
+test damaged-bad-root {the seal's root is wrong: refused, unless forced; verify then fails on the root} -setup trustTest -body {
+    set a [code {kitfmt open $gold/bad-root.kit}]
+    set h [kitfmt open $gold/bad-root.kit -force 1]
+    set v [kitfmt verify $h]
+    set s [dict get [kitfmt info $h] signature state]
+    kitfmt close $h
+    list $a [dict get $v ok] [dict get $v root] $s
+} -cleanup trustNone -result {ROOT 0 mismatch invalid} -constraints minisign
+
+test damaged-bad-signature {a changed signature: the kit opens, the signature is bad, -signed refuses it} -setup trustTest -body {
+    set h [kitfmt open $gold/bad-signature.kit]
+    set s [dict get [kitfmt info $h] signature state]
+    kitfmt close $h
+    list $s [code {kitfmt open $gold/bad-signature.kit -signed 1}]
+} -cleanup trustNone -result {invalid SIGNATURE} -constraints minisign
+
+test statement-image-noverity {an image line without verity ("- -", as kitpack writes it) parses; a bad salt does not} {
+    set r [string repeat 1 64]
+    set base "ribbon-kit-seal 1\nformat 1.0\nkind system\nname org.test.x\nversion 1\nroot $r\nheader 64 $r\n"
+    set out {}
+    lappend out [dict get [::kitfmt::ParseStatement "${base}image erofs 4096 8192 - -\n"] image salt]
+    lappend out [dict get [::kitfmt::ParseStatement "${base}image erofs 4096 8192 $r ab\n"] image salt]
+    lappend out [catch {::kitfmt::ParseStatement "${base}image erofs 4096 8192 $r abc\n"}]
+} {- ab 1}
+
+test damaged-bad-image {a changed byte in the embedded image: verify fails on the image} {
+    set h [kitfmt open $gold/bad-image.kit]
+    set v [kitfmt verify $h]
+    kitfmt close $h
+    list [dict get $v ok] [dict get $v image] [lindex [dict get $v bad] 0]
+} {0 bad {{} image {segment 0 does not match its hash}}}
+
+test damaged-others {truncated, a newer major version, an unknown feature, a bad name: refused} {
+    set out {}
+    foreach k {truncated wrong-version unknown-feature bad-name} { lappend out [code {kitfmt open $gold/$k.kit}] }
+    lappend out [dict get [kitfmt probe $gold/truncated.kit] kit]
+} {TRUNCATED VERSION FEATURE PATH 0}
+
+test damaged-expect {every damaged kit's .expect says what the tests above check} {
+    set out {}
+    foreach k {bad-chunk bad-root bad-signature bad-image truncated wrong-version unknown-feature bad-name} {
+        lappend out [lindex [expectLines $k] 0]
+    }
+    set out
+} {{open ok} {open fail ROOT} {open ok} {open ok} {open fail TRUNCATED} {open fail VERSION} {open fail FEATURE} {open fail PATH}}
+
+# ---- signatures --------------------------------------------------------------------------------------
+test sig-1 {signature states: unchecked without keys, untrusted with another key, valid with the test key} -constraints minisign -body {
+    set out {}
+    foreach keys [list {} [list $otherKey] [list $testKey]] {
+        kitfmt configure -keys $keys
+        set h [kitfmt open $gold/app.kit]
+        lappend out [dict get [kitfmt info $h] signature state]
+        kitfmt close $h
+    }
+    set out
+} -cleanup trustNone -result {unchecked untrusted valid}
+
+test sig-2 {an unsigned kit is "unsigned", and -signed 1 refuses it before Metakit opens it} -setup trustTest -body {
+    set h [kitfmt open $gold/app-header.kit]
+    set s [dict get [kitfmt info $h] signature state]
+    kitfmt close $h
+    set before [llength [mk::file open]]
+    list $s [code {kitfmt open $gold/app-header.kit -signed 1}] [expr {[llength [mk::file open]] - $before}]
+} -cleanup trustNone -result {unsigned SIGNATURE 0}
+
+test sig-3 {the verifier is a pluggable command: it gets the statement, the signature and the key} -body {
+    set ::seen {}
+    proc fakeVerifier {stmt sig pk} { set ::seen [list [string range $stmt 0 14] [string range $sig 0 16] [expr {$pk eq $::testKey}]] ; return 0 }
+    kitfmt configure -keys [list $testKey] -verifier fakeVerifier
+    set h [kitfmt open $gold/app.kit]
+    set s [dict get [kitfmt info $h] signature]
+    kitfmt close $h
+    list [dict get $s state] [dict get $s keyid] $::seen
+} -cleanup trustNone -result {invalid CF096CB575EDBA78 {ribbon-kit-seal {untrusted comment} 1}}
+
+test sig-4 {the signer's key id and trusted comment are shown without any verifier} {
+    set h [kitfmt open $gold/system.kit]
+    set s [dict get [kitfmt info $h] signature]
+    kitfmt close $h
+    list [dict get $s state] [dict get $s keyid] [dict get $s comment]
+} {unchecked CF096CB575EDBA78 {org.ribbon.golden.base 2026.11.1}}
+
+# ---- reading ----------------------------------------------------------------------------------------
+test read-1 {ranges across chunk boundaries equal the same range of the whole file} {
+    set h [kitfmt open $gold/app.kit]
+    set whole [kitfmt read $h lib/big.txt]
+    set bad 0
+    foreach {off len} {0 1 16383 2 16384 16384 16000 20000 30000 100000 46341 1 46342 10 0 46342 5 0} {
+        if {[kitfmt read $h lib/big.txt $off $len] ne [string range $whole $off [expr {$off + $len - 1}]]} { incr bad }
+    }
+    set n [string length $whole]
+    kitfmt close $h
+    list $n $bad
+} {46342 0}
+
+test read-2 {errors: no such entry, a directory, a link} {
+    set h [kitfmt open $gold/app.kit]
+    set out [list [code {kitfmt read $h nope}] [code {kitfmt read $h lib}] [code {kitfmt read $h lib/hello-link}] [code {kitfmt stat $h nope}]]
+    kitfmt close $h
+    set out
+} {NOENT TYPE TYPE NOENT}
+
+test read-chunks {chunks: index, stored size and hash of each chunk; a classic file is one} {
+    set h [kitfmt open $gold/app.kit]
+    set c [kitfmt chunks $h lib/big.txt]
+    set k [kitfmt chunks $h main.tcl]
+    set e [kitfmt chunks $h empty]
+    set sum 0 ; foreach x $c { incr sum [lindex $x 1] }
+    set out [list [llength $c] [lindex $c 1 0] [expr {$sum == [dict get [kitfmt stat $h lib/big.txt] stored]}] [regexp {^[0-9a-f]{64}$} [lindex $c 2 2]] \
+        [llength $k] $e [code {kitfmt chunks $h lib}]]
+    kitfmt close $h
+    set out
+} {3 1 1 1 1 {} TYPE}
+
+test read-3 {list: the children of a directory, sorted; the root; a non-directory} {
+    set h [kitfmt open $gold/app.kit]
+    set out [list [kitfmt list $h] [kitfmt list $h share] [code {kitfmt list $h main.tcl}]]
+    kitfmt close $h
+    set out
+} {{bin docs empty lib main.tcl share} {share/applications share/icons} TYPE}
+
+test read-4 {the manifest} {
+    set h [kitfmt open $gold/app.kit]
+    set m [kitfmt manifest $h]
+    kitfmt close $h
+    list [dict get $m fields name] [dict get $m fields kind] [dict get $m needs] [dict get $m perms] [lindex [dict get $m entries] 0] [llength [dict get $m effects]]
+} {org.ribbon.golden.app app {{org.ribbon.runtime.tcl >=8.6} {org.ribbon.runtime.tk >=8.6}} {{network no} {home none} {display wayland} {folders {Documents ro}}} {hello bin/hello {} app} 2}
+
+test read-5 {the embedded image: aligned, where the seal says, an erofs superblock at +1024} {
+    set h [kitfmt open $gold/system.kit]
+    set im [kitfmt image $h]
+    kitfmt close $h
+    set ch [open $gold/system.kit rb] ; seek $ch [expr {[dict get $im offset] + 1024}] ; binary scan [read $ch 4] i magic ; close $ch
+    list [expr {[dict get $im offset] % 4096}] [format %08x [expr {$magic & 0xffffffff}]] [dict get $im fs] [dict get $im segments]
+} {0 e0f5e1e2 erofs 1}
+
+test read-6 {a kit stays readable in pure Tcl: every file again with the Tcl hash backend} {
+    kitfmt configure -hash tcl
+    set h [kitfmt open $gold/app-header.kit]
+    set n 0
+    foreach p [kitfmt walk $h] { if {[dict get [kitfmt stat $h $p] type] eq "file"} { incr n [string length [kitfmt read $h $p]] } }
+    kitfmt close $h
+    kitfmt configure -hash auto
+    set n
+} 50167
+
+test read-7 {nothing is written next to the kit, and the store is opened read-only} {
+    set d [tmpdir sidefiles]
+    file copy $gold/app.kit $d/app.kit
+    set before [file mtime $d/app.kit]
+    set h [kitfmt open $d/app.kit]
+    kitfmt verify $h
+    kitfmt read $h lib/big.txt
+    kitfmt close $h
+    set out [list [lsort [glob -tails -directory $d *]] [expr {[slurp $d/app.kit] eq [slurp $gold/app.kit]}]]
+    file delete -force $d
+    set out
+} {app.kit 1}
+
+# ---- extracting -------------------------------------------------------------------------------------
+test extract-1 {the whole kit: every file's content and mode, links as links} -constraints unix -body {
+    set d [tmpdir extract]
+    set h [kitfmt open $gold/app.kit]
+    set n [kitfmt extract $h "" $d]
+    set bad {}
+    foreach p [kitfmt walk $h] {
+        set s [kitfmt stat $h $p]
+        switch -- [dict get $s type] {
+            file {
+                if {[slurp $d/$p] ne [kitfmt read $h $p]} { lappend bad $p }
+                if {([file attributes $d/$p -permissions] & 0x1ff) != [dict get $s mode]} { lappend bad "$p mode" }
+                if {[file mtime $d/$p] != [dict get $s date]} { lappend bad "$p date" }
+            }
+            link { if {[file readlink $d/$p] ne [dict get $s link]} { lappend bad $p } }
+            dir { if {![file isdirectory $d/$p]} { lappend bad $p } }
+        }
+    }
+    kitfmt close $h
+    file delete -force $d
+    list $n $bad
+} -result {9 {}}
+
+test extract-2 {one folder, one file; an existing target is refused} -body {
+    set d [tmpdir extract2]
+    set h [kitfmt open $gold/app.kit]
+    kitfmt extract $h share $d
+    kitfmt extract $h lib/big.txt $d
+    set again [code {kitfmt extract $h lib/big.txt $d}]
+    kitfmt close $h
+    set out [list [lsort [glob -tails -directory $d *]] [lsort [glob -tails -directory $d/share *]] $again]
+    file delete -force $d
+    set out
+} -result {{big.txt share} {applications icons} EXISTS}
+
+test extract-3 {progress up to the total, and "stop" stops} -body {
+    set d [tmpdir extract3]
+    set h [kitfmt open $gold/app.kit]
+    set ::calls {}
+    kitfmt extract $h lib $d -progress {apply {{done total} { lappend ::calls [list $done $total] ; return go }}}
+    file mkdir $d/two
+    set r [code {kitfmt extract $h "" $d/two -progress {apply {{done total} { return stop }}}}]
+    kitfmt close $h
+    file delete -force $d
+    list [llength $::calls] [lindex $::calls 0] $r
+} -result {4 {0 49342} CANCELLED}
+
+# ---- the writer -------------------------------------------------------------------------------------
+proc packTree {} {
+    set src [tmpdir src]
+    set text "" ; for {set i 0} {$i < 20000} {incr i} { append text "row $i [expr {($i * 31) % 977}] [string repeat x [expr {$i % 13}]]\n" }
+    spit $src/data/table.txt $text
+    spit $src/bin/run "#!/bin/sh\necho run\n"
+    file attributes $src/bin/run -permissions 493
+    spit $src/m.manifest {name org.ribbon.test.pack version 0.1 kind app summary {round trip}}
+    file rename $src/m.manifest [file dirname $src]/kitfmt-m-[pid].manifest
+    return $src
+}
+proc kitpack {args} { exec [info nameofexecutable] $::top/kitpack -q {*}$args 2>@1 }
+
+test pack-1 {kitpack round trip with Tcl's own zlib (level 9) and with libdeflate (level 12): same content, libdeflate smaller} -constraints {pack helper} -body {
+    set src [packTree]
+    set m [file dirname $src]/kitfmt-m-[pid].manifest
+    set d [tmpdir pack]
+    kitpack -manifest $m -date 1 -deflate tcl -level 9 $src $d/z9.kit
+    kitpack -manifest $m -date 1 -deflate helper -level 12 $src $d/l12.kit
+    set out {}
+    foreach k {z9 l12} {
+        set h [kitfmt open $d/$k.kit]
+        lappend out [expr {[kitfmt read $h data/table.txt] eq [slurp $src/data/table.txt]}] [dict get [kitfmt verify $h] ok]
+        set stored($k) [dict get [kitfmt info $h] stored]
+        kitfmt close $h
+    }
+    lappend out [expr {$stored(l12) < $stored(z9)}]
+    file delete -force $d $src $m
+    set out
+} -result {1 1 1 1 1}
+
+test pack-2 {kitpack is reproducible: the same input gives the same bytes} -constraints pack -body {
+    set src [packTree]
+    set m [file dirname $src]/kitfmt-m-[pid].manifest
+    set d [tmpdir pack2]
+    kitpack -manifest $m -date 1 -deflate tcl -level 9 $src $d/a.kit
+    kitpack -manifest $m -date 1 -deflate tcl -level 9 $src $d/b.kit
+    set same [expr {[slurp $d/a.kit] eq [slurp $d/b.kit]}]
+    file delete -force $d $src $m
+    set same
+} -result 1
+
+test pack-3 {a symlink that leaves the kit is stored, listed, and refused at extraction} -constraints {pack unix} -body {
+    set src [packTree]
+    set m [file dirname $src]/kitfmt-m-[pid].manifest
+    exec ln -s ../../../etc/passwd $src/data/escape
+    set d [tmpdir pack3]
+    kitpack -manifest $m -date 1 -deflate tcl -level 9 $src $d/l.kit
+    set h [kitfmt open $d/l.kit]
+    set link [dict get [kitfmt stat $h data/escape] link]
+    file mkdir $d/out
+    set r [code {kitfmt extract $h data $d/out}]
+    kitfmt close $h
+    file delete -force $d $src $m
+    list $link $r
+} -result {../../../etc/passwd PATH}
+
+test pack-4 {a stock mk4vfs (tclvfs) reads the classic part of a kit} -constraints mk4vfs -body {
+    vfs::mk4::Mount $gold/app.kit /kitfmt-mk4vfs -readonly
+    set ch [open /kitfmt-mk4vfs/main.tcl] ; set t [read $ch] ; close $ch
+    vfs::unmount /kitfmt-mk4vfs
+    string match "*hello from main.tcl*" $t
+} -result 1
+
+# ---- verify: progress and cancel ---------------------------------------------------------------------
+test verify-1 {progress is reported up to the total, and "stop" cancels} {
+    set ::calls {}
+    set h [kitfmt open $gold/system.kit]
+    set v [kitfmt verify $h -progress {apply {{d t} { lappend ::calls [list $d $t] ; return go }}}]
+    set last [lindex $::calls end]
+    set c [kitfmt verify $h -progress {apply {{d t} { return stop }}}]
+    kitfmt close $h
+    list [dict get $v ok] [expr {[lindex $last 0] == [lindex $last 1]}] [dict get $c cancelled] [dict get $c ok]
+} {1 1 1 0}
+
+test verify-2 {verify a subset of paths} {
+    set h [kitfmt open $gold/bad-chunk.kit]
+    set a [dict get [kitfmt verify $h -paths {bin/hello main.tcl}] ok]
+    set b [dict get [kitfmt verify $h -paths {lib}] ok]
+    kitfmt close $h
+    list $a $b
+} {1 0}
+
+cleanupTests

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Backgrounds its daemon instead of exec-ing it: must be refused.
+mydaemon --fork &
+wait

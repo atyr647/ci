@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Files
+GenericName=File Manager
+Comment=Browse your files (Ribbon Files)
+Exec=ribbon-files %U
+Icon=folder
+Terminal=false
+Categories=System;FileManager;Utility;Core;
+MimeType=inode/directory;
+StartupWMClass=RibbonFiles
+Keywords=folder;files;explorer;

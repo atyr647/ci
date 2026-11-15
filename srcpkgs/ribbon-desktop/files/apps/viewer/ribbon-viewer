@@ -1,0 +1,5 @@
+#!/bin/sh
+# ribbon-viewer - Image Viewer (Tcl/Tk, /usr/lib/ribbon/viewer): a picture and its folder.
+#   ribbon-viewer [FILE]
+# Installed as bin/ribbon-viewer by the package template (INTEGRATION REQUEST in design/handoff/u36.md).
+exec wish -encoding utf-8 /usr/lib/ribbon/viewer/main.tcl -name ribbon-viewer -- "$@"

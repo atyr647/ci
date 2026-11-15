@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Catalogue
+GenericName=App catalogue
+Comment=Find and install apps from Ribbon kits and Flathub
+Exec=ribbon-catalogue %f
+Icon=system-software-install
+Terminal=false
+Categories=System;PackageManager;
+MimeType=application/vnd.flatpak.ref;
+StartupWMClass=RibbonCatalogue
+Keywords=apps;install;software;kit;flatpak;flathub;store;

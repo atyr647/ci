@@ -1,0 +1,7 @@
+# chrony: the clock from the internet (Settings → Date and time's "Set from the internet" enables and disables this
+# service). Ribbon's own description, for a base that has no other (a service in /etc/dinit.d or /run/dinit.d wins).
+type = process
+command = /usr/sbin/chronyd -n
+smooth-recovery = true
+logfile = /var/log/dinit/chronyd.log
+depends-on: system

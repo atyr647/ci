@@ -1,0 +1,68 @@
+#!/bin/sh
+# Ribbon OS desktop session: the Ribbon shell (Tcl/Tk) on labwc.
+#
+# Config layering (later wins, nothing in /usr is ever edited):
+#   /etc/xdg  <  /usr/share/ribbon/xdg (Ribbon defaults)
+#             <  ~/.local/state/ribbon/xdg-input (Settings: keyboard, mouse, touchpad)
+#             <  ~/.local/state/ribbon/xdg-display (the shell: the margin on the main display)
+#             <  ~/.local/state/ribbon/xdg (settings made by ribbon tools)
+#             <  ~/.config (yours)
+# labwc runs with --merge-config so each layer only needs what it changes.
+
+export XDG_SESSION_TYPE=wayland
+export XDG_SESSION_DESKTOP=ribbon
+export XDG_CURRENT_DESKTOP=Ribbon:wlroots
+state=${XDG_STATE_HOME:-$HOME/.local/state}
+export XDG_CONFIG_DIRS="$state/ribbon/xdg:$state/ribbon/xdg-display:$state/ribbon/xdg-input:/usr/share/ribbon/xdg:/etc/xdg"
+export XDG_DATA_DIRS="${XDG_DATA_DIRS:-/usr/local/share:/usr/share}:/var/lib/flatpak/exports/share:$HOME/.local/share/flatpak/exports/share"
+
+# Toolkits: prefer native Wayland, fall back to XWayland.
+export MOZ_ENABLE_WAYLAND=1
+export QT_QPA_PLATFORM="wayland;xcb"
+export QT_QPA_PLATFORMTHEME=gtk3
+export ELECTRON_OZONE_PLATFORM_HINT=auto
+export _JAVA_AWT_WM_NONREPARENTING=1
+
+# Language and region (Settings, apps/settings/locale.tcl): the system's /etc/locale.conf, then the account's
+# locale.conf. Once the account names LANG, the system's LANG and formats (LC_TIME, LC_NUMERIC, LC_MONETARY,
+# LC_MEASUREMENT, LC_PAPER) give way to it; other system lines (LC_COLLATE, ...) stay.
+# RIBBON_LOCALE_CONF names the system's file for the tests.
+sys_locale=${RIBBON_LOCALE_CONF:-/etc/locale.conf}
+acct_locale=${XDG_CONFIG_HOME:-$HOME/.config}/locale.conf
+own_lang=
+[ -r "$acct_locale" ] && grep -q '^LANG=' "$acct_locale" && own_lang=1
+for f in "$sys_locale" "$acct_locale"; do
+	[ -r "$f" ] || continue
+	yield=; [ "$f" = "$sys_locale" ] && [ -n "$own_lang" ] && yield=1
+	while IFS='=' read -r k v; do
+		case $k in LANG | LC_[A-Z]*) ;; *) continue ;; esac
+		if [ -n "$yield" ]; then
+			case $k in LANG | LC_TIME | LC_NUMERIC | LC_MONETARY | LC_MEASUREMENT | LC_PAPER) continue ;; esac
+		fi
+		v=${v#\"}; v=${v%\"}
+		export "$k=$v"
+	done < "$f"
+done
+
+for f in /etc/ribbon/session.d/*.sh "$HOME"/.config/ribbon/session.d/*.sh; do
+	[ -r "$f" ] && . "$f"
+done
+
+/usr/bin/ribbon-firstrun || :
+
+# Settings → Keyboard and mouse: labwc's files (the xdg-input layer) from ~/.config/ribbon/input.conf, so they
+# follow it at every login even if the state directory was emptied.
+if [ -x /usr/bin/ribbon-input ]; then /usr/bin/ribbon-input generate || :; fi
+
+set -- --merge-config
+if [ -e /run/ribbon/safe-mode ]; then
+	# Safe mode: Ribbon defaults only, default renderer, no user/tool layers.
+	export XDG_CONFIG_DIRS="/usr/share/ribbon/xdg:/etc/xdg"
+	set -- -C /usr/share/ribbon/xdg/labwc
+fi
+
+if [ -z "${DBUS_SESSION_BUS_ADDRESS:-}" ]; then
+	# turnstile normally provides the session bus; fall back to a private one.
+	exec dbus-run-session -- labwc "$@"
+fi
+exec labwc "$@"

@@ -1,0 +1,7 @@
+# cronie (crontab jobs). Ribbon's own description, for a base that has no other (a service in /etc/dinit.d or
+# /run/dinit.d wins). Enabled by the installer.
+type = process
+command = /usr/sbin/crond -n
+smooth-recovery = true
+logfile = /var/log/dinit/cronie.log
+depends-on: system

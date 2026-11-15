@@ -1,0 +1,9 @@
+# The firewall: loads /etc/nftables.conf at boot and flushes the ruleset when stopped (nftables replaces ufw).
+# Ribbon's own description, for a base that has no other (a service in /etc/dinit.d or /run/dinit.d wins).
+# Enabled by the installer.
+type = scripted
+command = /usr/sbin/nft -f /etc/nftables.conf
+stop-command = /usr/sbin/nft flush ruleset
+restart = false
+log-type = buffer
+depends-on: system

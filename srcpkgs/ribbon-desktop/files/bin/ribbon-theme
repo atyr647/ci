@@ -1,0 +1,708 @@
+#!/bin/bash
+# ribbon-theme - one colour scheme, applied everywhere: the Ribbon bars,
+# window borders (labwc), GTK accents, conky, terminal, wallpaper, and the
+# login screen.
+#   ribbon-theme list
+#   ribbon-theme pick                           choose a scheme (the Appearance app)
+#   ribbon-theme apply <scheme> [--quiet] [--no-reload] [--no-login]
+#   ribbon-theme login <scheme> | show | follow yes|no
+#   ribbon-theme wallpaper [set IMAGE [--fit MODE] | colour #RRGGBB | ribbon | pick
+#                          | slideshow DIR [--interval S] [--crossfade S] [--shuffle yes|no]
+#                                          [--subdirs yes|no] [--fit MODE]
+#                          | video FILE [--pause-fullscreen yes|no] [--pause-covered yes|no]
+#                                       [--pause-game yes|no] [--pause-battery yes|no]
+#                                       [--bars see-through|solid]
+#                          | show | login IMAGE|ribbon]
+#   ribbon-theme login options [FIT=MODE] [BLUR=PX] [DIM=PERCENT] [CLOCK=yes|no] [COLOUR=#RRGGBB|]
+#   ribbon-theme render <scheme> <outdir>       (used at package build time)
+#   ribbon-theme migrate                        a retired scheme in use: apply
+#                                               its replacement (each login)
+#   ribbon-theme access                         Settings → Accessibility saved
+#                                               access.conf: apply it (below)
+#
+# The login screen belongs to the whole machine: its palette is
+# /etc/ribbon/palette.conf and its background /etc/ribbon/login/, written
+# by the privileged helper /usr/lib/ribbon/ribbon-login-theme through
+# pkexec. "apply" passes the scheme on to it in the background when
+# LOGIN_FOLLOWS_THEME (in ~/.config/ribbon/theme.conf, default yes) is on
+# and you are an admin (in "wheel", so polkit asks no password); so with
+# several admins, whoever changed their scheme last sets the login screen.
+# What happened is logged to ~/.local/state/ribbon/login-theme.log.
+#
+# The desktop background: ~/.config/ribbon/wallpaper.conf, written here
+# (also by the Appearance app, through these commands), one KEY=VALUE a line:
+#   MODE=pattern|picture|colour|slideshow|video
+#   IMAGE=FILE          the picture shown now (a slideshow's current one, a
+#                       video's first frame); empty: the pattern
+#   FIT=fill|fit|centre|tile   how a picture is laid out
+#   COLOUR=#RRGGBB      the plain colour; also around a fitted or centred one
+#   SLIDESHOW_DIR=DIR INTERVAL=SECONDS (60..604800, clamped) CROSSFADE=SECONDS
+#   SHUFFLE=yes|no SUBDIRS=yes|no   a slideshow of the pictures in DIR
+#   VIDEO=FILE          a looping, silent video, paused when:
+#   PAUSE_FULLSCREEN=yes|no  a window is fullscreen (default yes)
+#   PAUSE_COVERED=yes|no     windows cover it (default no)
+#   PAUSE_GAME=yes|no        a game is running (default no)
+#   PAUSE_BATTERY=yes|no     on battery (default no)
+#   BARS=see-through|solid   the bars over the video: cut out of it (default)
+#                       or solid
+# Each command sets MODE and its own keys and keeps the others, so the
+# slideshow's or the video's settings stay when you switch away and back.
+# Until a renderer plays slideshows and videos (ribbon-wall), they show
+# their first picture (a video's first frame when ffmpeg is installed).
+# The login screen's own background and look: "ribbon-theme wallpaper
+# login" and "ribbon-theme login options" (the helper writes
+# /etc/ribbon/login/options.conf, read by the greeter).
+# Schemes: ribbon (Graphite, default), ribbon-fjord, ribbon-moss, and the
+# originals ribbon-slate, ribbon-amber, ribbon-midnight, ribbon-dark. Your own: ~/.config/ribbon/palettes/<id>.conf
+# (copy one of /usr/share/ribbon/themes/palettes/*.conf and change it).
+# Retired schemes (see retired below) are taken as their replacement, so an
+# old theme.conf keeps working: ribbon-purple is Graphite.
+set -u
+SYS=/usr/share/ribbon/themes
+[ -d "$SYS" ] || SYS=$(cd "$(dirname "$0")/../themes" 2>/dev/null && pwd)
+USERPAL=${XDG_CONFIG_HOME:-$HOME/.config}/ribbon/palettes
+CONF=${XDG_CONFIG_HOME:-$HOME/.config}/ribbon/theme.conf
+LOGIN_HELPER=/usr/lib/ribbon/ribbon-login-theme
+[ -x "$LOGIN_HELPER" ] || LOGIN_HELPER=$(cd "$(dirname "$0")" 2>/dev/null && pwd)/ribbon-login-theme
+quiet='' reload=1 login=1
+
+# theme.conf: PALETTE=<scheme>, LOGIN_FOLLOWS_THEME=yes|no (also edited by
+# the Appearance app; keys we don't know are kept)
+conf_get() { # key default
+	local v; v=$(sed -n "s/^$1=//p" "$CONF" 2>/dev/null | tail -n 1)
+	printf '%s\n' "${v:-$2}"
+}
+conf_set() { # key value
+	local tmp; mkdir -p "$(dirname "$CONF")"
+	tmp=$(mktemp "$CONF.XXXXXX") || return 1
+	{ grep -v "^$1=" "$CONF" 2>/dev/null; printf '%s=%s\n' "$1" "$2"; } > "$tmp"
+	mv -f "$tmp" "$CONF"
+}
+
+# A retired built-in's id -> the scheme that replaces it (unless you have a
+# palette of your own with that id); any other id is itself.
+retired() {
+	case $1 in
+		ribbon-purple) [ -r "$USERPAL/$1.conf" ] && echo "$1" || echo ribbon ;;
+		*) echo "$1" ;;
+	esac
+}
+
+find_palette() {
+	for p in "$USERPAL/$1.conf" "$SYS/palettes/$1.conf"; do
+		[ -r "$p" ] && { echo "$p"; return 0; }
+	done
+	return 1
+}
+
+render_file() { # template out palette-file
+	local sedargs=() k v
+	while IFS='=' read -r k v; do
+		case "$k" in ''|\#*) continue ;; esac
+		v=${v%\"}; v=${v#\"}
+		sedargs+=(-e "s|@${k}@|${v}|g")
+	done < "$3"
+	sedargs+=(-e "s|@ID@|$(basename "$3" .conf)|g")
+	mkdir -p "$(dirname "$2")"
+	sed "${sedargs[@]}" "$1" > "$2"
+}
+
+render() { # palette outdir
+	local pal; pal=$(find_palette "$1") || { echo "no palette '$1'" >&2; exit 1; }
+	local t=$SYS/templates o=$2
+	render_file "$t/themerc.in"        "$o/themes/Ribbon/openbox-3/themerc" "$pal"
+	for b in "$t"/buttons/*.svg.in; do
+		render_file "$b" "$o/themes/Ribbon/openbox-3/$(basename "$b" .in)" "$pal"
+	done
+	render_file "$t/gtk.css.in"        "$o/gtk.css" "$pal"
+	render_file "$t/palette.lua.in"    "$o/palette.lua" "$pal"
+	tclsh "$(dirname "$0")/ribbon-wallpaper" "$pal" 1920x1080 > "$o/wallpaper.svg"
+	mkdir -p "$o" && foot_ini "$pal" > "$o/foot.ini"
+}
+
+managed_block() { # file content-file
+	local f=$1 tmp; mkdir -p "$(dirname "$f")"; touch "$f"
+	tmp=$(mktemp)
+	sed '/^\/\* >>> ribbon-theme/,/^\/\* <<< ribbon-theme/d' "$f" > "$tmp"
+	{ cat "$2"; cat "$tmp"; } > "$f"
+	rm -f "$tmp"
+}
+
+# foot (the session terminal): foot.ini from a palette. Regular 0-7 are the
+# palette's PILL, CRIT, OK, WARN, INK, ACCENT2, SYN_VAR and FG; bright 8 is
+# MUTED (dim text, the usual bright black), bright 9-14 repeat the hues of
+# 1-6 and bright 15 is FG. Selection: FIELD behind FG. Cursor: ACCENT with
+# ON_ACCENT text.
+#
+# Font: JetBrains Mono, 13, the one monospace face (shell/fonts.conf maps
+# "Ribbon Mono" to it), pad 14x12. The colour section follows the installed
+# foot (checked with foot --check-config): 1.26 renamed [colors] to
+# [colors-dark] and 1.28 (Void's foot) refuses [colors] and [cursor] color=,
+# so there the cursor is colors-dark's cursor=; foot 1.16 has only [colors]
+# and the [cursor] color= form.
+foot_ini() { # palette-file: foot.ini on stdout
+	(
+		. "$1"
+		: "${MUTED:=$FG}" "${SYN_VAR:=$ACCENT2}" "${ON_ACCENT:=$BAR}"
+		h() { printf '%s' "${1#\#}"; }
+		# resize-by-cells and [desktop-notifications] are newer than foot 1.16, which refuses the whole file
+		# over either; Void's foot (1.28) has both. No version found: assume a current foot.
+		v=$(foot --version 2>/dev/null | sed -n 's/^foot version: 1\.\([0-9]*\).*/\1/p')
+		new=0; if [ -z "$v" ] || [ "$v" -ge 20 ]; then new=1; fi
+		cols=colors; curs=$(printf '\n[cursor]\ncolor=%s %s' "$(h "$ON_ACCENT")" "$(h "$ACCENT")")
+		if [ -z "$v" ] || [ "$v" -ge 26 ]; then
+			cols=colors-dark; curs=$(printf 'cursor=%s %s' "$(h "$ON_ACCENT")" "$(h "$ACCENT")")
+		fi
+		# the terminal's tabs need the window to fill its place exactly, under the strip
+		rbc=; [ $new = 1 ] && rbc='resize-by-cells=no'
+		cat <<EOT
+# Written by ribbon-theme from palette $(basename "$1" .conf). Edits are lost on the next apply.
+[main]
+font=JetBrains Mono:size=$(foot_size)
+pad=14x12
+${rbc}
+
+[${cols}]
+foreground=$(h "$FG")
+background=$(h "$BAR")
+selection-foreground=$(h "$FG")
+selection-background=$(h "$FIELD")
+regular0=$(h "$PILL")
+regular1=$(h "$CRIT")
+regular2=$(h "$OK")
+regular3=$(h "$WARN")
+regular4=$(h "$INK")
+regular5=$(h "$ACCENT2")
+regular6=$(h "$SYN_VAR")
+regular7=$(h "$FG")
+bright0=$(h "$MUTED")
+bright1=$(h "$CRIT")
+bright2=$(h "$OK")
+bright3=$(h "$WARN")
+bright4=$(h "$INK")
+bright5=$(h "$ACCENT2")
+bright6=$(h "$SYN_VAR")
+bright7=$(h "$FG")
+${curs}
+
+[csd]
+preferred=none
+
+[key-bindings]
+pipe-visible=[ribbon-term-ctl tab 1] Mod1+1
+pipe-visible=[ribbon-term-ctl tab 2] Mod1+2
+pipe-visible=[ribbon-term-ctl tab 3] Mod1+3
+pipe-visible=[ribbon-term-ctl tab 4] Mod1+4
+pipe-visible=[ribbon-term-ctl tab 5] Mod1+5
+pipe-visible=[ribbon-term-ctl tab 6] Mod1+6
+pipe-visible=[ribbon-term-ctl tab 7] Mod1+7
+pipe-visible=[ribbon-term-ctl tab 8] Mod1+8
+pipe-visible=[ribbon-term-ctl tab 9] Mod1+9
+pipe-visible=[ribbon-term-ctl new] Control+Shift+t
+pipe-visible=[ribbon-term-ctl close] Control+Shift+w
+pipe-visible=[ribbon-term-ctl next] Control+Page_Down
+pipe-visible=[ribbon-term-ctl prev] Control+Page_Up
+EOT
+		# a background tab's new-output mark, from programs that send a notification (OSC 777)
+		if [ $new = 1 ]; then
+			printf '\n[desktop-notifications]\ncommand=ribbon-term-ctl activity-app ${app-id}\n'
+		fi
+	)
+}
+
+# Copy SRC to DEST in one step: a temp file beside DEST, then a rename.
+replace_file() { # src dest
+	local dir tmp
+	dir=$(dirname "$2")
+	mkdir -p "$dir" || return 1
+	tmp=$(mktemp "$dir/.$(basename "$2").XXXXXX") || return 1
+	if cp "$1" "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$2"; then return 0; fi
+	rm -f "$tmp"; return 1
+}
+
+osc_rgb() { local h=${1,,}; printf 'rgb:%s/%s/%s' "${h:0:2}" "${h:2:2}" "${h:4:2}"; }
+
+# The ptys of running foot windows: the shells under each foot process.
+# RIBBON_FOOT_PTYS (space-separated paths) replaces the scan, for the tests.
+foot_ptys() {
+	local feet
+	if [ -n "${RIBBON_FOOT_PTYS+x}" ]; then
+		# shellcheck disable=SC2086
+		printf '%s\n' ${RIBBON_FOOT_PTYS}
+		return 0
+	fi
+	feet=$(pgrep -x foot 2>/dev/null | tr '\n' ' ') || return 0
+	[ -n "$feet" ] || return 0
+	ps -eo ppid=,tty= 2>/dev/null | awk -v feet="$feet" '
+		BEGIN { n = split(feet, a, " "); for (i = 1; i <= n; i++) f[a[i]] = 1 }
+		($1 in f) && $2 ~ /^pts\// { print "/dev/" $2 }' | sort -u
+}
+
+# Recolour running foot windows: OSC 4 (the 16 colours), 10 (foreground), 11
+# (background) and 12 (cursor) written to their ptys, from the foot.ini just
+# written. foot reads its config at start-up, so this is how an open window
+# follows a palette change.
+foot_osc() { # foot.ini
+	local targets t k v r seq=''
+	targets=$(foot_ptys) || return 0
+	[ -n "$targets" ] || return 0
+	while IFS='=' read -r k v; do
+		case "$k" in
+			regular[0-7]) r=$(printf '\033]4;%s;%s\007' "${k#regular}" "$(osc_rgb "${v%% *}")") ;;
+			bright[0-7])  r=$(printf '\033]4;%s;%s\007' "$((${k#bright} + 8))" "$(osc_rgb "${v%% *}")") ;;
+			foreground)   r=$(printf '\033]10;%s\007' "$(osc_rgb "${v%% *}")") ;;
+			background)   r=$(printf '\033]11;%s\007' "$(osc_rgb "${v%% *}")") ;;
+			color)        r=$(printf '\033]12;%s\007' "$(osc_rgb "${v##* }")") ;;   # [cursor] color=TEXT CURSOR
+			*) continue ;;
+		esac
+		seq+=$r
+	done < "$1"
+	[ -n "$seq" ] || return 0
+	for t in $targets; do
+		timeout 2 sh -c 'printf "%s" "$1" > "$2"' sh "$seq" "$t" 2>/dev/null
+	done
+	return 0
+}
+
+# Set KEY=VALUE lines in the [Settings] group of an ini file and keep every
+# other line (a user's own gtk-* keys stay).
+ini_set() { # file KEY=VALUE ...
+	local f=$1 tmp lines
+	shift
+	mkdir -p "$(dirname "$f")"; touch "$f"
+	lines=$(printf '%s\n' "$@")
+	tmp=$(mktemp "$f.XXXXXX") || return 1
+	INI_LINES=$lines awk '
+		BEGIN { n = split(ENVIRON["INI_LINES"], l, "\n"); for (i = 1; i <= n; i++) { split(l[i], kv, "="); drop[kv[1]] = 1 } }
+		function put(  i) { for (i = 1; i <= n; i++) print l[i]; done = 1 }
+		/^\[Settings\][ \t]*$/ { print; if (!done) put(); g = 1; next }
+		/^\[/ { g = 0 }
+		{ k = $0; sub(/[ \t]*=.*/, "", k); if (g && (k in drop)) next; print }
+		END { if (!done) { print "[Settings]"; put() } }' "$f" > "$tmp" && chmod 644 "$tmp" && mv -f "$tmp" "$f" || { rm -f "$tmp"; return 1; }
+}
+
+# What xfsettingsd gave GTK and XWayland apps, now written from here: GTK 3 and
+# 4 settings.ini (theme, icons, font, cursor, dark, Xft), and ~/.config/ribbon/
+# Xresources for X clients (the autostart loads it with xrdb when installed;
+# there is no XSETTINGS daemon). The cursor is also in labwc's environment file
+# (XCURSOR_THEME and XCURSOR_SIZE), which Wayland and XWayland clients inherit.
+# Needs GTK_THEME and ICON_THEME from the palette in scope.
+CURSOR_THEME=Adwaita UI_FONT="Inter 10" MONO_FONT="JetBrains Mono 10"
+
+# Settings → Accessibility (apps/settings/access.tcl): ~/.config/ribbon/access.conf, KEY=VALUE lines, read here
+# (never sourced) and applied to the toolkits, the terminal and labwc:
+#   TEXT_SCALE=100|125|150      Xft.dpi and GTK's gtk-xft-dpi 96 × scale, GSettings text-scaling-factor, foot's
+#                               font size (13 × scale)
+#   CURSOR_SIZE=24|32|48        XCURSOR_SIZE in labwc's environment (the ribbon/xdg layer, so labwc and every
+#                               client started after it), Xcursor.size, GTK's and GSettings' cursor size
+#   HIGH_CONTRAST=yes|no        GTK's HighContrast theme (HighContrastInverse on a dark palette), GSettings
+#                               a11y high-contrast; Ribbon's own apps raise muted text and rules (appearance/ui.tcl)
+#   REDUCE_MOTION=yes|no        gtk-enable-animations=0, GSettings enable-animations false; Ribbon's own apps
+#                               ask ui::reduce_motion
+# Anything else in the file, or a value out of range, is the default.
+ACCESS=${XDG_CONFIG_HOME:-$HOME/.config}/ribbon/access.conf
+access_get() { # key default allowed...
+	local k=$1 d=$2 v; shift 2
+	v=$(sed -n "s/^$k=//p" "$ACCESS" 2>/dev/null | tail -n 1 | tr -d '"'"'"'\r')
+	for a in "$@"; do [ "$v" = "$a" ] && { echo "$v"; return; }; done
+	echo "$d"
+}
+access_read() {
+	TEXT_SCALE=$(access_get TEXT_SCALE 100 100 125 150)
+	CURSOR_SIZE=$(access_get CURSOR_SIZE 24 24 32 48)
+	HIGH_CONTRAST=$(access_get HIGH_CONTRAST no yes no)
+	REDUCE_MOTION=$(access_get REDUCE_MOTION no yes no)
+	XFT_DPI=$((96 * TEXT_SCALE / 100))
+}
+foot_size() { access_read; echo $(((13 * TEXT_SCALE + 50) / 100)); }
+access_read
+# labwc's environment in the ribbon/xdg layer (ribbon-session puts it first on XDG_CONFIG_DIRS; labwc merges the
+# layers' environment files line by line): the cursor size. labwc re-reads it on --reconfigure.
+labwc_env() {
+	local d=${XDG_STATE_HOME:-$HOME/.local/state}/ribbon/xdg/labwc tmp
+	mkdir -p "$d" || return 1
+	tmp=$(mktemp "$d/.environment.XXXXXX") || return 1
+	printf '%s\n' "# Written by ribbon-theme from ~/.config/ribbon/access.conf (Settings → Accessibility)." \
+		"XCURSOR_SIZE=$CURSOR_SIZE" > "$tmp" && mv -f "$tmp" "$d/environment" || { rm -f "$tmp"; return 1; }
+}
+# The GTK theme under the generated gtk.css: GTK's own Adwaita (built into
+# GTK 3 and 4), or a theme that is installed. A palette naming one that is
+# not (Arc-Dark, from before arc-theme left the dependencies) gets Adwaita,
+# dark or light as its name says.
+gtk_theme() { # name
+	local d
+	case $1 in Adwaita|Adwaita-dark|HighContrast|HighContrastInverse) echo "$1"; return ;; esac
+	for d in "${XDG_DATA_HOME:-$HOME/.local/share}/themes" "$HOME/.themes" \
+		$(printf '%s\n' "${XDG_DATA_DIRS:-/usr/local/share:/usr/share}" | tr ':' ' ' | sed 's|\([^ ]*\)|\1/themes|g'); do
+		[ -d "$d/$1/gtk-3.0" ] && { echo "$1"; return; }
+	done
+	case $1 in *[Dd]ark*) echo Adwaita-dark ;; *) echo Adwaita ;; esac
+}
+# GSettings (dconf): what xdg-desktop-portal-gtk's Settings portal reads and
+# hands to GTK 4, libadwaita, Firefox and flatpak apps, color-scheme first
+# (org.freedesktop.appearance). Nothing to do without gsettings or the
+# schema (gsettings-desktop-schemas 42 or later).
+gsettings_write() { # dark(0|1)
+	local s=org.gnome.desktop.interface scheme=prefer-light
+	command -v gsettings >/dev/null 2>&1 || return 0
+	gsettings list-keys "$s" 2>/dev/null | grep -qx color-scheme || return 0
+	[ "$1" = 1 ] && scheme=prefer-dark
+	gsettings set "$s" color-scheme "$scheme" 2>/dev/null &&
+	gsettings set "$s" gtk-theme "$GTK_THEME" 2>/dev/null &&
+	gsettings set "$s" icon-theme "$ICON_THEME" 2>/dev/null &&
+	gsettings set "$s" cursor-theme "$CURSOR_THEME" 2>/dev/null &&
+	gsettings set "$s" cursor-size "$CURSOR_SIZE" 2>/dev/null &&
+	gsettings set "$s" font-name "$UI_FONT" 2>/dev/null &&
+	gsettings set "$s" text-scaling-factor "$(LC_ALL=C awk "BEGIN { print $TEXT_SCALE / 100 }")" 2>/dev/null &&
+	gsettings set "$s" enable-animations "$([ "$REDUCE_MOTION" = yes ] && echo false || echo true)" 2>/dev/null ||
+		echo "ribbon-theme: could not write the GSettings keys (no session bus?)" >&2
+	if gsettings list-keys org.gnome.desktop.a11y.interface 2>/dev/null | grep -qx high-contrast; then
+		gsettings set org.gnome.desktop.a11y.interface high-contrast "$([ "$HIGH_CONTRAST" = yes ] && echo true || echo false)" 2>/dev/null
+	fi
+	return 0
+}
+toolkit_settings() {
+	local cfg dark=0 g xres
+	cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+	case "$GTK_THEME" in *[Dd]ark*) dark=1 ;; esac
+	GTK_THEME=$(gtk_theme "$GTK_THEME")
+	if [ "$HIGH_CONTRAST" = yes ]; then
+		if [ $dark = 1 ]; then GTK_THEME=HighContrastInverse; else GTK_THEME=HighContrast; fi
+	fi
+	for g in gtk-3.0 gtk-4.0; do
+		ini_set "$cfg/$g/settings.ini" "gtk-theme-name=$GTK_THEME" "gtk-icon-theme-name=$ICON_THEME" \
+			"gtk-font-name=$UI_FONT" "gtk-cursor-theme-name=$CURSOR_THEME" "gtk-cursor-theme-size=$CURSOR_SIZE" \
+			"gtk-application-prefer-dark-theme=$dark" "gtk-decoration-layout=icon:minimize,maximize,close" \
+			"gtk-xft-antialias=1" "gtk-xft-hinting=1" "gtk-xft-hintstyle=hintslight" "gtk-xft-rgba=rgb" \
+			"gtk-xft-dpi=$((XFT_DPI * 1024))" "gtk-enable-animations=$([ "$REDUCE_MOTION" = yes ] && echo 0 || echo 1)" ||
+			echo "ribbon-theme: could not write $g/settings.ini" >&2
+	done
+	xres=$cfg/ribbon/Xresources
+	mkdir -p "$cfg/ribbon"
+	printf '%s\n' "Xft.dpi: $XFT_DPI" "Xft.antialias: 1" "Xft.hinting: 1" "Xft.hintstyle: hintslight" "Xft.rgba: rgb" \
+		"Xcursor.theme: $CURSOR_THEME" "Xcursor.size: $CURSOR_SIZE" > "$xres.new" && mv -f "$xres.new" "$xres"
+	if [ -n "${DISPLAY:-}" ] && [ -n "${WAYLAND_DISPLAY:-}" ] && command -v xrdb >/dev/null 2>&1; then
+		xrdb -nocpp -merge "$xres" 2>/dev/null
+	fi
+	gsettings_write "$dark"
+	labwc_env || echo "ribbon-theme: could not write labwc's environment (the cursor size)" >&2
+	return 0
+}
+
+# Settings → Accessibility saved access.conf: the toolkits, labwc's cursor and the terminal's font again, from the
+# palette in use (~/.config/ribbon/palette.conf, as apply left it); labwc reconfigured in a session.
+access() {
+	local cfg pal tmp
+	cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+	pal=$cfg/ribbon/palette.conf
+	[ -r "$pal" ] || pal=$(find_palette "$(conf_get PALETTE ribbon)") || { echo "ribbon-theme: no palette to apply" >&2; exit 1; }
+	access_read
+	( . "$pal"; [ "$ICON_THEME" = Papirus-Dark ] && [ -d "${XDG_DATA_HOME:-$HOME/.local/share}/icons/Ribbon" ] && ICON_THEME=Ribbon
+	  toolkit_settings )
+	tmp=$(mktemp) && foot_ini "$pal" > "$tmp" && { replace_file "$tmp" "$cfg/foot/foot.ini" || echo "ribbon-theme: could not write foot.ini" >&2; }
+	rm -f "$tmp"
+	if [ -n "$reload" ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then labwc --reconfigure 2>/dev/null; fi
+	return 0
+}
+
+apply() {
+	local name pal cfg data tmp
+	name=$(retired "$1")
+	pal=$(find_palette "$name") || { echo "no palette '$name' (see: ribbon-theme list)" >&2; exit 1; }
+	cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+	data=${XDG_DATA_HOME:-$HOME/.local/share}
+	tmp=$(mktemp -d)
+	render "$name" "$tmp"
+	mkdir -p "$data/themes/Ribbon/openbox-3" "$cfg/ribbon" "$data/ribbon"
+	cp "$tmp"/themes/Ribbon/openbox-3/* "$data/themes/Ribbon/openbox-3/"
+	managed_block "$cfg/gtk-3.0/gtk.css" "$tmp/gtk.css"
+	cp "$tmp/palette.lua" "$cfg/ribbon/palette.lua"
+	replace_file "$tmp/foot.ini" "$cfg/foot/foot.ini" || echo "ribbon-theme: could not write foot.ini" >&2
+	cp "$pal" "$cfg/ribbon/palette.conf"     # read by the Ribbon shell
+	rm -rf "$tmp"
+	[ -n "$reload" ] && foot_osc "$cfg/foot/foot.ini"
+	conf_set PALETTE "$name"
+	[ -n "$login" ] && login_follow
+
+	. "$pal"
+	[ "$ICON_THEME" = Papirus-Dark ] && icons && ICON_THEME=Ribbon
+	toolkit_settings
+	if [ -n "$reload" ] && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+		labwc --reconfigure 2>/dev/null
+		wallpaper
+		ribbon-shell-ctl reload 2>/dev/null
+		(setsid ribbon-conky >/dev/null 2>&1 &)
+	fi
+	[ -n "$quiet" ] || echo "Applied palette '$name'. Restart open apps to recolour them."
+}
+
+# "#rrggbb" times a factor (0..1): a darker shade of the colour
+shade() {
+	printf '%s\n' "$1" | awk -v f="$2" '{ printf "#%02X%02X%02X\n", strtonum("0x" substr($0, 2, 2)) * f, strtonum("0x" substr($0, 4, 2)) * f, strtonum("0x" substr($0, 6, 2)) * f }'
+}
+
+# Folder icons in the scheme's accent for GTK apps: a small "Ribbon" icon
+# theme that inherits Papirus-Dark and overrides only its folder icons.
+icons() {
+	local src=/usr/share/icons/Papirus-Dark dst d rel dirs="" sdirs="" sec="" size scale
+	dst=${XDG_DATA_HOME:-$HOME/.local/share}/icons/Ribbon
+	[ -d "$src" ] || return 1
+	mkdir -p "$dst"
+	find "$dst" -name '*.svg' -type f -delete
+	# one find + one cp for the ~1000 folder icons (they link to folder-blue*)
+	(cd "$src" && find ./*/places -maxdepth 1 -not -path '*@2x*' -lname '*folder-blue*' \( -name 'folder*.svg' -o -name 'user-*.svg' \) -print0 |
+		xargs -0 -r cp -L --parents -t "$dst")
+	for d in "$dst"/*/places; do
+		rel=${d#"$dst"/}
+		size=${rel%%x*}; scale=1
+		case $rel in *@2x*) scale=2; sdirs="$sdirs,$rel" ;; *) dirs="$dirs,$rel" ;; esac
+		sec="$sec
+[$rel]
+Context=Places
+Size=$size
+Scale=$scale
+Type=Fixed
+"
+	done
+	sed -i -e "s/#5294e2/$ACCENT/gI" -e "s/#4877b1/$(shade "$ACCENT" 0.78)/gI" \
+		-e "s/#1d344f/$(shade "$ACCENT" 0.3)/gI" -e "s/#4285f4/$ACCENT/gI" "$dst"/*/places/*.svg
+	printf '[Icon Theme]\nName=Ribbon\nComment=Papirus-Dark, folders in the Ribbon colour scheme (generated by ribbon-theme)\nInherits=Papirus-Dark,breeze-dark,hicolor\nDirectories=%s\nScaledDirectories=%s\n%s' \
+		"${dirs#,}" "${sdirs#,}" "$sec" > "$dst/index.theme"
+}
+
+# ---- wallpaper.conf -----------------------------------------------------------
+
+WALLCONF=${XDG_CONFIG_HOME:-$HOME/.config}/ribbon/wallpaper.conf
+wall_get() { sed -n "s/^$1=//p" "$WALLCONF" 2>/dev/null | tail -n 1; }
+
+# KEY=VALUE ...: set those keys, keep the rest
+wall_set() {
+	local tmp a keys=''
+	mkdir -p "$(dirname "$WALLCONF")"
+	for a in "$@"; do keys="$keys|${a%%=*}"; done
+	tmp=$(mktemp "$WALLCONF.XXXXXX") || return 1
+	{ grep -Ev "^(${keys#|})=" "$WALLCONF" 2>/dev/null; printf '%s\n' "$@"; } > "$tmp"
+	mv -f "$tmp" "$WALLCONF"
+}
+
+die() { echo "ribbon-theme: $*" >&2; exit 2; }
+check_fit() { case "$1" in fill|fit|centre|tile) ;; center) echo centre; return ;; *) die "--fit: fill, fit, centre or tile, not '$1'" ;; esac; echo "$1"; }
+check_colour() { printf '%s' "$1" | grep -Eqx '#[0-9A-Fa-f]{6}' || die "not a colour (#RRGGBB): '$1'"; printf '%s' "$1" | tr a-f A-F; }
+check_yesno() { case "$2" in yes|no) echo "$2" ;; *) die "$1: yes or no, not '$2'" ;; esac; }
+check_seconds() { printf '%s' "$2" | grep -Eqx '[0-9]{1,6}(\.[0-9]{1,2})?' || die "$1: a number of seconds, not '$2'"; echo "$2"; }
+
+# A slideshow's interval: whole seconds, 1 minute to 7 days
+check_interval() {
+	printf '%s' "$2" | grep -Eqx '[0-9]{1,9}' || die "$1: a whole number of seconds, not '$2'"
+	local v=$((10#$2)); [ $v -lt 60 ] && v=60; [ $v -gt 604800 ] && v=604800; echo $v
+}
+
+# The pictures of a slideshow folder (one level, or all with SUBDIRS)
+slides() { # dir subdirs
+	local depth=(-maxdepth 1)
+	[ "$2" = yes ] && depth=()
+	find "$1" "${depth[@]}" -type f \( -iname '*.png' -o -iname '*.jpg' -o -iname '*.jpeg' -o -iname '*.webp' \) 2>/dev/null | sort
+}
+
+# A video's first frame as a picture (only if ffmpeg is there); prints it
+first_frame() {
+	local out=${XDG_CACHE_HOME:-$HOME/.cache}/ribbon/wallpaper/video-first.png
+	command -v ffmpeg >/dev/null 2>&1 || return 1
+	mkdir -p "$(dirname "$out")"
+	ffmpeg -nostdin -loglevel error -y -i "$1" -frames:v 1 "$out" </dev/null >/dev/null 2>&1 && [ -s "$out" ] && echo "$out"
+}
+
+wallpaper_cmd() {
+	local cmd=${1:-} f dir fit colour interval crossfade shuffle subdirs first pf pc pg pb bars
+	shift 2>/dev/null
+	case "$cmd" in
+		set)
+			[ -n "${1:-}" ] && [ -r "$1" ] && [ -f "$1" ] || die "usage: ribbon-theme wallpaper set IMAGE [--fit MODE]"
+			f=$(realpath -- "$1"); shift; fit=$(wall_get FIT); fit=${fit:-fill}
+			while [ $# -gt 0 ]; do case "$1" in --fit) fit=$(check_fit "${2:-}") || exit 2; shift 2 ;; *) die "unknown option $1" ;; esac; done
+			wall_set MODE=picture "IMAGE=$f" "FIT=$fit" ;;
+		colour|color)
+			colour=$(check_colour "${1:-}") || exit 2
+			wall_set MODE=colour IMAGE= "COLOUR=$colour" ;;
+		slideshow)
+			[ -n "${1:-}" ] && [ -d "$1" ] || die "usage: ribbon-theme wallpaper slideshow DIR [options]"
+			dir=$(realpath -- "$1"); shift
+			interval=$(wall_get INTERVAL) crossfade=$(wall_get CROSSFADE) shuffle=$(wall_get SHUFFLE) subdirs=$(wall_get SUBDIRS) fit=$(wall_get FIT)
+			while [ $# -gt 0 ]; do
+				case "$1" in
+					--interval) interval=$(check_interval "$1" "${2:-}") || exit 2 ;;
+					--crossfade) crossfade=$(check_seconds "$1" "${2:-}") || exit 2 ;;
+					--shuffle) shuffle=$(check_yesno "$1" "${2:-}") || exit 2 ;;
+					--subdirs) subdirs=$(check_yesno "$1" "${2:-}") || exit 2 ;;
+					--fit) fit=$(check_fit "${2:-}") || exit 2 ;;
+					*) die "unknown option $1" ;;
+				esac
+				shift 2
+			done
+			subdirs=${subdirs:-no}; shuffle=${shuffle:-yes}
+			if [ "$shuffle" = yes ]; then first=$(slides "$dir" "$subdirs" | shuf -n 1 2>/dev/null)
+			else first=$(slides "$dir" "$subdirs" | head -n 1); fi
+			[ -n "$first" ] || die "no pictures in $dir"
+			wall_set MODE=slideshow "IMAGE=$first" "SLIDESHOW_DIR=$dir" "INTERVAL=${interval:-600}" \
+				"CROSSFADE=${crossfade:-1.5}" "SHUFFLE=$shuffle" "SUBDIRS=$subdirs" "FIT=${fit:-fill}" ;;
+		video)
+			[ -n "${1:-}" ] && [ -r "$1" ] && [ -f "$1" ] || die "usage: ribbon-theme wallpaper video FILE [options]"
+			f=$(realpath -- "$1"); shift
+			pf=$(wall_get PAUSE_FULLSCREEN) pc=$(wall_get PAUSE_COVERED) pg=$(wall_get PAUSE_GAME) pb=$(wall_get PAUSE_BATTERY) bars=$(wall_get BARS)
+			while [ $# -gt 0 ]; do
+				case "$1" in
+					--pause-fullscreen) pf=$(check_yesno "$1" "${2:-}") || exit 2 ;;
+					--bars) case "${2:-}" in see-through|solid) bars=$2 ;; *) die "--bars: see-through or solid, not '${2:-}'" ;; esac ;;
+					--pause-covered) pc=$(check_yesno "$1" "${2:-}") || exit 2 ;;
+					--pause-game) pg=$(check_yesno "$1" "${2:-}") || exit 2 ;;
+					--pause-battery) pb=$(check_yesno "$1" "${2:-}") || exit 2 ;;
+					*) die "unknown option $1" ;;
+				esac
+				shift 2
+			done
+			# the same rule as ribbon-wall and the Appearance app: at most
+			# RIBBON_WALL_MAX_SECONDS (300) long
+			if command -v ribbon-wall >/dev/null 2>&1 && ! probe=$(ribbon-wall --probe "$f" 2>/dev/null); then
+				die "$(basename "$f"): ${probe##* error }"
+			fi
+			first=$(first_frame "$f") || first=
+			wall_set MODE=video "IMAGE=$first" "VIDEO=$f" "PAUSE_FULLSCREEN=${pf:-yes}" "PAUSE_COVERED=${pc:-no}" \
+				"PAUSE_GAME=${pg:-no}" "PAUSE_BATTERY=${pb:-no}" "BARS=${bars:-see-through}" ;;
+		ribbon|reset) wall_set MODE=pattern IMAGE= ;;
+		*) return 1 ;;
+	esac
+	wallpaper; ribbon-shell-ctl reload 2>/dev/null
+	return 0
+}
+
+# Options for the login screen, checked here and again by the helper.
+login_options() {
+	local a
+	[ $# -gt 0 ] || die "usage: ribbon-theme login options [FIT=MODE] [BLUR=PX] [DIM=PERCENT] [CLOCK=yes|no] [COLOUR=#RRGGBB|]"
+	for a in "$@"; do
+		case "$a" in
+			FIT=fill|FIT=fit|FIT=centre|FIT=tile|CLOCK=yes|CLOCK=no|COLOUR=) ;;
+			BLUR=*|DIM=*) printf '%s' "${a#*=}" | grep -Eqx '[0-9]{1,3}' || die "$a: a whole number" ;;
+			COLOUR=*) check_colour "${a#*=}" >/dev/null || exit 2 ;;
+			*) die "unknown login option '$a'" ;;
+		esac
+	done
+	exec pkexec "$LOGIN_HELPER" set-options "$@"
+}
+
+# The desktop background is ribbon-wall's (from wallpaper.conf): ask it to
+# re-read the file, or start it if it isn't running. ribbon-wall draws each
+# output at its exact size and plays slideshows and videos (docs/WALLPAPER.md).
+wallpaper() {
+	local fifo=${XDG_RUNTIME_DIR:-/tmp}/ribbon-wall
+	# a FIFO with a reader takes the line at once; without one, the write
+	# would wait, so it is given a second
+	if [ -p "$fifo" ] && timeout 1 sh -c 'printf "reload\n" > "$1"' sh "$fifo" 2>/dev/null; then
+		return 0
+	fi
+	command -v ribbon-wall >/dev/null 2>&1 || return 0
+	[ -n "${WAYLAND_DISPLAY:-}" ] || return 0
+	(setsid ribbon-wall </dev/null >/dev/null 2>&1 &)
+}
+
+# ---- the login screen ------------------------------------------------------
+
+login_log() { # message: to ~/.local/state/ribbon/login-theme.log
+	local d=${XDG_STATE_HOME:-$HOME/.local/state}/ribbon
+	mkdir -p "$d" && printf '%s %s\n' "$(date '+%F %T')" "$*" >> "$d/login-theme.log"
+}
+
+# After "apply": give the login screen the same scheme, in the background so
+# the desktop never waits for (or fails on) polkit. Only for admins: anyone
+# else would be asked for an admin password every time.
+login_follow() {
+	[ "$(conf_get LOGIN_FOLLOWS_THEME yes)" = no ] && return 0
+	if ! id -nG 2>/dev/null | tr ' ' '\n' | grep -qx wheel; then
+		login_log "login screen not changed: $(id -un 2>/dev/null) is not an admin (in wheel); 'ribbon-theme login <scheme>' asks for an admin password"
+		return 0
+	fi
+	(setsid "$0" _login-follow </dev/null >/dev/null 2>&1 &)
+}
+
+# The background job: one at a time, and each takes the scheme that is
+# current when it runs, so the last "apply" wins even if jobs overlap.
+login_sync() {
+	local name pal out lock=${XDG_CONFIG_HOME:-$HOME/.config}/ribbon/.login-theme.lock
+	exec 9>>"$lock"
+	command -v flock >/dev/null 2>&1 && flock -w 120 9
+	name=$(conf_get PALETTE ribbon)
+	pal=$(find_palette "$name") || { login_log "login screen not changed: no palette '$name'"; return 1; }
+	if out=$(pkexec "$LOGIN_HELPER" set-palette "$(realpath -- "$pal")" 2>&1); then
+		login_log "login screen: '$name' (${out#login palette: })"
+	else
+		login_log "login screen not changed (pkexec status $?): $(printf '%s' "$out" | tr '\n' ' ')"
+		return 1
+	fi
+}
+
+login_set() { # scheme: now, in the foreground (polkit may ask a password)
+	local pal
+	pal=$(find_palette "$(retired "$1")") || { echo "no palette '$1' (see: ribbon-theme list)" >&2; exit 1; }
+	exec pkexec "$LOGIN_HELPER" set-palette "$(realpath -- "$pal")"
+}
+
+login_background() { # FILE|ribbon
+	case "$1" in
+		ribbon|reset) exec pkexec "$LOGIN_HELPER" set-background ribbon ;;
+		'') echo "usage: ribbon-theme wallpaper login IMAGE|ribbon" >&2; exit 2 ;;
+	esac
+	[ -r "$1" ] || { echo "cannot read $1" >&2; exit 1; }
+	exec pkexec "$LOGIN_HELPER" set-background "$(realpath -- "$1")"
+}
+
+# The Appearance app (ribbon-desktop ships it with this script).
+pick() {
+	exec ribbon-appearance --page "${1:-theme}"
+}
+
+case "${1:-}" in
+	wallpaper)
+		case "${2:-}" in
+			set|colour|color|slideshow|video|ribbon|reset) shift; wallpaper_cmd "$@" ;;
+			show) cat "$WALLCONF" 2>/dev/null || echo MODE=pattern ;;
+			login) login_background "${3:-}" ;;
+			pick) pick desktop ;;
+			*) wallpaper ;;
+		esac ;;
+	pick) pick ;;
+	login)
+		case "${2:-}" in
+			show) exec "$LOGIN_HELPER" show ;;
+			options) shift 2; login_options "$@" ;;
+			follow)
+				case "${3:-}" in
+					yes|no) conf_set LOGIN_FOLLOWS_THEME "$3" ;;
+					'') conf_get LOGIN_FOLLOWS_THEME yes ;;
+					*) echo "usage: ribbon-theme login follow yes|no" >&2; exit 2 ;;
+				esac ;;
+			''|-*) echo "usage: ribbon-theme login <scheme> | show | follow yes|no | options KEY=VALUE..." >&2; exit 2 ;;
+			*) login_set "$2" ;;
+		esac ;;
+	_login-follow) login_sync ;;
+	list) for p in "$SYS"/palettes/*.conf "$USERPAL"/*.conf; do [ -r "$p" ] && basename "$p" .conf; done ;;
+	render) render "$2" "$3" ;;
+	migrate)
+		cur=$(conf_get PALETTE ribbon)
+		[ "$(retired "$cur")" = "$cur" ] && exit 0
+		reload=; quiet=1
+		apply "$cur" ;;
+	render-from) SYS=$2; USERPAL=/nonexistent; render "$3" "$4" ;;
+	access) for a in "${@:2}"; do case "$a" in --no-reload) reload= ;; esac; done; access ;;
+	apply)
+		name=${2:-ribbon}; shift 2 2>/dev/null || shift
+		for a in "$@"; do case "$a" in --quiet) quiet=1 ;; --no-reload) reload= ;; --no-login) login= ;; esac; done
+		apply "$name" ;;
+	*) echo "Usage: ribbon-theme list | pick | apply <scheme> [--quiet] [--no-reload] [--no-login] | render <scheme> <dir> | migrate | access"
+	   echo "       ribbon-theme login <scheme> | show | follow yes|no"
+	   echo "       ribbon-theme login options [FIT=MODE] [BLUR=PX] [DIM=PERCENT] [CLOCK=yes|no] [COLOUR=#RRGGBB|]"
+	   echo "       ribbon-theme wallpaper [set IMAGE [--fit fill|fit|centre|tile] | colour #RRGGBB | ribbon | pick | show"
+	   echo "                              | slideshow DIR [--interval S] [--crossfade S] [--shuffle yes|no] [--subdirs yes|no] [--fit MODE]"
+	   echo "                              | video FILE [--pause-fullscreen yes|no] [--pause-covered yes|no] [--pause-game yes|no]"
+	   echo "                                           [--pause-battery yes|no] [--bars see-through|solid]"
+	   echo "                              | login IMAGE|ribbon]"; exit 2 ;;
+esac

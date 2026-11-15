@@ -1,0 +1,24 @@
+<?xml version="1.0"?>
+<!-- labwc for the login screen (ribbon-greeter runs labwc -C on this folder): one fullscreen window and nothing
+     that could start, close or move anything else. labwc loads its own keys (Alt+F4, Alt+Tab, Super+Return,
+     Alt+F3, ...) and mouse bindings (the root menu, window moves) only when rc.xml binds none, so this binds one
+     of each to nothing; menu.xml beside it has empty menus. No autostart and no environment file: ribbon-greeter
+     sets the keyboard layout and the cursor. Switching to a text console (Ctrl+Alt+F1-F12) stays. -->
+<labwc_config>
+  <core>
+    <gap>0</gap>
+  </core>
+  <desktops number="1" />
+  <keyboard>
+    <keybind key="A-F4"><action name="None" /></keybind>
+  </keyboard>
+  <mouse>
+    <context name="Root">
+      <mousebind button="Right" action="Press"><action name="None" /></mousebind>
+    </context>
+  </mouse>
+  <windowRules>
+    <!-- the greeter (Tk, -name ribbon-greeter) asks for fullscreen itself; no frame around it -->
+    <windowRule identifier="ribbon-greeter" serverDecoration="no" />
+  </windowRules>
+</labwc_config>

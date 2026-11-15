@@ -1,0 +1,2 @@
+# Ribbon OS: GameMode may switch the CPU scheduler mode without a password.
+ALL ALL=(root) NOPASSWD: /usr/bin/ribbon-scheduler gamemode on, /usr/bin/ribbon-scheduler gamemode off

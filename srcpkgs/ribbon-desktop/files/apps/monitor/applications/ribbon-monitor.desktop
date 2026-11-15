@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=System monitor
+Comment=Processes, CPU, memory, GPU, disk and network
+Exec=ribbon-monitor
+Icon=utilities-system-monitor
+Terminal=false
+Categories=System;Monitor;
+StartupWMClass=RibbonMonitor

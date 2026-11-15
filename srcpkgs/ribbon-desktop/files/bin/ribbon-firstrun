@@ -1,0 +1,18 @@
+#!/bin/sh
+# Per-user setup on first login (and after `ribbon reset all`).
+cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+command -v xdg-user-dirs-update >/dev/null && xdg-user-dirs-update
+if [ ! -e "$cfg/ribbon/theme.conf" ]; then
+	# the default scheme for you; the login screen keeps what an admin chose
+	ribbon-theme apply ribbon --quiet --no-reload --no-login || :
+else
+	# a scheme Ribbon no longer ships (ribbon-purple) becomes its replacement; nothing to do otherwise
+	ribbon-theme migrate >/dev/null 2>&1 || :
+fi
+# the welcome is for a person's first login on an installed system; the live ISO (/etc/ribbon/live) offers the
+# installer instead
+if [ ! -e "$cfg/ribbon/welcome-done" ] && [ ! -e /etc/ribbon/live ]; then
+	mkdir -p "$cfg/ribbon"
+	: > "$cfg/ribbon/welcome-pending"
+fi
+exit 0

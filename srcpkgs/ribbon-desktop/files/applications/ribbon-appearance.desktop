@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Appearance
+GenericName=Appearance Settings
+Comment=Theme, colours, desktop background and login screen
+Exec=ribbon-appearance
+Icon=preferences-desktop-theme
+Terminal=false
+Categories=Settings;DesktopSettings;
+StartupWMClass=RibbonAppearance
+Keywords=theme;colour;color;scheme;wallpaper;background;login;dark;accent;

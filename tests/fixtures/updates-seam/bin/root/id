@@ -1,0 +1,2 @@
+#!/bin/sh
+case "$*" in -u) echo 0 ;; -un) echo root ;; *) exec /usr/bin/id "$@" ;; esac

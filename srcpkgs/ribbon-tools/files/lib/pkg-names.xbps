@@ -1,0 +1,69 @@
+# /usr/lib/ribbon/pkg-names.xbps - Ribbon's package ids -> Void's package names
+# (pkg.sh). One line per id: ID NAME [NAME...]. The only place Ribbon's tools
+# name a Void package; another base gets a file of its own (pkg-names.BACKEND).
+# tests/pkg-seam.sh checks that every id the tools use is here, and
+# build/tools/check-packages.py that every name exists in Void.
+
+# ---- graphics (ribbon-gpu), 32-bit parts for Steam and Wine included
+mesa                 mesa-dri mesa-dri-32bit vulkan-loader vulkan-loader-32bit libglvnd-32bit libdrm-32bit
+mesa-vulkan-amd      mesa-vulkan-radeon mesa-vulkan-radeon-32bit
+mesa-vulkan-intel    mesa-vulkan-intel mesa-vulkan-intel-32bit
+mesa-vulkan-nouveau  mesa-vulkan-nouveau mesa-vulkan-nouveau-32bit
+va-amd               mesa-vaapi
+va-intel             intel-media-driver libva-intel-driver
+va-nvidia            nvidia-vaapi-driver
+vulkan-loader        vulkan-loader vulkan-loader-32bit
+nvidia               nvidia nvidia-libs-32bit
+nvidia580            nvidia580 nvidia580-libs-32bit
+nvidia470            nvidia470 nvidia470-libs-32bit
+microcode-intel      intel-ucode
+
+# ---- firmware (ribbon-gpu, the installer's Hardware page)
+linux-firmware       linux-firmware
+firmware-amd         linux-firmware-amd
+firmware-intel       linux-firmware-intel
+firmware-nvidia      linux-firmware-nvidia
+firmware-broadcom    linux-firmware-broadcom
+firmware-qualcomm    linux-firmware-qualcomm
+firmware-network     linux-firmware-network
+firmware-broadcom-bt broadcom-bt-firmware
+sof-firmware         sof-firmware
+alsa-ucm-conf        alsa-ucm-conf
+
+# ---- drivers and services (ribbon-hw, the Hardware page)
+broadcom-wl          broadcom-wl-dkms
+thermald             thermald
+iio-sensor-proxy     iio-sensor-proxy
+libcamera            libcamera
+bolt                 bolt
+xone                 xone
+xpadneo              xpadneo
+steam-devices        steam-udev-rules
+fprintd              fprintd
+libfprint            libfprint
+cups                 cups
+cups-filters         cups-filters
+ipp-usb              ipp-usb
+hplip                hplip
+gutenprint           gutenprint
+
+# ---- boot loaders and filesystems the live system carries (postinstall)
+grub-efi             grub-x86_64-efi
+grub-btrfs           grub-btrfs
+os-prober            os-prober
+zfs                  zfs
+zfsbootmenu          zfsbootmenu
+bcachefs-module      bcachefs-dkms
+
+# ---- the live system's own (removed from an installed system)
+installer            ribbon-installer
+
+# ---- configure steps (pkg_reconfigure)
+locales              glibc-locales
+
+# ---- apps on the installer's Apps page
+steam                steam
+lutris               lutris
+obs                  obs
+vlc                  vlc
+libreoffice          libreoffice

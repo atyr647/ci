@@ -1,0 +1,5 @@
+# bad-root.kit: damaged on purpose; every reader must refuse it as follows
+open fail ROOT
+open-force ok
+verify fail root
+signature invalid

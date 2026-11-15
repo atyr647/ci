@@ -1,0 +1,6 @@
+#!/bin/sh
+# Called by Steam's "Switch to Desktop": end Game Mode and return to the
+# login screen, where "ribbon-session" is the desktop.
+steam -shutdown >/dev/null 2>&1
+sleep 2
+pkill -x gamescope

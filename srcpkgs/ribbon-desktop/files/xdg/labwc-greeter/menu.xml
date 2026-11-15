@@ -1,0 +1,7 @@
+<?xml version="1.0"?>
+<!-- the login screen's labwc (rc.xml beside this): no menus. Without this file labwc would build its own root
+     menu, with Reconfigure and Exit. -->
+<openbox_menu>
+  <menu id="root-menu" label="" />
+  <menu id="client-menu" label="" />
+</openbox_menu>

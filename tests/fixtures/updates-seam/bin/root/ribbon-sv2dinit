@@ -1,0 +1,2 @@
+#!/bin/sh
+echo "ribbon-sv2dinit $*" >> "${RIBBON_SEAM_STUB:?}/log"

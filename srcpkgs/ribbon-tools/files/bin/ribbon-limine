@@ -1,0 +1,287 @@
+#!/bin/bash
+# ribbon-limine - the Limine boot menu, Ribbon's default boot loader.
+#
+# Kernels and initramfs images live on the EFI system partition, mounted at
+# /boot (FAT, which Limine reads; it has no btrfs/ZFS/bcachefs drivers and
+# doesn't need them). Next to a Windows whose EFI partition is
+# too full, they live on an XBOOTLDR partition (FAT32) at /boot instead and
+# the EFI partition, at /boot/efi, holds only Limine's EFI binary;
+# LIMINE_XBOOTLDR names that partition's GPT GUID, the menu loads the
+# kernels with guid(...), and Limine finds /limine.conf on it by scanning
+# the boot drive's partitions. `update` writes /boot/limine.conf (the
+# partition's /limine.conf) with
+#   - every installed kernel, newest first (the first is the default), and
+#   - on btrfs, a "Ribbon OS snapshots" submenu: one entry per snapper
+#     snapshot, newest first, at most SNAPSHOT_KEEP of them, each booting a
+#     kernel that snapshot has modules for. The 90ribbon-snapshot dracut
+#     module sees rootflags=subvol=@snapshots/N/snapshot and puts a
+#     temporary writable overlay on top, and
+#   - a "Windows" entry when Windows Boot Manager is on the EFI partition
+#     (\EFI\Microsoft\Boot\bootmgfw.efi, installs next to Windows) or on
+#     the partition LIMINE_WINDOWS_ESP names (its GPT partition GUID: Windows
+#     on another disk). LIMINE_WINDOWS=no leaves it out.
+# It runs after kernel installs/removals (/etc/kernel.d/*/60-ribbon-limine),
+# after snapshots are taken or pruned (ribbon-snapshot) and after kernel flag
+# changes (update_bootloader in /usr/lib/ribbon/common.sh).
+#
+#   ribbon-limine update
+#   ribbon-limine install [<disk> <esp-partition-number> [<bios-boot-partition-number>]]
+#   ribbon-limine root-cmdline        print the detected root= flags
+#
+# Settings: /etc/default/ribbon-boot (kernel flags, timeout) and
+# /etc/default/ribbon-limine (RIBBON_ROOT_CMDLINE: root=, rootflags=,
+# rd.luks.uuid=; written by `install` if missing; LIMINE_WINDOWS_ESP,
+# LIMINE_WINDOWS, LIMINE_XBOOTLDR). RIBBON_ROOT=/mnt/x acts
+# on a system mounted there (paths only; tests use it).
+set -eu
+. "${RIBBON_LIB:-/usr/lib/ribbon}/common.sh"
+
+R=${RIBBON_ROOT:-}
+BOOT=$R/boot
+CONF=$BOOT/limine.conf
+LIMINE_DEFAULTS=$R/etc/default/ribbon-limine
+SHARE=$R/usr/share/limine
+KEEP=${SNAPSHOT_KEEP:-10}
+# Where the EFI binary goes, and how the menu reaches the kernels.
+ESPDIR=$BOOT KPATH='boot():'
+LIMINE_XBOOTLDR=$(sed -n 's/^LIMINE_XBOOTLDR=\([0-9a-fA-F-]*\)[[:space:]]*$/\1/p' "$LIMINE_DEFAULTS" 2>/dev/null | tail -n1)
+[ -z "$LIMINE_XBOOTLDR" ] || { ESPDIR=$BOOT/efi KPATH="guid($LIMINE_XBOOTLDR):"; }
+
+load_settings() {
+	local f; f=$(boot_conf)
+	# shellcheck disable=SC1090
+	[ -r "$f" ] && . "$f"
+	# shellcheck disable=SC1090
+	[ -r "$LIMINE_DEFAULTS" ] && . "$LIMINE_DEFAULTS"
+	: "${RIBBON_ROOT_CMDLINE:?set RIBBON_ROOT_CMDLINE in /etc/default/ribbon-limine (see: ribbon-limine root-cmdline)}"
+	return 0
+}
+
+# Newest version first among the given kernel versions that have both a
+# kernel and an initramfs on /boot.
+bootable_versions() {
+	local v
+	for v in "$@"; do
+		[ -e "$BOOT/vmlinuz-$v" ] && [ -e "$BOOT/initramfs-$v.img" ] && echo "$v"
+	done | sort -rV
+	return 0
+}
+
+entry() { # level title version cmdline [comment]
+	printf '\n%s%s\n' "$1" "$2"
+	[ -n "${5:-}" ] && printf '    comment: %s\n' "$5"
+	printf '    protocol: linux\n'
+	printf '    path: %s/vmlinuz-%s\n' "$KPATH" "$3"
+	printf '    module_path: %s/initramfs-%s.img\n' "$KPATH" "$3"
+	printf '    cmdline: %s\n' "$4"
+}
+
+# Limine shows titles in its own font (code page 437): keep them to printable
+# ASCII, one line, without a leading menu-structure character.
+clean_title() {
+	LC_ALL=C tr -c ' -~' '?' | sed 's/^[/+ ]*//; s/[[:space:]]*$//' | cut -c1-90
+}
+
+# The btrfs subvolume holding the snapshots (Ribbon's layout: @snapshots).
+snapshot_subvol() {
+	local s=
+	if [ -n "${LIMINE_SNAPSHOT_SUBVOL:-}" ]; then
+		s=$LIMINE_SNAPSHOT_SUBVOL
+	else
+		s=$(findmnt -no OPTIONS "$R/.snapshots" 2>/dev/null | head -n1 | tr ',' '\n' | sed -n 's|^subvol=/\{0,1\}||p')
+	fi
+	echo "${s:-@snapshots}"
+}
+
+# "number<TAB>date<TAB>description" for every snapper snapshot, newest first.
+snapper_list() {
+	# No snapper config (bcachefs, or btrfs without snapper): no snapshot entries.
+	have snapper || return 0
+	snapper --no-dbus ${R:+--root "$R"} -c root --csvout --no-headers --separator "$(printf '\t')" \
+		list --disable-used-space --columns number,date,description 2>/dev/null |
+		awk -F'\t' '{
+			n = $1; gsub(/[^0-9]/, "", n)
+			if (n == "" || n == 0) next
+			d = $3; for (i = 4; i <= NF; i++) d = d " " $i
+			if (d ~ /^".*"$/) { d = substr(d, 2, length(d) - 2); gsub(/""/, "\"", d) }
+			print n "\t" substr($2, 1, 16) "\t" d
+		}' | sort -t "$(printf '\t')" -k1,1nr
+	return 0
+}
+
+# Replace the subvolume in rootflags= (or add rootflags=) and boot read-only:
+# the dracut overlay makes the running system writable.
+snapshot_cmdline() { # cmdline subvol
+	local w out='' hit=''
+	for w in $1; do
+		case "$w" in
+			rootflags=*)
+				if printf '%s' "$w" | grep -q 'subvol='; then
+					w=$(printf '%s' "$w" | sed "s|subvol=[^,]*|subvol=$2|")
+				else
+					w="$w,subvol=$2"
+				fi
+				hit=1 ;;
+			rw) w=ro ;;
+		esac
+		out="${out:+$out }$w"
+	done
+	[ -n "$hit" ] || out="$out rootflags=subvol=$2"
+	echo "$out"
+}
+
+snapshot_entries() { # flags
+	local flags=$1 sub n date desc v count=0 mods vers
+	sub=$(snapshot_subvol)
+	while IFS="$(printf '\t')" read -r n date desc; do
+		[ "$count" -lt "$KEEP" ] || break
+		mods="$R/.snapshots/$n/snapshot/usr/lib/modules"
+		[ -d "$mods" ] || continue
+		# shellcheck disable=SC2046
+		vers=$(bootable_versions $(ls -1 "$mods" 2>/dev/null))
+		v=$(printf '%s\n' "$vers" | head -n1)
+		# No kernel for it on /boot (pruned): booting it would fail, so skip it.
+		[ -n "$v" ] || continue
+		[ "$count" -eq 0 ] && {
+			printf '\n/Ribbon OS snapshots\n'
+			printf '    comment: Starts an earlier state of the system; changes are lost at reboot. Keep one with: sudo ribbon rollback <number>\n'
+		}
+		desc=$(printf '%s' "${desc:-snapshot}" | clean_title)
+		entry // "$(printf 'Snapshot %s  %s  %s' "$n" "$date" "$desc" | clean_title)" "$v" \
+			"$(snapshot_cmdline "$RIBBON_ROOT_CMDLINE" "$sub/$n/snapshot") $flags" "Linux $v"
+		count=$((count + 1))
+	done < <(snapper_list)
+	return 0
+}
+
+# Chainload Windows Boot Manager (Limine's efi protocol).
+windows_entry() {
+	[ "${LIMINE_WINDOWS:-yes}" != no ] || return 0
+	[ -d /sys/firmware/efi ] || [ -n "$R" ] || return 0
+	local f path=
+	for f in EFI/Microsoft/Boot/bootmgfw.efi EFI/Microsoft/Boot/BOOTMGFW.EFI; do
+		[ -e "$ESPDIR/$f" ] && { path="boot():/$f"; break; }
+	done
+	if [ -z "$path" ] && [ -n "${LIMINE_WINDOWS_ESP:-}" ]; then
+		path="guid(${LIMINE_WINDOWS_ESP}):/EFI/Microsoft/Boot/bootmgfw.efi"
+	fi
+	[ -n "$path" ] || return 0
+	printf '\n/Windows\n'
+	printf '    comment: Windows Boot Manager\n'
+	printf '    protocol: efi\n'
+	printf '    path: %s\n' "$path"
+}
+
+update() {
+	load_settings
+	local flags vers v all=() mods=${LIMINE_MODULES_ROOT:-$R}
+	flags=$(echo "quiet ${RIBBON_CMDLINE:-} ${RIBBON_CMDLINE_EXTRA:-}" | tr -s ' ' | sed 's/ $//')
+	for v in "$BOOT"/vmlinuz-*; do
+		[ -e "$v" ] && all+=("${v#"$BOOT"/vmlinuz-}")
+	done
+	vers=$(bootable_versions "${all[@]}")
+	[ -n "$vers" ] || die "no kernel with an initramfs in $BOOT; not touching $CONF"
+	# Only kernels the root filesystem has modules for: after a rollback, /boot
+	# still holds newer kernels than the restored system (snapshots use them).
+	local own=
+	for v in $vers; do [ -d "$mods/usr/lib/modules/$v" ] && own="$own $v"; done
+	[ -n "$own" ] && vers=$own
+	{
+		echo "# Generated by ribbon-limine (Limine v8+ syntax). Don't edit: change"
+		echo "# /etc/default/ribbon-boot, then run: sudo ribbon boot update"
+		echo "timeout: ${BOOT_TIMEOUT:-3}"
+		echo "interface_branding: Ribbon OS"
+		echo "interface_branding_colour: F0ABFC"
+		for v in $vers; do
+			entry / "Ribbon OS ($v)" "$v" "$RIBBON_ROOT_CMDLINE $flags"
+		done
+		snapshot_entries "$flags"
+		windows_entry
+	} > "$CONF.new"
+	mv "$CONF.new" "$CONF"
+	refresh_binaries
+}
+
+# Keep the installed Limine binaries in step with the package after updates.
+refresh_binaries() {
+	local efi=$SHARE/BOOTX64.EFI dst=$ESPDIR/EFI/limine/BOOTX64.EFI fb=$ESPDIR/EFI/BOOT/BOOTX64.EFI
+	if [ -r "$efi" ] && [ -e "$dst" ] && ! cmp -s "$efi" "$dst"; then
+		# The fallback path only if it is ours (it may belong to another OS).
+		cmp -s "$dst" "$fb" 2>/dev/null && cp "$efi" "$fb"
+		cp "$efi" "$dst"
+	fi
+	if [ -z "$R" ] && [ "${LIMINE_BIOS:-}" = yes ] && [ -r "$SHARE/limine-bios.sys" ] &&
+		! cmp -s "$SHARE/limine-bios.sys" "$BOOT/limine/limine-bios.sys"; then
+		# Stage 1/2 on the disk and limine-bios.sys must be the same version.
+		# The disk is the one holding /boot (device names can change).
+		local disk; disk=$(detect_esp | cut -d' ' -f1)
+		if cp "$SHARE/limine-bios.sys" "$BOOT/limine/limine-bios.sys" &&
+			limine bios-install "$disk" ${LIMINE_BIOS_PART:+"$LIMINE_BIOS_PART"} >/dev/null 2>&1; then :
+		else
+			warn "could not update Limine's BIOS stages; run: sudo limine bios-install $disk ${LIMINE_BIOS_PART:-}"
+		fi
+	fi
+	return 0
+}
+
+# The disk and partition number of the EFI system partition mounted at /boot
+# (/boot/efi with an XBOOTLDR /boot).
+detect_esp() {
+	local src name
+	src=$(findmnt -no SOURCE "$ESPDIR" 2>/dev/null | head -n1)
+	[ -b "$src" ] || die "the EFI system partition is not mounted at ${ESPDIR#"$R"}"
+	name=$(basename "$(readlink -f "$src")")
+	echo "/dev/$(lsblk -dno PKNAME "$src" | head -n1) $(cat "/sys/class/block/$name/partition")"
+}
+
+install_limine() {
+	local disk=${1:-} part=${2:-} biospart=${3:-}
+	if [ -z "$disk" ]; then
+		# shellcheck disable=SC2046
+		set -- $(detect_esp)
+		disk=$1 part=$2
+	fi
+	[ -b "$disk" ] && [ -n "$part" ] || die "usage: ribbon-limine install <disk> <esp-partition-number> [<bios-boot-partition-number>]"
+	# (the installer may have put other settings, e.g. LIMINE_WINDOWS_ESP, there first)
+	if ! grep -q '^RIBBON_ROOT_CMDLINE=' "$LIMINE_DEFAULTS" 2>/dev/null; then
+		local rc; rc=$(root_cmdline) || die "could not work out the root= flags; write RIBBON_ROOT_CMDLINE to $LIMINE_DEFAULTS"
+		mkdir -p "$(dirname "$LIMINE_DEFAULTS")"
+		{
+			echo "# Kernel flags that find the root filesystem (written by ribbon-limine install)."
+			echo "# Other kernel flags go in /etc/default/ribbon-boot."
+			echo "RIBBON_ROOT_CMDLINE=\"$rc\""
+		} >> "$LIMINE_DEFAULTS"
+	fi
+	if [ -d /sys/firmware/efi ]; then
+		local efi=$SHARE/BOOTX64.EFI
+		[ -r "$efi" ] || die "Limine's EFI binary ($efi) is missing; is the limine package installed?"
+		mkdir -p "$ESPDIR/EFI/limine"
+		# The firmware fallback path too, unless another system's loader is
+		# there (Windows, on a shared EFI partition).
+		local fb=$ESPDIR/EFI/BOOT/BOOTX64.EFI ours=
+		if [ ! -e "$fb" ] || cmp -s "$fb" "$ESPDIR/EFI/limine/BOOTX64.EFI" || grep -qai limine "$fb"; then ours=1; fi
+		cp "$efi" "$ESPDIR/EFI/limine/BOOTX64.EFI"
+		[ -z "$ours" ] || { mkdir -p "$ESPDIR/EFI/BOOT"; cp "$efi" "$fb"; }
+		if ! efibootmgr 2>/dev/null | grep -q 'Ribbon OS (Limine)'; then
+			efibootmgr -c -d "$disk" -p "$part" -L "Ribbon OS (Limine)" -l '\EFI\limine\BOOTX64.EFI' >/dev/null
+		fi
+	else
+		# Legacy BIOS: stage 1 in the MBR, stage 2 in a BIOS boot partition (GPT).
+		[ -r "$SHARE/limine-bios.sys" ] || die "$SHARE/limine-bios.sys is missing; is the limine package installed?"
+		mkdir -p "$BOOT/limine"
+		cp "$SHARE/limine-bios.sys" "$BOOT/limine/limine-bios.sys"
+		limine bios-install "$disk" ${biospart:+"$biospart"} >/dev/null 2>&1 ||
+			die "limine bios-install $disk ${biospart} failed (GPT disks need a BIOS boot partition)"
+		conf_set "$LIMINE_DEFAULTS" LIMINE_BIOS yes
+		[ -n "$biospart" ] && conf_set "$LIMINE_DEFAULTS" LIMINE_BIOS_PART "$biospart"
+	fi
+	update
+}
+
+case "${1:-update}" in
+	update) update ;;
+	install) shift; install_limine "$@" ;;
+	root-cmdline) root_cmdline ;;
+	-h|--help) sed -n '2,/^set -eu/p' "$0" | sed '$d; s/^# \{0,1\}//' ;;
+	*) echo "usage: ribbon-limine update | install [<disk> <part> [<bios-part>]] | root-cmdline" >&2; exit 2 ;;
+esac

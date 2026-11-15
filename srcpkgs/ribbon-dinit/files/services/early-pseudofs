@@ -1,0 +1,4 @@
+type = scripted
+command = /usr/lib/ribbon/boot.sh pseudofs
+restart = false
+options: starts-rwfs

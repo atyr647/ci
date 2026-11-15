@@ -1,0 +1,11 @@
+# mkkitfs: srcpkgs/mkkitfs/template's do_install (its Makefile's install target, then vlicense, vdoc). The binary
+# links the Metakit fork's C++ library in statically, so it is built only when METAKIT names that source.
+needs METAKIT
+bin @build/mkkitfs
+file 755 usr/lib/ribbon/kit @build/kit-swapmount
+bin @files/tcl/mkkitfsd
+file 644 usr/lib/mkkitfs1.0 @files/tcl/mkkitfs.tcl
+file 644 usr/lib/mkkitfs1.0 @files/tcl/pkgIndex.tcl
+file 644 usr/lib/dinit.d/user @files/services/mkkitfs
+license @repo/LICENSE
+doc @files/README

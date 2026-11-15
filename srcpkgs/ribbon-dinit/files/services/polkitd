@@ -1,0 +1,15 @@
+# polkit (the admin prompts: ribbon-polkit registers with it; pkexec and the Settings helpers ask it). Ribbon's own
+# description, for a base that has no other (a service in /etc/dinit.d or /run/dinit.d wins).
+# NOT enabled by the installer or the live ISO: polkit's own D-Bus activation file
+# (/usr/share/dbus-1/system-services/org.freedesktop.PolicyKit1.service) has dbus-daemon start polkitd the first time
+# anything asks, which happens early in boot; a second polkitd started here then exits with "Lost the name
+# org.freedesktop.PolicyKit1" (the CI boot test saw exactly that). Enable this only on a base without that file.
+# It tracks sessions through elogind, so it waits for it; without --no-debug its messages reach the log (no syslog).
+type = process
+command = /usr/lib/polkit-1/polkitd
+smooth-recovery = true
+restart-delay = 1
+logfile = /var/log/dinit/polkitd.log
+depends-on: system
+depends-on: dbus
+waits-for: elogind

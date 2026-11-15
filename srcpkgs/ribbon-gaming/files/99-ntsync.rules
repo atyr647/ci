@@ -1,0 +1,2 @@
+# Ribbon OS: let logged-in users open /dev/ntsync (Wine/Proton).
+KERNEL=="ntsync", MODE="0666"

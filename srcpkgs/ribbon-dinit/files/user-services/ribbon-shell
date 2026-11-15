@@ -1,0 +1,12 @@
+# The Ribbon shell (bars, launcher, menus), under the user's dinit (HANDOFF robustness 4a). Started by
+# labwc's autostart. A crash is restarted after 2 s; after 5 starts within 60 s dinit stops restarting it.
+# The shell itself drops its saved state on a crash loop (shell/fault.tcl). A quit or reload from ctl is
+# asked of dinit (dinitctl), so a quit is not restarted.
+type = process
+command = /usr/bin/ribbon-shell
+smooth-recovery = true
+restart = true
+restart-delay = 2
+restart-limit-count = 5
+restart-limit-interval = 60
+waits-for: dbus

@@ -1,0 +1,4 @@
+#!/bin/sh
+echo "ribbon-snapshot $*" >> "${RIBBON_SEAM_STUB:?}/log"
+[ "$1" = backend ] && echo btrfs
+exit 0

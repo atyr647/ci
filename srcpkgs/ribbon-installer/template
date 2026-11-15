@@ -1,0 +1,33 @@
+# Template file for 'ribbon-installer'
+pkgname=ribbon-installer
+version=0.1.0
+revision=1
+# The Tk front end draws with the Ribbon shell's rasteriser, palette and
+# text (ribbon-desktop's /usr/lib/ribbon/shell, whose fonts.conf names
+# Inter and Space Grotesk at the mockups' weights; ribbon-desktop also
+# ships the Space Grotesk SemiBold the headings use).
+depends="ribbon-desktop ribbon-tools tk font-inter dejavu-fonts-ttf fontconfig
+ gptfdisk parted rsync dialog
+ tcl ntfs-3g hivex"
+short_desc="Ribbon OS installer: the Tcl/Tk installer and ribbon-install (btrfs, ZFS, bcachefs)"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/ribbon"
+
+do_install() {
+	# Live ISO only: the installed system removes this package.
+	vbin "${FILESDIR}/bin/ribbon-installer-launch"
+	vbin "${FILESDIR}/bin/ribbon-install"
+	# the backend's Tcl half: probe, answers check, progress (runs as root)
+	vbin "${FILESDIR}/bin/ribbon-install-probe"
+	vmkdir usr/lib/ribbon/installer-backend
+	for f in "${FILESDIR}"/backend/*.tcl; do
+		vinstall "$f" 644 usr/lib/ribbon/installer-backend
+	done
+	# the Tk front end (runs as the live user; the backend runs as root)
+	for f in main ui pages data backend; do
+		vinstall "${FILESDIR}/tk/$f.tcl" 644 usr/lib/ribbon/installer
+	done
+	vinstall "${FILESDIR}/ribbon-install.desktop" 644 usr/share/applications
+	vinstall "${FILESDIR}/LICENSE" 644 usr/share/licenses/${pkgname}
+}

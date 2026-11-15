@@ -1,0 +1,12 @@
+[Desktop Entry]
+Type=Application
+Name=Text editor
+GenericName=Text editor
+Comment=Edit plain text, code and notes
+Exec=ribbon-editor %F
+Icon=accessories-text-editor
+Terminal=false
+Categories=Utility;TextEditor;
+StartupWMClass=RibbonEditor
+MimeType=text/plain;text/markdown;text/x-markdown;text/x-tcl;text/x-python;text/x-python3;text/x-script.python;application/x-shellscript;text/x-shellscript;text/x-c;text/x-csrc;text/x-chdr;application/json;application/xml;text/xml;application/toml;text/x-patch;text/x-diff;application/x-desktop;text/x-log;text/csv;text/x-makefile;text/x-readme;
+Keywords=text;editor;code;notes;

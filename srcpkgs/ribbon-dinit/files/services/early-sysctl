@@ -1,0 +1,5 @@
+type = scripted
+command = /usr/lib/ribbon/boot.sh sysctl
+restart = false
+log-type = buffer
+depends-on: early-filesystems

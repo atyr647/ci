@@ -1,0 +1,157 @@
+name: ribbon-kernel
+# Ribbon OS: its own kernel (srcpkgs/ribbon-kernel with build/kernel/config), erofs-utils >= 1.9 (srcpkgs/erofs-utils,
+# D68), the prebuilt module kits (NVIDIA, ZFS, bcachefs: D47 C) and the firmware kit, built and checked here only
+# (build/ci/kernel.sh). Exported with the ribbon-image workflow (build/ci/export.sh, as .github/workflows/kernel.yml)
+# and run on the same push of the ribbon-image branch.
+#   key      the build key of this tree (kernel.sh tag); a release of that name already published means nothing
+#            changed, and the build is skipped
+#   build    in Void's container: xbps-src builds erofs-utils and ribbon-kernel (the configuration merged from its
+#            fragments, checked after olddefconfig), DKMS builds the module kits' modules against its headers, the
+#            firmware is pruned and recompressed to xz, and every tree becomes an erofs image verified in full
+#   kits     each image packed as a system kit (kitpack, kitfmt verify), and the kernel booted in QEMU with them: its
+#            release, sched_ext, NTSYNC, an erofs deflate image, every module kit's vermagic, bcachefs and ZFS loaded
+#            from their kits, the firmware kit mounted
+#   publish  only when all of that passed: the release (packages, kits, SHA256SUMS) that the image job fetches
+#            (kernel.sh fetch), then the ribbon-image workflow again if its run of this push had no kernel to fetch;
+#            and always the results, on the branch ribbon-results-kernel
+on:
+  push:
+    branches: [ ribbon-image ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: write
+
+concurrency:
+  group: ribbon-kernel
+  cancel-in-progress: false
+
+jobs:
+  key:
+    runs-on: ubuntu-24.04
+    outputs:
+      tag: ${{ steps.key.outputs.tag }}
+      cached: ${{ steps.key.outputs.cached }}
+    steps:
+      - uses: actions/checkout@v4
+      - id: key
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag=$(sh build/ci/kernel.sh tag)
+          echo "tag=$tag" >> "$GITHUB_OUTPUT"
+          if gh release view "$tag" -R "$GITHUB_REPOSITORY" >/dev/null 2>&1; then cached=true; else cached=false; fi
+          echo "cached=$cached" >> "$GITHUB_OUTPUT"
+          echo "$tag (published already: $cached)"
+
+  build:
+    needs: key
+    if: needs.key.outputs.cached != 'true'
+    runs-on: ubuntu-24.04
+    timeout-minutes: 340
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make room for the kernel build
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Build in Void's container (kernel, erofs-utils, module kits, firmware, images)
+        run: |
+          mkdir -p out/kernel
+          docker run --rm --privileged -v "$PWD:/ribbon" -w /ribbon ghcr.io/void-linux/void-glibc-full:latest \
+            sh build/ci/kernel.sh void-ci out/kernel
+      - name: Hand the results over
+        if: always()
+        run: |
+          sudo chown -R "$(id -u):$(id -g)" out/kernel
+          [ -s out/kernel/kernel-summary.txt ] || echo "RESULT kernel-build: FAILED (the container did not finish)" > out/kernel/kernel-summary.txt
+          for f in out/kernel/logs/*.log; do [ -f "$f" ] && tail -n 300 "$f" > "${f%.log}-tail.log"; done
+          rm -rf out/kernel/trees/firmware out/kernel/fwroot
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ribbon-kernel-build
+          path: out/kernel
+          retention-days: 3
+          compression-level: 0
+
+  kits:
+    needs: build
+    runs-on: ubuntu-24.04
+    timeout-minutes: 60
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: ribbon-kernel-build, path: out/kernel }
+      - name: Install what packing and booting need
+        run: |
+          sudo apt-get update -qq
+          sudo apt-get install -y -qq tcl8.6 tcl8.6-dev g++ make libdeflate-dev cryptsetup-bin erofs-utils busybox-static kmod cpio zstd xz-utils qemu-system-x86 >/dev/null
+          sudo chmod 666 /dev/kvm 2>/dev/null || true
+      - name: Pack the kits
+        run: |
+          sh build/ci/kernel.sh mk4tcl out/mk4tcl > out/kernel/logs/mk4tcl.log 2>&1
+          KITFMT_MK4TCL=$PWD/out/mk4tcl sh build/ci/kernel.sh kits out/kernel
+      - name: Boot the kernel with its kits
+        run: KITFMT_MK4TCL=$PWD/out/mk4tcl sh build/ci/kernel.sh boot out/kernel
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ribbon-kernel-kits
+          path: |
+            out/kernel/kits
+            out/kernel/kernel-summary.txt
+            out/kernel/boot-serial.log
+            out/kernel/boot-lines.txt
+            out/kernel/logs
+          retention-days: 3
+
+  publish:
+    needs: [key, build, kits]
+    if: always() && needs.key.outputs.cached != 'true'
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: src }
+      - uses: actions/download-artifact@v4
+        with: { name: ribbon-kernel-build, path: out/kernel }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: ribbon-kernel-kits, path: out/kernel }
+        continue-on-error: true
+      - name: Publish the release (only when every stage passed)
+        if: needs.kits.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+          RIBBON_CI_REPO: ${{ github.repository }}
+        run: sh src/build/ci/kernel.sh publish "$PWD/out/kernel"
+      - name: Run the image build again, now that its kernel exists
+        # the ribbon-image run of this push found no release for this key (kernel.sh fetch) and stopped
+        if: needs.kits.result == 'success'
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          c=$(gh run list -R "$GITHUB_REPOSITORY" -w ribbon-image -c "$GITHUB_SHA" --json conclusion -q '.[0].conclusion' 2>/dev/null || :)
+          [ "$c" = success ] || gh workflow run ribbon-image.yml -R "$GITHUB_REPOSITORY" --ref ribbon-image
+      - name: Publish the results branch
+        if: always()
+        run: |
+          mkdir -p results
+          cp out/kernel/kernel-summary.txt out/kernel/boot-lines.txt results/ 2>/dev/null || :
+          cp out/kernel/logs/*-tail.log out/kernel/boot-serial.log results/ 2>/dev/null || :
+          [ -s results/kernel-summary.txt ] || echo "RESULT kernel-build: no result (the build job did not finish)" > results/kernel-summary.txt
+          cd results
+          { cat kernel-summary.txt
+            echo "tag: ${{ needs.key.outputs.tag }}"
+            echo "run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "revision: $(cat ../src/RIBBON_REVISION 2>/dev/null)"; } > summary.txt
+          cat summary.txt
+          git init -q -b ribbon-results-kernel
+          git add -A
+          git -c user.name="Ribbon CI" -c user.email="noreply@anthropic.com" commit -q -m "Ribbon kernel run $GITHUB_RUN_NUMBER"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY" ribbon-results-kernel:ribbon-results-kernel
+      - name: Verdict
+        run: |
+          ! grep -qE '^RESULT kernel-[a-z]*: (FAILED|no result)' results/summary.txt
+          grep -q '^RESULT kernel-boot: ok' results/summary.txt

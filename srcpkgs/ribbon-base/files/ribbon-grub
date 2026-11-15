@@ -1,0 +1,16 @@
+# Ribbon OS defaults for GRUB (used only when GRUB is the boot loader).
+# /etc/default/grub sources this file at its end (the installer adds the
+# line). The kernel flags and the timeout come from /etc/default/ribbon-boot,
+# which every boot loader shares. The installer owns
+# GRUB_CMDLINE_LINUX_DEFAULT (disk unlock); Ribbon's own flags go in
+# GRUB_CMDLINE_LINUX so they apply to every entry, including snapshot and
+# fallback-kernel entries.
+[ -r /etc/default/ribbon-boot ] && . /etc/default/ribbon-boot
+GRUB_DISTRIBUTOR="Ribbon OS"
+GRUB_TIMEOUT=${BOOT_TIMEOUT:-3}
+GRUB_TIMEOUT_STYLE=menu
+GRUB_CMDLINE_LINUX="${RIBBON_CMDLINE:-} ${RIBBON_CMDLINE_EXTRA:-}"
+# Entry 0 is the default kernel; the fallback LTS kernel and snapshots follow.
+GRUB_DEFAULT=0
+GRUB_DISABLE_SUBMENU=y
+GRUB_DISABLE_OS_PROBER=false

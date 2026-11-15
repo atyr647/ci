@@ -1,0 +1,5 @@
+# local.target: the name upstream dinit service files (Chimera's targets) depend on for "the local system is up".
+# Here it is Ribbon's `system`. turnstile's own /etc/dinit.d/turnstiled (installed by the turnstile package, and
+# found before /usr/lib/dinit.d's) depends on it; without it nothing past `system` could start.
+type = internal
+depends-on: system

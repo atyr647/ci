@@ -1,0 +1,36 @@
+[
+  {
+    "name": "DP-1",
+    "make": "LG Electronics",
+    "model": "LG UltraGear 27GR95QE",
+    "serial": "001",
+    "physical_size": {"width": 600, "height": 340},
+    "enabled": true,
+    "modes": [
+      {"width": 2560, "height": 1440, "refresh": 164.998, "preferred": true, "current": true},
+      {"width": 2560, "height": 1440, "refresh": 144.000, "preferred": false, "current": false},
+      {"width": 1920, "height": 1080, "refresh": 165.000, "preferred": false, "current": false},
+      {"width": 1920, "height": 1080, "refresh": 60.000, "preferred": false, "current": false}
+    ],
+    "position": {"x": 0, "y": 0},
+    "transform": "normal",
+    "scale": 1.000000,
+    "adaptive_sync": true
+  },
+  {
+    "name": "eDP-1",
+    "make": "Ribbon",
+    "model": "Built-in",
+    "serial": "",
+    "physical_size": {"width": 290, "height": 190},
+    "enabled": true,
+    "modes": [
+      {"width": 2880, "height": 1800, "refresh": 90.000, "preferred": true, "current": true},
+      {"width": 1440, "height": 900, "refresh": 60.000, "preferred": false, "current": false}
+    ],
+    "position": {"x": 2560, "y": 0},
+    "transform": "normal",
+    "scale": 2.000000,
+    "adaptive_sync": false
+  }
+]

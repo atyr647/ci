@@ -1,0 +1,3 @@
+# Fallback only: ribbon-sv2dinit writes the real one to /run/dinit.d at boot
+# (it starts services enabled the runit way, via links in /var/service).
+type = internal

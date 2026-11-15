@@ -1,0 +1,424 @@
+#!/bin/sh
+# ribbon-users-helper - the privileged half of Settings → Users. Runs as root through pkexec; the page never runs
+# anything else as root.
+#
+#   pkexec /usr/bin/ribbon-users-helper add LOGIN on|off FULLNAME      (stdin: LOGIN, newline, PASSWORD, newline)
+#   pkexec /usr/bin/ribbon-users-helper remove LOGIN delete|keep       (delete: the home folder goes too)
+#   pkexec /usr/bin/ribbon-users-helper rename LOGIN FULLNAME
+#   pkexec /usr/bin/ribbon-users-helper admin LOGIN on|off             (membership of the group wheel)
+#   pkexec /usr/bin/ribbon-users-helper nopass LOGIN on|off            (membership of the group nopasswdlogin)
+#   pkexec /usr/bin/ribbon-users-helper passwd LOGIN                   (stdin: LOGIN, newline, PASSWORD, newline)
+#
+# Exit codes: 0 done, 1 a tool failed, 2 the request was refused before anything was touched. One line on stderr
+# says why ("ribbon-users-helper: ..."). Nothing is printed on success.
+#
+# THE DESIGN
+#
+# Who may call. polkit decides (apps/settings/policy/org.ribbon.users.policy: one action per verb, matched on the
+# first argument; an administrator's password every time, kept only for rename). This program then trusts nothing
+# it was given: polkit says WHO asked, the checks below say WHAT may be asked.
+#
+# What is refused, whoever asks:
+#   - a verb, a word or a number of arguments that is not in the list above;
+#   - a login name that is not ^[a-z_][a-z0-9_-]{0,31}$ (so no space, ":", ";", "$", quote, newline or leading "-"
+#     ever reaches a tool's command line; the name is also always passed after "--" or as a fixed position);
+#   - add: a name that a user or a group already has, and wheel and nopasswdlogin (useradd -U gives an account a
+#     group of its own name, which would make it an administrator or let it in without a password); a full name is not refused but cleaned (":", "," and control
+#     characters are dropped: ":" and newline would break /etc/passwd, "," separates the GECOS sub-fields);
+#   - every other verb: an account that does not exist, or whose uid is outside 1000..59999 (root and the system
+#     accounts are never touched), read from /etc/passwd itself, not from what the caller says;
+#   - remove: the account of the person who asked ($PKEXEC_UID, set by pkexec, not by the caller), and the last
+#     administrator;
+#   - admin off: the last administrator (an "administrator" is an account in 1000..59999 with a login shell that
+#     is in wheel; when one is left, it stays), and an account whose own group is wheel;
+#   - a password that is empty, longer than 256 bytes or holds a control character; a password whose first line
+#     does not name the same LOGIN as the command line.
+#
+# The password. It comes on standard input and nowhere else: never in an argument (any user can read every
+# process's arguments in /proc), never in the environment, never in a file, never in a message. It is read with
+# the shell's own `read`, and handed to chpasswd on a pipe by the shell's own `printf` (the helper stops if printf
+# is not built into the shell, because an external printf would get the password as an argument). chpasswd's
+# output is thrown away rather than relayed, the variable is cleared after use, and tracing is off. Changing your
+# OWN password does not come here at all: the page runs passwd(1) as you, which asks PAM for the current password.
+#
+# One at a time. The helper holds a lock (flock on /run/ribbon-users-helper.lock) from before its first look at
+# /etc/passwd until it exits, so what the checks read still holds when the tool runs.
+#
+# The environment. pkexec starts this with a cleaned environment; the helper still sets its own PATH, IFS, umask
+# and locale, unsets the variables a shell reads on its own, and runs each tool by an absolute path found in
+# /usr/sbin, /usr/bin, /sbin, /bin (in that order). No eval, no word built from input is ever run or sourced.
+#
+# The tools (shadow): useradd -m -U -s SHELL [-G GROUPS] [-c NAME], usermod -c, userdel [-r], gpasswd -a/-d, groupadd -r,
+# chpasswd; flock (util-linux). SHELL is the SHELL= of /etc/default/useradd when that is an executable login shell, else /bin/bash
+# when there is one, else /bin/sh. A new account is in its own group and in the groups the installer gives the
+# first user (audio video input storage network plugdev kvm, each only where this system has it: without network
+# a person cannot change a connection), and in wheel when it is to be an administrator. The list is fixed here;
+# the caller cannot name a group. If the password cannot be set, the account that was just made is removed
+# again, so a half-made account with no password is never left behind.
+#
+# Log in without a password: the group nopasswdlogin (made on first use). It only does anything where the login
+# screen's PAM stack has
+#     auth sufficient pam_succeed_if.so user ingroup nopasswdlogin
+# before its password line; Settings shows the switch only where /etc/pam.d/greetd has that line.
+#
+# Tests (tests/settings-users-helper.tcl). Run as root, this program reads no test variable at all. Run by
+# anyone else it refuses, unless RIBBON_USERS_TEST=1, when RIBBON_USERS_ROOT (a directory that stands for /) and
+# RIBBON_USERS_BIN (a directory of stand-in tools) must both be given: so a test can never reach the real tools,
+# and the real thing can never be pointed at a fake root.
+
+set +x
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+IFS='
+'
+unset ENV BASH_ENV CDPATH
+LC_ALL=C
+export LC_ALL
+umask 022
+
+ME=ribbon-users-helper
+UID_MIN=1000
+UID_MAX=59999
+
+die() { printf '%s: %s\n' "$ME" "$1" >&2; exit 1; }
+refuse() { printf '%s: %s\n' "$ME" "$1" >&2; exit 2; }
+usage() { refuse "usage: add LOGIN on|off FULLNAME | remove LOGIN delete|keep | rename LOGIN FULLNAME | admin LOGIN on|off | nopass LOGIN on|off | passwd LOGIN"; }
+
+[ "$(command -v printf)" = printf ] || die "this shell has no printf of its own; not handling passwords with it"
+
+# ---- who runs this, and where things are --------------------------------------------------
+
+if [ -x /usr/bin/id ]; then myuid=$(/usr/bin/id -u); else myuid=$(/bin/id -u); fi
+ROOT=
+BIN=
+if [ "$myuid" != 0 ]; then
+	[ "${RIBBON_USERS_TEST:-}" = 1 ] || refuse "run me through pkexec"
+	ROOT=${RIBBON_USERS_ROOT:-}
+	BIN=${RIBBON_USERS_BIN:-}
+	case $ROOT in /*) ;; *) refuse "a test needs RIBBON_USERS_ROOT, an absolute path" ;; esac
+	case $BIN in /*) ;; *) refuse "a test needs RIBBON_USERS_BIN, an absolute path" ;; esac
+	ROOT=${ROOT%/}
+fi
+PASSWD=$ROOT/etc/passwd
+GROUP=$ROOT/etc/group
+
+# The person who asked: pkexec's PKEXEC_UID.
+CALLER=${PKEXEC_UID:-}
+case $CALLER in
+	'' | *[!0-9]*) refuse "run me through pkexec" ;;
+esac
+
+# tool NAME: its absolute path in TOOL (the stand-in directory in a test).
+tool() {
+	if [ -n "$BIN" ]; then
+		[ -x "$BIN/$1" ] || die "$1 is not installed"
+		TOOL=$BIN/$1
+		return 0
+	fi
+	for d in /usr/sbin /usr/bin /sbin /bin; do
+		if [ -x "$d/$1" ]; then TOOL=$d/$1; return 0; fi
+	done
+	die "$1 is not installed"
+}
+tool tr; TR=$TOOL
+
+# ---- checks ---------------------------------------------------------------------------------
+
+valid_login() {
+	case $1 in
+		'' | *[!a-z0-9_-]*) return 1 ;;
+	esac
+	case $1 in
+		[a-z_]*) ;;
+		*) return 1 ;;
+	esac
+	[ "${#1}" -le 32 ]
+}
+onoff() {
+	case $1 in
+		on | off) ;;
+		*) usage ;;
+	esac
+}
+human_uid() {
+	case $1 in
+		'' | *[!0-9]*) return 1 ;;
+	esac
+	[ "${#1}" -le 5 ] && [ "$1" -ge "$UID_MIN" ] && [ "$1" -le "$UID_MAX" ]
+}
+login_shell() {
+	case $1 in
+		*/nologin | */false | */sync | */halt | */shutdown) return 1 ;;
+	esac
+	return 0
+}
+
+# lookup LOGIN: its passwd fields in P_UID P_GID P_GECOS; 1 when there is no such account.
+lookup() {
+	[ -r "$PASSWD" ] || die "cannot read $PASSWD"
+	while IFS=: read -r p_name p_x p_uid p_gid p_gecos p_home p_shell; do
+		if [ "$p_name" = "$1" ]; then
+			P_UID=$p_uid; P_GID=$p_gid; P_GECOS=$p_gecos
+			: "$p_x" "$p_home" "$p_shell"
+			return 0
+		fi
+	done <"$PASSWD"
+	return 1
+}
+# group GROUPNAME: its gid in G_GID and its members in G_MEMBERS (a,b,c); 1 when there is no such group.
+group() {
+	[ -r "$GROUP" ] || die "cannot read $GROUP"
+	while IFS=: read -r g_name g_x g_gid g_members; do
+		if [ "$g_name" = "$1" ]; then
+			G_GID=$g_gid; G_MEMBERS=$g_members
+			: "$g_x"
+			return 0
+		fi
+	done <"$GROUP"
+	return 1
+}
+# in_group LOGIN GROUPNAME (LOGIN was looked up: P_GID is its own group).
+in_group() {
+	group "$2" || return 1
+	case ",$G_MEMBERS," in
+		*",$1,"*) return 0 ;;
+	esac
+	[ "$P_GID" = "$G_GID" ]
+}
+# The number of administrators in N_ADMINS: accounts in 1000..59999 with a login shell that are in wheel.
+count_admins() {
+	N_ADMINS=0
+	group wheel || return 0
+	while IFS=: read -r p_name p_x p_uid p_gid p_gecos p_home p_shell; do
+		: "$p_x" "$p_gecos" "$p_home"
+		human_uid "$p_uid" || continue
+		login_shell "$p_shell" || continue
+		case ",$G_MEMBERS," in
+			*",$p_name,"*) N_ADMINS=$((N_ADMINS + 1)); continue ;;
+		esac
+		if [ "$p_gid" = "$G_GID" ]; then N_ADMINS=$((N_ADMINS + 1)); fi
+	done <"$PASSWD"
+}
+# target LOGIN: an existing account that is a person's, or the request is refused.
+target() {
+	valid_login "$1" || refuse "that is not a user name"
+	lookup "$1" || refuse "there is no user $1"
+	human_uid "$P_UID" || refuse "$1 is a system account"
+}
+# clean_name TEXT: the full name in CLEAN, without ":" "," and control characters, trimmed.
+clean_name() {
+	CLEAN=$(printf '%s' "$1" | "$TR" -d ':,\000-\037\177')
+	CLEAN=${CLEAN#"${CLEAN%%[! ]*}"}
+	CLEAN=${CLEAN%"${CLEAN##*[! ]}"}
+	# 120 characters, as the page's field: the bytes that do not continue a UTF-8 character
+	cn_chars=$(printf '%s' "$CLEAN" | "$TR" -d '\200-\277')
+	[ "${#cn_chars}" -le 120 ] || refuse "the name is too long"
+}
+
+# ---- the password: standard input only ------------------------------------------------------
+
+# read_secret LOGIN: two lines on standard input, LOGIN and the password, which is left in SECRET.
+read_secret() {
+	s_login=
+	SECRET=
+	IFS= read -r s_login || [ -n "$s_login" ] || refuse "no password was sent"
+	IFS= read -r SECRET || [ -n "$SECRET" ] || refuse "no password was sent"
+	[ "$s_login" = "$1" ] || { SECRET=; refuse "the password was sent for another account"; }
+	[ -n "$SECRET" ] || refuse "the password is empty"
+	[ "${#SECRET}" -le 256 ] || { SECRET=; refuse "the password is too long"; }
+	if [ "$(printf '%s' "$SECRET" | "$TR" -d '\000-\037\177')" != "$SECRET" ]; then
+		SECRET=
+		refuse "the password has a character that cannot be typed"
+	fi
+}
+# set_password LOGIN: SECRET to chpasswd on a pipe; chpasswd's own output is not relayed. 1 when it fails.
+set_password() {
+	tool chpasswd
+	printf '%s:%s\n' "$1" "$SECRET" | "$TOOL" >/dev/null 2>&1
+	sp_rc=$?
+	SECRET=
+	unset SECRET
+	return "$sp_rc"
+}
+
+# first_line TEXT: its first line, for an error.
+first_line() {
+	printf '%s\n' "$1" | {
+		IFS= read -r fl || :
+		printf '%s' "$fl"
+	}
+}
+
+# The shell a new account gets.
+new_shell() {
+	ns=
+	if [ -r "$ROOT/etc/default/useradd" ]; then
+		while IFS='=' read -r ns_key ns_value; do
+			if [ "$ns_key" = SHELL ]; then ns=$ns_value; fi
+		done <"$ROOT/etc/default/useradd"
+	fi
+	case $ns in
+		/*[!a-zA-Z0-9/._-]*) ns= ;;
+		/*) ;;
+		*) ns= ;;
+	esac
+	if [ -n "$ns" ] && login_shell "$ns" && [ -x "$ROOT$ns" ]; then
+		NEW_SHELL=$ns
+	elif [ -x "$ROOT/bin/bash" ]; then
+		NEW_SHELL=/bin/bash
+	else
+		NEW_SHELL=/bin/sh
+	fi
+}
+
+# The groups a new account is in besides its own, in NEW_GROUPS (a,b,c): the installer's list for the first
+# user (ribbon-install; tests/settings-users-helper.tcl holds the two lists together), each where it exists.
+new_groups() {
+	NEW_GROUPS=
+	for ng in audio video input storage network plugdev kvm; do
+		if group "$ng"; then NEW_GROUPS=${NEW_GROUPS:+$NEW_GROUPS,}$ng; fi
+	done
+}
+
+# ---- the verbs ------------------------------------------------------------------------------
+
+[ $# -ge 1 ] || usage
+
+# One change at a time: what the checks read from /etc/passwd and /etc/group must still hold when the tool runs
+# (two helpers each taking one of two administrators away would otherwise both pass the last-administrator check).
+tool flock
+exec 9>>"$ROOT/run/ribbon-users-helper.lock"
+"$TOOL" -w 30 9 || die "another change to the accounts is still running"
+
+verb=$1
+case $verb in
+	add)
+		[ $# -eq 4 ] || usage
+		login=$2
+		onoff "$3"
+		valid_login "$login" || refuse "a user name is small letters, digits, - and _, and starts with a letter"
+		case $login in
+			wheel | nopasswdlogin) refuse "the name $login is kept for the system" ;;
+		esac
+		if lookup "$login"; then refuse "there is already a user $login"; fi
+		if group "$login"; then refuse "the name $login is taken by a group"; fi
+		clean_name "$4"
+		if [ "$3" = on ]; then group wheel || refuse "this system has no wheel group"; fi
+		read_secret "$login"
+		new_shell
+		new_groups
+		admin=$3
+		set -- -m -U -s "$NEW_SHELL"
+		[ -z "$NEW_GROUPS" ] || set -- "$@" -G "$NEW_GROUPS"
+		[ -z "$CLEAN" ] || set -- "$@" -c "$CLEAN"
+		tool useradd
+		out=$("$TOOL" "$@" -- "$login" 2>&1 </dev/null) || { SECRET=; die "useradd: $(first_line "$out")"; }
+		if ! set_password "$login"; then
+			tool userdel
+			"$TOOL" -r -- "$login" >/dev/null 2>&1 </dev/null
+			die "the password was not accepted; no user was added"
+		fi
+		if [ "$admin" = on ]; then
+			tool gpasswd
+			"$TOOL" -a "$login" wheel >/dev/null 2>&1 </dev/null || die "$login was added, but not as an administrator"
+		fi
+		;;
+	remove)
+		[ $# -eq 3 ] || usage
+		login=$2
+		case $3 in
+			delete | keep) ;;
+			*) usage ;;
+		esac
+		target "$login"
+		[ "$P_UID" != "$CALLER" ] || refuse "you cannot remove your own account"
+		if in_group "$login" wheel; then
+			count_admins
+			[ "$N_ADMINS" -gt 1 ] || refuse "$login is the only administrator"
+		fi
+		tool userdel
+		if [ "$3" = keep ]; then
+			out=$("$TOOL" -- "$login" 2>&1 </dev/null)
+		else
+			out=$("$TOOL" -r -- "$login" 2>&1 </dev/null)
+		fi
+		rc=$?
+		case $rc in
+			0) ;;
+			8) die "$login is logged in" ;;
+			*)
+				# userdel -r complains when the home folder or the mail spool was already gone (12), but the account is removed
+				if lookup "$login"; then die "userdel: $(first_line "$out")"; fi
+				;;
+		esac
+		;;
+	rename)
+		[ $# -eq 3 ] || usage
+		login=$2
+		target "$login"
+		clean_name "$3"
+		case $P_GECOS in
+			*,*) rest=,${P_GECOS#*,} ;;
+			*) rest= ;;
+		esac
+		tool usermod
+		out=$("$TOOL" -c "$CLEAN$rest" -- "$login" 2>&1 </dev/null) || die "usermod: $(first_line "$out")"
+		;;
+	admin)
+		[ $# -eq 3 ] || usage
+		login=$2
+		onoff "$3"
+		target "$login"
+		group wheel || refuse "this system has no wheel group"
+		tool gpasswd
+		if [ "$3" = on ]; then
+			if ! in_group "$login" wheel; then
+				out=$("$TOOL" -a "$login" wheel 2>&1 </dev/null) || die "gpasswd: $(first_line "$out")"
+			fi
+		elif in_group "$login" wheel; then
+			count_admins
+			[ "$N_ADMINS" -gt 1 ] || refuse "$login is the only administrator"
+			[ "$P_GID" != "$G_GID" ] || refuse "wheel is the own group of $login"
+			out=$("$TOOL" -d "$login" wheel 2>&1 </dev/null) || die "gpasswd: $(first_line "$out")"
+		fi
+		;;
+	nopass)
+		[ $# -eq 3 ] || usage
+		login=$2
+		onoff "$3"
+		target "$login"
+		if [ "$3" = on ]; then
+			if ! group nopasswdlogin; then
+				tool groupadd
+				out=$("$TOOL" -r nopasswdlogin 2>&1 </dev/null) || die "groupadd: $(first_line "$out")"
+				G_MEMBERS=
+			fi
+			case ",$G_MEMBERS," in
+				*",$login,"*) ;;
+				*)
+					tool gpasswd
+					out=$("$TOOL" -a "$login" nopasswdlogin 2>&1 </dev/null) || die "gpasswd: $(first_line "$out")"
+					;;
+			esac
+		elif group nopasswdlogin; then
+			case ",$G_MEMBERS," in
+				*",$login,"*)
+					tool gpasswd
+					out=$("$TOOL" -d "$login" nopasswdlogin 2>&1 </dev/null) || die "gpasswd: $(first_line "$out")"
+					;;
+			esac
+		fi
+		;;
+	passwd)
+		[ $# -eq 2 ] || usage
+		login=$2
+		target "$login"
+		read_secret "$login"
+		set_password "$login" || die "the password was not accepted"
+		;;
+	*)
+		usage
+		;;
+esac
+exit 0

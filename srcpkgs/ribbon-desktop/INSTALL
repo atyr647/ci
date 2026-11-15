@@ -1,0 +1,30 @@
+# INSTALL script for ribbon-desktop
+case "${ACTION}" in
+post)
+	# greetd runs the login screen as _greeter (created via system_accounts)
+	usermod -aG video,input _greeter 2>/dev/null || :
+	# "Log in without a password": the nopasswdlogin rule ahead of greetd's first auth line, once
+	f=etc/pam.d/greetd r=usr/share/ribbon/greetd/pam-nopasswdlogin
+	if [ -f "$f" ] && [ -f "$r" ] && ! grep -q 'ingroup nopasswdlogin' "$f"; then
+		awk 'NR==FNR{a=a $0 "\n";next} !d&&(/^[ \t]*-?auth[ \t]/&&!/pam_(nologin|securetty|shells)\.so/||/^[ \t]*@include[ \t]+[^ \t]*auth/){printf "%s",a;d=1} {print} END{if(!d)printf "%s",a}' "$r" "$f" > "$f.new" && cat "$f.new" > "$f"
+		rm -f "$f.new"
+	fi
+	# Mail's passwords: gnome-keyring's login keyring is unlocked with the password typed at the login screen
+	# (pam_gnome_keyring after greetd's auth lines) and the daemon started with the session (after its session
+	# lines), once; without them a locked keyring needs a prompter Ribbon does not ship. A login without a password
+	# (nopasswdlogin, autologin) leaves the keyring locked.
+	f=etc/pam.d/greetd gk=
+	for m in lib/security lib64/security usr/lib/security usr/lib64/security usr/lib/*/security; do
+		[ -e "$m/pam_gnome_keyring.so" ] && gk=1
+	done
+	if [ -f "$f" ] && [ -n "$gk" ] && ! grep -q '^[^#]*pam_gnome_keyring' "$f"; then
+		awk -v A='auth       optional     pam_gnome_keyring.so' -v S='session    optional     pam_gnome_keyring.so auto_start' '
+			{ l[NR] = $0 }
+			/^[ \t]*-?auth[ \t]/ || /^[ \t]*@include[ \t]+[^ \t]*auth/ { la = NR }
+			/^[ \t]*-?session[ \t]/ || /^[ \t]*@include[ \t]+[^ \t]*session/ { ls = NR }
+			END { for (i = 1; i <= NR; i++) { print l[i]; if (i == la) print A; if (i == ls) print S }
+				if (!la) print A; if (!ls) print S }' "$f" > "$f.new" && cat "$f.new" > "$f"
+		rm -f "$f.new"
+	fi
+	;;
+esac

@@ -1,0 +1,97 @@
+# Template file for 'ribbon-dinit'
+pkgname=ribbon-dinit
+version=0.1.0
+revision=1
+_void_runit=20250212
+wrksrc="void-runit-${_void_runit}"
+depends="dinit dbus elogind turnstile eudev kmod procps-ng util-linux iproute2
+ gawk shadow"
+short_desc="Ribbon OS init: dinit early boot, core services, runit compatibility"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT, CC0-1.0"
+homepage="https://github.com/atyr647/ribbon"
+# Void's own runit scripts (CC0) provide seedrng, modules-load, zzz, rc.conf
+# and crypt.awk; Ribbon reuses them unchanged and replaces only the init.
+# The runit compatibility (ribbon-sv2dinit, sv-exec, the compat sv, the
+# runit-way links in /var/service) is for a base whose packages ship runit
+# services: it acts only where /etc/sv exists (init, pkg.sh's
+# pkg_services_sync, ribbon doctor), so on another base it is inert.
+distfiles="https://github.com/void-linux/void-runit/archive/refs/tags/${_void_runit}.tar.gz"
+checksum=c0d3ecea4dae5bba8ca3e563706847ef3b6cbdfcc19b8bf69b3f7a9bc0451f50
+# runit-void owns /usr/bin/init and halt/reboot/poweroff; Ribbon replaces it.
+conflicts="runit-void>=0"
+replaces="runit-void>=0"
+provides="runit-void-${_void_runit}_99"
+conf_files="
+ /etc/rc.conf
+ /etc/rc.local
+ /etc/rc.shutdown
+ /etc/hostname
+ /etc/locale.conf"
+make_dirs="
+ /etc/dinit.d/boot.d 0755 root root
+ /etc/ribbon/sv2dinit 0755 root root
+ /etc/zzz.d/suspend 0755 root root
+ /etc/zzz.d/resume 0755 root root
+ /var/log/dinit 0755 root root
+ /var/lib/ribbon/dinit.d 0755 root root"
+
+do_build() {
+	${CC} ${CFLAGS} ${LDFLAGS} seedrng.c -o seedrng
+	${CC} ${CFLAGS} ${LDFLAGS} halt.c -o halt
+	${CC} ${CFLAGS} ${LDFLAGS} pause.c -o pause
+}
+
+do_install() {
+	# --- reused from void-runit ---
+	vbin seedrng
+	vbin pause
+	vbin modules-load
+	vbin zzz
+	ln -s zzz "${DESTDIR}/usr/bin/ZZZ"
+	vinstall halt 755 usr/libexec/ribbon      # only used for wtmp records (-B / -w)
+	vman modules-load.8
+	vman zzz.8
+	vman pause.1
+	vconf rc.conf
+	vinstall rc.local 755 etc
+	vinstall rc.shutdown 755 etc
+	vinstall crypt.awk 644 usr/lib/ribbon
+	echo ribbon > hostname
+	vconf hostname
+	printf 'LANG=en_US.UTF-8\nLC_COLLATE=C\n' > locale.conf
+	vconf locale.conf
+
+	# --- Ribbon dinit layer ---
+	vinstall "${FILESDIR}/init" 755 usr/lib/ribbon
+	vinstall "${FILESDIR}/boot.sh" 755 usr/lib/ribbon
+	vinstall "${FILESDIR}/udev-trigger" 755 usr/lib/ribbon
+	vinstall "${FILESDIR}/power" 755 usr/lib/ribbon
+	vinstall "${FILESDIR}/shutdown-hook" 755 usr/lib/dinit
+	vbin "${FILESDIR}/ribbon-sv2dinit"
+	vinstall "${FILESDIR}/sv-exec" 755 usr/lib/ribbon/sv2dinit
+	vinstall "${FILESDIR}/sv" 755 usr/lib/ribbon/sv2dinit/compat
+	for f in map skip force; do
+		vinstall "${FILESDIR}/${f}" 644 usr/share/ribbon/sv2dinit
+	done
+
+	vmkdir usr/lib/dinit.d
+	for f in "${FILESDIR}"/services/*; do
+		vinstall "$f" 644 usr/lib/dinit.d
+	done
+	vmkdir usr/lib/dinit.d/user/boot.d
+	for f in "${FILESDIR}"/user-services/*; do
+		vinstall "$f" 644 usr/lib/dinit.d/user
+	done
+	for s in dbus pipewire wireplumber pipewire-pulse; do
+		ln -s "../${s}" "${DESTDIR}/usr/lib/dinit.d/user/boot.d/${s}"
+	done
+
+	# PID 1 and power commands
+	ln -s ../lib/ribbon/init "${DESTDIR}/usr/bin/init"
+	for p in halt poweroff reboot shutdown; do
+		ln -s ../lib/ribbon/power "${DESTDIR}/usr/bin/${p}"
+	done
+
+	vlicense "${FILESDIR}/LICENSE"
+}

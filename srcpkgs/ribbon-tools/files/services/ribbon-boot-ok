@@ -1,0 +1,14 @@
+# Watches this boot until the login screen (greetd's greeter) or a desktop has
+# been up for a while, then marks the boot good: the boot try counter on the
+# EFI partition is cleared and the newest snapshot recorded as the last good
+# one (`ribbon rollback`'s default). After an update (the counter is armed) a
+# boot that gets nowhere within BOOT_GOOD_TIMEOUT restarts the machine, and the
+# initramfs falls back to the pre-update snapshot once the tries are used up
+# (docs/SYSTEM-UPDATES.md 5.5, 7.8). It starts as soon as the filesystems are
+# mounted and does not wait for loginready or greetd on purpose: a boot that
+# hangs before the login screen must still be counted.
+type = process
+command = /usr/bin/ribbon-snapshot boot-watch
+restart = false
+log-type = buffer
+depends-on: early-filesystems

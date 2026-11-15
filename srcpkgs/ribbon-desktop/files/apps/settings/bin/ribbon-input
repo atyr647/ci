@@ -1,0 +1,5 @@
+#!/bin/sh
+# ribbon-input - labwc's keyboard, mouse and touchpad files from Settings' input.conf (apps/settings/input.tcl).
+#   ribbon-input generate     write $XDG_STATE_HOME/ribbon/xdg-input/labwc/{rc.xml,environment} again
+# ribbon-session runs it before labwc starts, so the files follow input.conf at every login.
+exec tclsh /usr/lib/ribbon/settings/input.tcl "$@"

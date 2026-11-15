@@ -1,0 +1,80 @@
+#!/bin/bash
+# ribbon-doctor - quick health check. Exit status = number of problems.
+set -u
+. /usr/lib/ribbon/common.sh
+
+problems=0
+bad() { err "$*"; problems=$((problems + 1)); }
+
+msg "Init"
+if [ "$(cat /proc/1/comm 2>/dev/null)" = dinit ]; then ok "dinit is PID 1"; else bad "PID 1 is $(cat /proc/1/comm), not dinit"; fi
+if have dinitctl && [ "$(id -u)" -eq 0 ]; then
+	failed=
+	for s in $(dinitctl list 2>/dev/null | sed -E 's/^\[[^]]*\][[:space:]]*//; s/[[:space:]].*//'); do
+		dinitctl is-failed "$s" >/dev/null 2>&1 && failed="$failed $s"
+	done
+	[ -z "$failed" ] && ok "no failed services" || bad "failed services:$failed (see: dinitctl status <name>, /var/log/dinit/)"
+fi
+# runit services: only a base that ships them (Void's /etc/sv) has any to convert
+if [ -d /etc/sv ] && have ribbon-sv2dinit; then
+	if out=$(ribbon-sv2dinit --check --quiet 2>&1); then
+		ok "all installed runit services have dinit equivalents"
+	else
+		bad "runit services that could not be converted:"$'\n'"$out"
+	fi
+fi
+
+msg "Snapshots"
+b=$(ribbon-snapshot backend)
+if [ "$b" = none ]; then
+	warn "root filesystem $(root_fstype) has no snapshots; updates cannot be rolled back"
+else
+	ok "snapshot backend: $b"
+	[ -r /var/lib/ribbon/last-good ] && ok "last good boot: snapshot $(cat /var/lib/ribbon/last-good)"
+fi
+
+msg "Kernel"
+ok "running $(uname -r)"
+n=$(ls -1 /boot/vmlinuz-* 2>/dev/null | wc -l)
+[ "$n" -ge 2 ] && ok "$n kernels in /boot (fallback available)" || bad "only $n kernel in /boot; no fallback to boot"
+cat /sys/kernel/sched_ext/state >/dev/null 2>&1 && ok "sched_ext: $(cat /sys/kernel/sched_ext/state) $(cat /sys/kernel/sched_ext/root/ops 2>/dev/null)"
+
+msg "Boot"
+bl=$(boot_loader)
+case "$bl" in
+	limine)
+		if [ -s /boot/limine.conf ]; then
+			ok "Limine menu: $(grep -c '^/[^/]' /boot/limine.conf) entries, $(grep -c '^//' /boot/limine.conf) snapshot entries"
+			grep -q "vmlinuz-$(uname -r)\$" /boot/limine.conf || warn "the running kernel $(uname -r) is not in the Limine menu (run: sudo ribbon boot update)"
+		else
+			bad "Limine is the boot loader but /boot/limine.conf is missing (run: sudo ribbon boot update)"
+		fi
+		# on the EFI partition: /boot, or /boot/efi with an XBOOTLDR /boot
+		[ -d /sys/firmware/efi ] && { [ -e /boot/EFI/limine/BOOTX64.EFI ] || [ -e /boot/efi/EFI/limine/BOOTX64.EFI ] || bad "Limine's EFI binary (EFI/limine/BOOTX64.EFI) is missing (run: sudo ribbon-limine install)"; } ;;
+	grub) [ -s /boot/grub/grub.cfg ] && ok "GRUB menu: /boot/grub/grub.cfg" || bad "GRUB is the boot loader but /boot/grub/grub.cfg is missing (run: sudo ribbon boot update)" ;;
+	zfsbootmenu) ok "boot loader: ZFSBootMenu" ;;
+	*) warn "could not tell which boot loader is installed (set BOOTLOADER in /etc/default/ribbon-boot)" ;;
+esac
+
+msg "Storage"
+for m in / /boot; do
+	use=$(df -P "$m" 2>/dev/null | awk 'NR==2 {gsub("%",""); print $5}')
+	[ -n "$use" ] || continue
+	[ "$use" -lt 90 ] && ok "$m is ${use}% full" || bad "$m is ${use}% full"
+done
+grep -q nofail /etc/fstab 2>/dev/null && ok "game drives use nofail"
+swapon --show=NAME --noheadings | grep -q . && ok "swap: $(swapon --show=NAME,SIZE --noheadings | tr '\n' ' ')" || warn "no swap active"
+
+msg "Packages"
+if [ "$(id -u)" -eq 0 ]; then
+	pkg_check_db; case $? in 0) ok "package database consistent" ;; 1) bad "the package database reports problems" ;; esac
+fi
+new=$(find /etc -name '*.new-*_*' 2>/dev/null)
+[ -z "$new" ] && ok "no pending .new config files" || warn "updated config files waiting to be merged:"$'\n'"$new"
+
+msg "Graphics"
+ribbon-gpu status 2>/dev/null | grep -E 'VGA|3D|Display|Kernel driver in use' | sed 's/^/     /'
+
+echo
+[ $problems -eq 0 ] && ok "no problems found" || err "$problems problem(s) found"
+exit $problems

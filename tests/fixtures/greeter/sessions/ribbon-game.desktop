@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=Ribbon Game mode
+Comment=Ribbon for games
+Exec=ribbon-session --game
+Type=Application

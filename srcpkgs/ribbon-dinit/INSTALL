@@ -1,0 +1,17 @@
+# INSTALL script for ribbon-dinit (runs in the target root, paths relative).
+case "${ACTION}" in
+post)
+	# turnstile: use the dinit backend for per-user services; elogind
+	# already manages XDG_RUNTIME_DIR, so turnstile must not.
+	f=etc/turnstile/turnstiled.conf
+	if [ -f "$f" ]; then
+		sed -i -e 's/^backend = .*/backend = dinit/' \
+			-e 's/^manage_rundir = .*/manage_rundir = no/' "$f"
+	fi
+	# Register login sessions with turnstile (elogind is already in system-login).
+	p=etc/pam.d/system-login
+	if [ -f "$p" ] && ! grep -q 'pam_turnstile.so' "$p"; then
+		printf 'session    optional   pam_turnstile.so\n' >> "$p"
+	fi
+	;;
+esac

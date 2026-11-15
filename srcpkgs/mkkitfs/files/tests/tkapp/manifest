@@ -1,0 +1,4 @@
+name org.ribbon.test.tkhello  version 1.0  kind app  summary {The start-up test's small Tk app}
+needs {{org.ribbon.runtime.tk >=8.6}}
+perms {display x11}
+entries {{hello main.tcl {} app}}

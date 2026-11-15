@@ -1,0 +1,8 @@
+# kanshi: applies the display profile Settings → Display keeps in ~/.config/kanshi/config. Started by labwc's
+# autostart. A crash is restarted after 2 s; after 5 starts within 60 s dinit stops restarting it.
+type = process
+command = /usr/bin/kanshi
+restart = on-failure
+restart-delay = 2
+restart-limit-count = 5
+restart-limit-interval = 60

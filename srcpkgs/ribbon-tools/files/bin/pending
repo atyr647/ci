@@ -1,0 +1,96 @@
+#!/bin/bash
+# /usr/lib/ribbon/pending - finish installer jobs that needed the internet.
+#
+# If the installer couldn't download something (NVIDIA driver not bundled on
+# the ISO, Flatpak apps, extra packages), it queues the job in
+# /var/lib/ribbon/pending/. The dinit service "ribbon-pending" runs this at
+# boot: it waits for a network connection in the background (login is never
+# delayed), runs the jobs, and disables itself once the queue is empty.
+#
+#   pending add <pkg|flatpak|gpu|svc> <args...>  queue a job (pkg: package
+#                                                ids, pkg.sh; svc: dinit
+#                                                services to enable once the
+#                                                queued packages are in)
+#   pending run                                  (service) process the queue
+#   pending list
+set -u
+. "${RIBBON_LIB:-/usr/lib/ribbon}/common.sh"
+
+Q=${RIBBON_PENDING_DIR:-/var/lib/ribbon/pending}
+LOG=${RIBBON_PENDING_LOG:-/var/log/ribbon-pending.log}
+BOOTD=${RIBBON_BOOTD:-/etc/dinit.d/boot.d}
+
+add() {
+	local kind=$1; shift
+	case "$kind" in
+		pkg|flatpak|gpu|svc) ;;
+		*) echo "pending: unknown job kind '$kind'" >&2; exit 2 ;;
+	esac
+	mkdir -p "$Q"
+	printf '%s\n' "$*" >> "$Q/$kind"
+	mkdir -p "$BOOTD"
+	ln -sfn ../ribbon-pending "$BOOTD/ribbon-pending"
+}
+
+online() {
+	if have nm-online; then nm-online -q -t 30 && return 0; fi
+	getent hosts dl.flathub.org >/dev/null 2>&1 && return 0
+	local h; h=$(pkg_online_host)
+	[ -n "$h" ] && getent hosts "$h" >/dev/null 2>&1
+}
+
+run_queue() {
+	local tries=0 ok_all=1 line
+	until online; do
+		tries=$((tries + 1))
+		[ $tries -ge 120 ] && { echo "no network after 60 minutes; will retry next boot"; return 1; }
+		sleep 30
+	done
+	# a queue written before package ids (the base's own names, which pkg.sh takes as they are)
+	if [ -s "$Q/xbps" ]; then cat "$Q/xbps" >> "$Q/pkg"; rm -f "$Q/xbps"; fi
+	if [ -s "$Q/pkg" ]; then
+		# shellcheck disable=SC2046
+		if pkg_install $(sort -u "$Q/pkg"); then rm -f "$Q/pkg"; else ok_all=0; fi
+	fi
+	if [ -s "$Q/svc" ] && [ ! -s "$Q/pkg" ]; then
+		local s left=()
+		mkdir -p "$BOOTD"
+		for s in $(sort -u "$Q/svc"); do
+			if svc_exists "$s"; then
+				ln -sfn "../$s" "$BOOTD/$s"
+				dinitctl start "$s" >/dev/null 2>&1 || :
+			else
+				left+=("$s")
+			fi
+		done
+		if [ ${#left[@]} -eq 0 ]; then rm -f "$Q/svc"; else printf '%s\n' "${left[@]}" > "$Q/svc"; ok_all=0; fi
+	fi
+	if [ -s "$Q/gpu" ]; then
+		# shellcheck disable=SC2046
+		if ribbon-gpu install $(tail -n1 "$Q/gpu"); then
+			rm -f "$Q/gpu"; mkdir -p /run/ribbon; : > /run/ribbon/reboot-required
+		else ok_all=0; fi
+	fi
+	if [ -s "$Q/flatpak" ]; then
+		flatpak remote-add --system --if-not-exists flathub /usr/share/ribbon/flatpak/flathub.flatpakrepo
+		local failed=()
+		while read -r line; do
+			[ -n "$line" ] || continue
+			flatpak install --system -y --noninteractive flathub "$line" || failed+=("$line")
+		done < <(sort -u "$Q/flatpak")
+		if [ ${#failed[@]} -eq 0 ]; then rm -f "$Q/flatpak"; else printf '%s\n' "${failed[@]}" > "$Q/flatpak"; ok_all=0; fi
+	fi
+	if [ $ok_all -eq 1 ]; then
+		rm -f "$BOOTD/ribbon-pending"
+		rmdir "$Q" 2>/dev/null
+		echo "all pending jobs done"
+	fi
+}
+
+case "${1:-}" in
+	add) shift; add "$@" ;;
+	run) need_root; { date; run_queue; } >> "$LOG" 2>&1 ;;
+	list) for f in "$Q"/*; do [ -f "$f" ] && { echo "[${f##*/}]"; cat "$f"; }; done ;;
+	*) echo "usage: $0 add <pkg|flatpak|gpu|svc> args | run | list" >&2; exit 2 ;;
+esac
+exit 0

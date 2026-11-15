@@ -1,0 +1,12 @@
+#!/bin/sh
+# ribbon-shell-ctl - talk to the running Ribbon shell.
+#   ribbon-shell-ctl open [app|files|web]   open (or close) the launcher
+#   ribbon-shell-ctl reload                 restart it (e.g. new colours)
+#   ribbon-shell-ctl quit
+f=${XDG_RUNTIME_DIR:-/tmp}/ribbon-shell
+[ -p "$f" ] || { echo "ribbon-shell is not running" >&2; exit 1; }
+# Opening a FIFO for writing blocks until the shell reads it. If the shell is
+# gone or restarting, give up after 2 s instead of leaving a stuck process
+# behind for every key press.
+timeout 2 sh -c 'printf "%s\n" "$1" > "$2"' ribbon-shell-ctl "${*:-open}" "$f" ||
+	{ echo "ribbon-shell did not answer" >&2; exit 1; }

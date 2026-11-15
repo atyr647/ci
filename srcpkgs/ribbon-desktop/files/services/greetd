@@ -1,0 +1,7 @@
+# Graphical login (greetd + the Ribbon login screen in labwc). Enabled by the installer.
+type = process
+command = /usr/lib/ribbon/greetd-launch
+restart = true
+smooth-recovery = false
+logfile = /var/log/dinit/greetd.log
+depends-on: loginready

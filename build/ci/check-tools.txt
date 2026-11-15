@@ -1,0 +1,154 @@
+# check-tools.txt - what tests/run.sh needs on the CI check runner (ubuntu-24.04), so that its steps run instead of
+# printing skip. build/ci/check.sh deps installs every package named here; tests/steps.d/93-ci.sh fails when a test
+# looks for a command (command -v, auto_execok, a `for t in ...` list) or a pkg-config module this file does not name.
+#
+#   NAME PACKAGE...      a command and the Ubuntu packages that provide it
+#   NAME -               in the runner's base system, or built by the suite itself
+#   NAME !               not packaged for ubuntu-24.04: the checks that need it skip there
+#   pc:NAME PACKAGE...   a pkg-config module
+#   + PACKAGE...         needed without a command of its own (headers, fonts, Python modules, data)
+Xvfb xvfb
+Xwayland xwayland
+apt-cache -
+awk -
+bash -
+blkid -
+bsdtar libarchive-tools
+busybox busybox
+bwrap bubblewrap
+cat -
+cc build-essential
+chpasswd passwd
+compare imagemagick
+convert imagemagick
+cp -
+dash -
+date -
+dbus-daemon dbus-daemon
+dbus-send dbus-bin
+df -
+ffmpeg ffmpeg
+flock -
+foot foot
+fusermount3 fuse3
+gdbus libglib2.0-bin
+gdk-pixbuf-thumbnailer libgdk-pixbuf2.0-bin
+gio libglib2.0-bin
+gnome-keyring-daemon gnome-keyring
+gpasswd passwd
+grim grim
+groupadd passwd
+gsettings libglib2.0-bin
+hostname hostname
+import imagemagick
+ip iproute2
+labwc labwc
+losetup -
+lsblk -
+luac lua5.4
+luac5.4 lua5.4
+make make
+md5sum -
+minisign minisign
+mkcomposefs !
+mkfifo -
+mkfs.btrfs btrfs-progs
+mkfs.erofs erofs-utils
+mkfs.ext4 e2fsprogs
+mkfs.vfat dosfstools
+mkkitfs -
+mknod -
+mkntfs ntfs-3g
+mksquashfs squashfs-tools
+mount -
+mpv mpv
+nc netcat-openbsd
+nft nftables
+nm binutils
+node nodejs
+notify-send libnotify-bin
+nsenter -
+ntfs-3g ntfs-3g
+ntfscat ntfs-3g
+ntfscp ntfs-3g
+ntfsfix ntfs-3g
+ntfsinfo ntfs-3g
+ntfsresize ntfs-3g
+openssl openssl
+partx -
+perl -
+pkg-config pkg-config
+pkill -
+python3 -
+ribbon-conky -
+ribbon-fswatch -
+ribbon-shell-ctl -
+rsync rsync
+setcap libcap2-bin
+setpriv -
+setsid -
+sfdisk fdisk
+sgdisk gdisk
+sh -
+shellcheck shellcheck
+sleep -
+squashfuse squashfuse
+ss iproute2
+swaybg swaybg
+tclsh tcl
+tclsh8.6 tcl8.6
+timeout -
+tr -
+umount -
+unshare -
+update-desktop-database desktop-file-utils
+update-mime-database shared-mime-info
+update_snap -
+useradd passwd
+userdel passwd
+usermod passwd
+veritysetup cryptsetup-bin
+wayland-scanner libwayland-bin
+wish tk
+wish8.6 tk8.6
+wlr-randr wlr-randr
+xdg-mime xdg-utils
+xdotool xdotool
+xmllint libxml2-utils
+xvfb-run xvfb xauth
+xwininfo x11-utils
+pc:cairo libcairo2-dev
+pc:egl libegl-dev
+pc:fuse3 libfuse3-dev
+pc:gio-2.0 libglib2.0-dev
+pc:glesv2 libgles-dev
+pc:libavcodec libavcodec-dev
+pc:libavformat libavformat-dev
+pc:libavutil libavutil-dev
+pc:libdeflate libdeflate-dev
+pc:libswscale libswscale-dev
+pc:libva libva-dev
+pc:tcl8.6 tcl8.6-dev
+pc:vulkan libvulkan-dev
+pc:wayland-client libwayland-dev
+pc:wayland-egl libwayland-dev
+pc:wayland-protocols wayland-protocols
+pc:x11 libx11-dev
+pc:xext libxext-dev
+pc:xi libxi-dev
+pc:xkbcommon libxkbcommon-dev
+pc:xrender libxrender-dev
+# rbnalpha's tk.h; Mk4tcl's C++ build; mkkitfs links libdeflate and libcrypto
++ tk8.6-dev g++ libdeflate-dev libssl-dev
+# the dinit lint, the theme render, the Lua configs; the fonts the scene tests measure with
++ python3-zstandard python3-yaml zstd librsvg2-bin fonts-inter fonts-jetbrains-mono fonts-dejavu-core
+# GTK's schemas (the theme scheme test), the icon themes the shell draws with, curl for the Metakit tarball
++ gsettings-desktop-schemas adwaita-icon-theme curl
+# PIL: the scene tests' pixel checks (the updates chip, Settings → Display, the viewer crop, jpeg/webp, exif fixtures)
++ python3-pil
+# Space Grotesk as ribbon-desktop ships it (check.sh deps cuts its 600 instance, fc-cache), unix_sockets' patches (check.sh run)
++ python3-fonttools patch fontconfig
+# Tcl's tls (the mail sync's TLS checks), Mesa's lavapipe (the HUD frame layer run under a real Vulkan loader)
++ tcl-tls mesa-vulkan-drivers
+# the tray test's stand-in apps (GLib's own D-Bus through python3-gi)
++ python3-gi gir1.2-glib-2.0

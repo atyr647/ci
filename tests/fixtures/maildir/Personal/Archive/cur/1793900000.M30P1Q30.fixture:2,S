@@ -1,0 +1,8 @@
+From someone@example Sat Nov  7 10:00:00 2026
+From: CRLF Sender <crlf@example.org>
+Subject: CRLF and mbox
+Date: 7 Nov 2026 10:00 GMT
+Message-ID: <crlf@example.org>
+
+Line one
+Line two

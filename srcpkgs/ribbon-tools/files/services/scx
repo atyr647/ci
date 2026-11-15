@@ -1,0 +1,11 @@
+# sched_ext scheduler (default scx_lavd). If it exits or the kernel ejects
+# it, the kernel falls straight back to its built-in EEVDF scheduler, so a
+# scheduler crash can never take the system down. Configure in
+# /etc/ribbon/scheduler.conf or with `ribbon scheduler`.
+type = process
+command = /usr/bin/ribbon-scheduler run
+restart = on-failure
+restart-limit-count = 3
+restart-limit-interval = 60
+logfile = /var/log/dinit/scx.log
+depends-on: system

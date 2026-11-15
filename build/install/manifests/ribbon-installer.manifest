@@ -1,0 +1,13 @@
+# ribbon-installer: srcpkgs/ribbon-installer/template's do_install (the live ISO's installer).
+bin @files/bin/ribbon-installer-launch
+bin @files/bin/ribbon-install
+bin @files/bin/ribbon-install-probe
+dir usr/lib/ribbon/installer-backend
+file 644 usr/lib/ribbon/installer-backend @files/backend/*.tcl
+file 644 usr/lib/ribbon/installer @files/tk/main.tcl
+file 644 usr/lib/ribbon/installer @files/tk/ui.tcl
+file 644 usr/lib/ribbon/installer @files/tk/pages.tcl
+file 644 usr/lib/ribbon/installer @files/tk/data.tcl
+file 644 usr/lib/ribbon/installer @files/tk/backend.tcl
+file 644 usr/share/applications @files/ribbon-install.desktop
+file 644 usr/share/licenses/ribbon-installer @repo/LICENSE

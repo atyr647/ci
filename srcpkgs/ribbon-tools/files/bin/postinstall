@@ -1,0 +1,387 @@
+#!/bin/bash
+# /usr/lib/ribbon/postinstall <step> [arg] - configure a freshly installed
+# Ribbon system. Runs inside the new system (chroot), called by Calamares and
+# by ribbon-install, so both installers produce the same result.
+set -u
+. "${RIBBON_LIB:-/usr/lib/ribbon}/common.sh"
+PENDING=${RIBBON_PENDING:-/usr/lib/ribbon/pending}
+
+log() { printf 'ribbon-postinstall: %s\n' "$*"; }
+
+enable_svc() { # name... (only services that exist: a missing one would stop boot)
+	mkdir -p /etc/dinit.d/boot.d
+	local s
+	for s; do
+		if svc_exists "$s"; then
+			ln -sfn "../$s" "/etc/dinit.d/boot.d/$s"
+		else
+			log "service $s is not installed; not enabling it"
+		fi
+	done
+}
+
+step_live_cleanup() {
+	# The live ISO autologins "anon" into the desktop and starts the installer.
+	rm -f /etc/greetd/ribbon.toml /etc/sudoers.d/99-ribbon-live
+	rm -f /usr/share/applications/ribbon-install.desktop /etc/xdg/autostart/ribbon-install.desktop
+	rm -f /etc/ribbon/live
+	# The live ISO carries every filesystem's tools so any layout can be
+	# installed; drop the out-of-tree (DKMS) ones this system doesn't use, so
+	# kernel updates don't rebuild modules for nothing.
+	# The installer itself is live-only too.
+	local fs; fs=$(root_fstype)
+	local drop="installer" p gone=""
+	[ "$fs" = zfs ] || drop="$drop zfs zfsbootmenu"
+	[ "$fs" = bcachefs ] || drop="$drop bcachefs-module"
+	# GRUB is on the ISO for those who pick it (boot-choice ran first);
+	# Limine is part of ribbon-base and always stays.
+	[ "$(boot_loader)" = grub ] || drop="$drop grub-btrfs grub-efi os-prober"
+	for p in $drop; do
+		pkg_query "$p" || continue
+		if pkg_remove "$p" >/dev/null 2>&1; then gone="$gone $p"; else log "could not remove $p"; fi
+	done
+	log "removed live-session settings${gone:+ and unused packages:$gone}"
+}
+
+step_services() {
+	# Graphical login, networking, Bluetooth, time, cron, firewall, polkit,
+	# CPU scheduler, boot-success marker, and spare text consoles.
+	# The base's packaged services, once now: on a base with runit services
+	# (Void's /etc/sv) the seam converts them, and keeps the result as the
+	# boot-time fallback in /var/lib/ribbon/dinit.d.
+	pkg_services_sync || log "warning: some of the base's services could not be converted"
+	enable_svc greetd NetworkManager bluetoothd chronyd cronie nftables power-profiles-daemon \
+		scx ribbon-boot-ok ribbon-reserve ribbon-power-limit agetty@tty2 agetty@tty3
+	log "enabled services: $(ls /etc/dinit.d/boot.d | tr '\n' ' ')"
+}
+
+step_security() {
+	# Firewall: Ribbon's nftables ruleset (deny incoming, allow outgoing), loaded at boot by the nftables service
+	if [ -f /usr/share/ribbon/nftables.conf ]; then
+		install -m 644 /usr/share/ribbon/nftables.conf /etc/nftables.conf
+	fi
+	# AppArmor: enforce the profiles shipped by packages.
+	mkdir -p /etc/default
+	[ -f /etc/default/apparmor ] || echo 'APPARMOR=enforce' > /etc/default/apparmor
+	cmdline_add apparmor=1 security=apparmor
+	log "firewall on, AppArmor enforcing"
+}
+
+# The boot loader picked in the installer: limine (default) | grub |
+# zfsbootmenu. ZFS roots always use ZFSBootMenu and bcachefs roots Limine
+# (grub-mkconfig can't probe bcachefs). Recorded as BOOTLOADER in
+# /etc/default/ribbon-boot, which every Ribbon tool reads. Runs first.
+step_boot_choice() {
+	local choice=${1:-limine} fs; fs=$(root_fstype)
+	case "$choice" in ''|'${gs'*) choice=limine ;; esac
+	case "$choice" in limine|grub|zfsbootmenu) ;; *) log "unknown boot loader '$choice'; using limine"; choice=limine ;; esac
+	case "$fs" in
+		zfs) choice=zfsbootmenu ;;
+		bcachefs) [ "$choice" = limine ] || log "bcachefs needs Limine; using it instead of $choice"; choice=limine ;;
+		*) [ "$choice" = zfsbootmenu ] && { log "ZFSBootMenu needs a ZFS root; using limine"; choice=limine; } ;;
+	esac
+	conf_set /etc/default/ribbon-boot BOOTLOADER "$choice"
+	log "boot loader: $choice"
+}
+
+# Install the chosen boot loader on the EFI partition mounted at /boot (or
+# at /boot/efi, with the kernels on an XBOOTLDR /boot) and write its menu. Needs the initramfs (initramfs step) and, for snapshots
+# in the menu, runs again from the snapshots step.
+step_bootloader() { # [disk esp-part [bios-boot-part]] for Limine (default: detected)
+	case "$(boot_loader)" in
+		limine)
+			ribbon-limine install "$@" || { log "Limine install failed"; return 1; }
+			log "Limine installed ($(grep -c '^/[^/]' /boot/limine.conf) menu entries)" ;;
+		grub)
+			if ! have grub-install; then
+				pkg_install grub-efi grub-btrfs >/dev/null 2>&1 || { log "GRUB packages missing and could not be installed"; return 1; }
+			fi
+			step_grub_defaults
+			# The EFI partition is at /boot (Ribbon's layout) or /boot/efi
+			# (manual partitioning with GRUB, or next to Windows with an
+			# XBOOTLDR /boot: GRUB's files and the kernels stay on /boot).
+			local efidir=/boot removable=1
+			[ "$(findmnt -no TARGET /boot/efi 2>/dev/null)" = /boot/efi ] && efidir=/boot/efi
+			# The firmware fallback path only if no other system's loader is
+			# there (Windows, on a shared EFI partition).
+			[ ! -e "$efidir/EFI/BOOT/BOOTX64.EFI" ] || grep -qai grub "$efidir/EFI/BOOT/BOOTX64.EFI" || removable=""
+			# Other systems (Windows) in the menu: os-prober, if installed.
+			if have os-prober; then
+				sed -i '/^GRUB_DISABLE_OS_PROBER=/d' /etc/default/grub
+				echo 'GRUB_DISABLE_OS_PROBER=false' >> /etc/default/grub
+			fi
+			# grub-mkconfig adds root= and rootflags itself; the unlock flag is ours.
+			local luks; luks=$(root_cmdline 2>/dev/null | tr ' ' '\n' | grep '^rd\.luks\.uuid=' || :)
+			sed -i '/^GRUB_CMDLINE_LINUX_DEFAULT=/d' /etc/default/grub
+			printf 'GRUB_CMDLINE_LINUX_DEFAULT="quiet%s"\n' "${luks:+ $luks}" >> /etc/default/grub
+			grub-install --target=x86_64-efi --efi-directory="$efidir" --bootloader-id=ribbon --recheck >/dev/null &&
+				{ [ -z "$removable" ] || grub-install --target=x86_64-efi --efi-directory="$efidir" --removable >/dev/null; } &&
+				grub-mkconfig -o /boot/grub/grub.cfg >/dev/null || { log "GRUB install failed"; return 1; }
+			log "GRUB installed" ;;
+		zfsbootmenu) log "ZFSBootMenu is set up by ribbon-install" ;;
+		*) log "no boot loader chosen (run the boot-choice step first)"; return 1 ;;
+	esac
+}
+
+step_grub_defaults() {
+	# GRUB only: link Ribbon's defaults into /etc/default/grub.
+	[ "$(boot_loader)" = grub ] || return 0
+	local g=/etc/default/grub
+	touch "$g"
+	grep -q '/etc/default/ribbon-grub' "$g" ||
+		printf '\n# Ribbon OS defaults (kernel flags, timeout, branding)\n. /etc/default/ribbon-grub\n' >> "$g"
+	# grub-btrfs: label the snapshot submenu.
+	if [ -f /etc/default/grub-btrfs/config ]; then
+		sed -i 's|^#\?GRUB_BTRFS_SUBMENUNAME=.*|GRUB_BTRFS_SUBMENUNAME="Ribbon OS snapshots"|' /etc/default/grub-btrfs/config
+	fi
+	log "boot defaults linked into $g"
+}
+
+step_drives() {
+	ribbon-drives fixup-fstab >/dev/null && log "game drive entries use nofail"
+	return 0
+}
+
+step_gpu() { # auto | one or more ribbon-gpu drivers ("nvidia intel")
+	local choice=${1:-auto}
+	if [ "$choice" = auto ]; then
+		ribbon-gpu install --auto
+	else
+		# shellcheck disable=SC2086
+		ribbon-gpu install $choice
+	fi || {
+		log "GPU driver install failed; Mesa drivers are in place and the driver"
+		log "will be installed automatically at the first boot with internet"
+		"$PENDING" add gpu "$( [ "$choice" = auto ] && echo --auto || echo "$choice")"
+	}
+	return 0
+}
+
+# Driver packages picked on the installer's Hardware page (other than the
+# GPU's): from the ISO's offline repository when there, else downloaded;
+# whatever can't be had now is installed at the first boot with internet.
+# $1: packages, $2: services they need.
+step_drivers() {
+	local pkgs=${1:-} svcs=${2:-} p now=() later=()
+	# shellcheck disable=SC2086
+	[ -n "$pkgs" ] && mapfile -t now < <(pkg_missing $pkgs)
+	if [ ${#now[@]} -gt 0 ]; then
+		if pkg_install "${now[@]}" >/dev/null 2>&1; then
+			log "installed drivers: ${now[*]}"
+		else
+			# offline only: each package the ISO carries, the rest later
+			for p in "${now[@]}"; do
+				if pkg_install_offline "$p" >/dev/null 2>&1; then
+					log "installed $p from the install media"
+				else
+					later+=("$p")
+				fi
+			done
+		fi
+	fi
+	if [ ${#later[@]} -gt 0 ]; then
+		log "will be installed at the first boot with internet: ${later[*]}"
+		"$PENDING" add pkg "${later[@]}"
+	fi
+	for p in $svcs; do
+		if svc_exists "$p"; then
+			enable_svc "$p"
+		else
+			# its package comes later; ribbon-pending enables it then
+			"$PENDING" add svc "$p"
+		fi
+	done
+	return 0
+}
+
+# Apps from the installer's Apps page: installed at the first start once
+# online, so they never slow the install. $1: packages, $2: Flathub IDs.
+step_later() {
+	local q=()
+	# shellcheck disable=SC2086
+	[ -n "${1:-}" ] && mapfile -t q < <(pkg_missing $1)
+	[ ${#q[@]} -gt 0 ] && "$PENDING" add pkg "${q[@]}"
+	for p in ${2:-}; do "$PENDING" add flatpak "$p"; done
+	log "queued for the first start: ${q[*]} ${2:-}"
+	return 0
+}
+
+# The system's language: glibc's locale data for $1 (ribbon-install).
+step_locale() {
+	local loc=${1:-}
+	[ -n "$loc" ] || return 0
+	if pkg_locale_enable "$loc" >/dev/null 2>&1; then log "locale $loc generated"; else log "locale $loc could not be generated"; fi
+	return 0
+}
+
+# Packages named on ribbon-install's command line (--apps): now, or at the
+# first start with internet when they can't be had now.
+step_apps() {
+	local p q=()
+	# shellcheck disable=SC2086
+	[ -n "${1:-}" ] && mapfile -t q < <(pkg_missing $1)
+	[ ${#q[@]} -gt 0 ] || return 0
+	if pkg_install "${q[@]}"; then log "installed: ${q[*]}"; else
+		log "will be installed at the first boot with internet: ${q[*]}"
+		"$PENDING" add pkg "${q[@]}"
+	fi
+	return 0
+}
+
+step_hardware() {
+	ribbon-hw setup || log "hardware setup reported problems"
+	return 0
+}
+
+step_flatpak() {
+	# $1: comma-separated Flathub app IDs picked in the installer.
+	local ids=${1:-} id
+	case "$ids" in ''|'${gs'*) return 0 ;; esac
+	flatpak remote-add --system --if-not-exists flathub /usr/share/ribbon/flatpak/flathub.flatpakrepo
+	for id in $(printf '%s' "$ids" | tr ',' ' '); do
+		if flatpak install --system -y --noninteractive flathub "$id" >/dev/null 2>&1; then
+			log "installed Flatpak $id"
+		else
+			log "Flatpak $id will be installed at the first boot with internet"
+			"$PENDING" add flatpak "$id"
+		fi
+	done
+	return 0
+}
+
+step_swap() {
+	local gib; gib=$(( $(awk '/^MemTotal:/ {print $2}' /proc/meminfo) / 1024 / 1024 + 1 ))
+	local fs; fs=$(root_fstype)
+	case "${1:-zram}" in
+		zram) ribbon-swap set zram=50% file=off hibernate=no ;;
+		gaming)
+			local want=$(( 40 - gib )); [ "$want" -lt 8 ] && want=8
+			case "$fs" in zfs|bcachefs)
+				log "swap files are not supported on $fs; using a larger zram instead"
+				ribbon-swap set zram=100% file=off hibernate=no; return 0 ;;
+			esac
+			ribbon-swap set zram=50% "file=${want}G" hibernate=no ;;
+		hibernate)
+			case "$fs" in zfs|bcachefs)
+				log "hibernation needs a swap partition on $fs; skipping (see docs/FILESYSTEMS.md)"
+				ribbon-swap set zram=50% file=off hibernate=no; return 0 ;;
+			esac
+			ribbon-swap set zram=25% "file=${gib}G" hibernate=yes ;;
+		custom) # $2: the swap file's size in bytes (rounded down to MiB), plus zram
+			local mib=$(( ${2:-0} / 1048576 ))
+			[ "$mib" -ge 256 ] || { log "custom swap: bad size '${2:-}'; using zram"; ribbon-swap set zram=50% file=off hibernate=no; return 0; }
+			case "$fs" in zfs|bcachefs)
+				log "swap files are not supported on $fs; using zram instead"
+				ribbon-swap set zram=50% file=off hibernate=no; return 0 ;;
+			esac
+			ribbon-swap set zram=50% "file=${mib}M" hibernate=no ;;
+		none) ribbon-swap set zram=off file=off hibernate=no ;;
+	esac
+	return 0
+}
+
+step_autologin() {
+	local user=${1:-}
+	[ -n "$user" ] || return 0
+	mkdir -p /etc/greetd
+	sed -n '1,/^\[default_session\]/p' /usr/share/ribbon/greetd/config.toml | sed '$d' > /etc/greetd/ribbon.toml
+	cat >> /etc/greetd/ribbon.toml <<EOF
+[default_session]
+command = "ribbon-greeter"
+user = "_greeter"
+
+# Autologin chosen in the installer (remove this section to turn it off).
+[initial_session]
+command = "ribbon-session"
+user = "$user"
+EOF
+	log "autologin for $user"
+}
+
+step_reserve() {
+	# Disk reserve (ribbon-reserve): the part that must be in place before the
+	# first boot (btrfs: simple quotas, so /home is counted from the start).
+	# The service sets up the rest at every boot.
+	ribbon-reserve install 2>&1 | sed 's/^\(==>\|warn\|error\) //; s/^/ribbon-postinstall: disk reserve: /'
+	[ "${PIPESTATUS[0]}" -eq 0 ] || log "disk reserve not set up now; the ribbon-reserve service retries at every boot"
+	return 0
+}
+
+step_initramfs() {
+	regen_initramfs
+	log "initramfs rebuilt for: $(ls /usr/lib/modules | tr '\n' ' ')"
+}
+
+step_snapshots() {
+	case "$(root_fstype)" in
+		btrfs)
+			have snapper || return 0
+			# snapper wants to create /.snapshots itself; the installer already
+			# made it a separate subvolume (@snapshots), so swap it in afterwards.
+			if [ ! -f /etc/snapper/configs/root ]; then
+				umount /.snapshots 2>/dev/null
+				rmdir /.snapshots 2>/dev/null || rm -rf /.snapshots
+				snapper --no-dbus -c root create-config / || { log "snapper setup failed"; return 0; }
+				btrfs subvolume delete /.snapshots >/dev/null
+				mkdir -p /.snapshots
+				mount /.snapshots 2>/dev/null || mount -a
+				chmod 750 /.snapshots
+			fi
+			snapper --no-dbus -c root set-config TIMELINE_CREATE=no NUMBER_CLEANUP=yes \
+				NUMBER_LIMIT="${SNAPSHOT_KEEP:-10}" NUMBER_LIMIT_IMPORTANT=5 ALLOW_GROUPS=wheel SYNC_ACL=yes
+			snapper --no-dbus -c root create -t single -c important -d "Fresh install"
+			update_bootloader
+			log "btrfs snapshots configured (bootable from the $(boot_loader) menu)"
+			;;
+		zfs)
+			zfs snapshot "$(findmnt -no SOURCE /)@ribbon-install" && log "ZFS snapshot ribbon-install created"
+			;;
+		bcachefs)
+			mkdir -p /.snapshots
+			bcachefs subvolume snapshot -r / /.snapshots/install && log "bcachefs snapshot created"
+			;;
+		*) log "no snapshots on $(root_fstype)" ;;
+	esac
+	return 0
+}
+
+step_zbm_cmdline() {
+	# Ribbon's kernel flags (ribbon-boot) -> ZFSBootMenu's per-pool property.
+	local f; f=$(boot_conf)
+	[ -r "$f" ] && . "$f"
+	local ds; ds=$(findmnt -no SOURCE / | head -n1)
+	ds=${ds%/*}    # zroot/ROOT/ribbon -> zroot/ROOT
+	zfs set org.zfsbootmenu:commandline="quiet ${RIBBON_CMDLINE:-} ${RIBBON_CMDLINE_EXTRA:-}" "$ds"
+	log "ZFSBootMenu command line set on $ds"
+}
+
+step=${1:-}; [ $# -gt 0 ] && shift
+case "$step" in
+	boot-choice) step_boot_choice "$@" ;;
+	live-cleanup) step_live_cleanup ;;
+	services) step_services ;;
+	security) step_security ;;
+	grub-defaults) step_grub_defaults ;;
+	bootloader) step_bootloader "$@" || exit 1 ;;   # no boot loader = no install
+	drives) step_drives ;;
+	drivers) step_drivers "$@" ;;
+	locale) step_locale "$@" ;;
+	apps) step_apps "$@" ;;
+	later) step_later "$@" ;;
+	gpu) step_gpu "$@" ;;
+	swap) step_swap "$@" ;;
+	autologin) step_autologin "$@" ;;
+	initramfs) step_initramfs ;;
+	snapshots) step_snapshots ;;
+	zbm-cmdline) step_zbm_cmdline ;;
+	hardware) step_hardware ;;
+	reserve) step_reserve ;;
+	flatpak) step_flatpak "$@" ;;
+	all)
+		# Everything an installer needs, in order ($1: limine|grub|zfsbootmenu).
+		step_boot_choice "${1:-limine}"; step_live_cleanup; step_services; step_security
+		step_grub_defaults; step_hardware; step_reserve; step_drives; step_initramfs
+		step_bootloader || exit 1; step_snapshots ;;
+	*) echo "usage: $0 boot-choice <limine|grub|zfsbootmenu>|live-cleanup|services|security|grub-defaults|drives|reserve|gpu <x>|drivers <pkgs> [services]|locale <locale>|apps <pkgs>|later <pkgs> [flatpaks]|swap <x> [bytes]|autologin <user>|initramfs|bootloader|snapshots|all [bootloader]" >&2; exit 2 ;;
+esac
+exit 0

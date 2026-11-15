@@ -1,0 +1,5 @@
+# Offered by dinit if boot fails: asks for the root password, then a shell.
+type = process
+command = /usr/bin/sulogin
+restart = false
+options: runs-on-console

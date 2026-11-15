@@ -1,0 +1,22 @@
+HEADLESS-1 "Headless output 1"
+  Make: (null)
+  Model: (null)
+  Serial: (null)
+  Enabled: yes
+  Modes:
+    1920x1080 px, 60.000000 Hz (current)
+  Position: 1280,0
+  Transform: normal
+  Scale: 1.250000
+  Adaptive Sync: disabled
+HEADLESS-2 "Headless output 2"
+  Make: (null)
+  Model: (null)
+  Serial: (null)
+  Enabled: yes
+  Modes:
+    1280x720 px (current)
+  Position: 0,0
+  Transform: normal
+  Scale: 1.000000
+  Adaptive Sync: disabled

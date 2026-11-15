@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Ribbon Game Mode (Steam, HDR)
+Comment=Steam Big Picture in a full-screen gamescope session with HDR and VRR
+Exec=ribbon-gamemode-session
+Type=Application
+DesktopNames=gamescope

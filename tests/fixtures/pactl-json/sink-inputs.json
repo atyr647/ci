@@ -1,0 +1,70 @@
+[
+  {
+    "index": 21,
+    "name": "Playback",
+    "owner_module": 4294967295,
+    "client": 40,
+    "sink": 1,
+    "sample_specification": "float32le 2ch 48000Hz",
+    "channel_map": "front-left,front-right",
+    "format": "pcm",
+    "corked": false,
+    "mute": false,
+    "volume": {
+      "front-left": {
+        "value": 52429,
+        "value_percent": "80%",
+        "db": "-5.94 dB"
+      },
+      "front-right": {
+        "value": 52429,
+        "value_percent": "80%",
+        "db": "-5.94 dB"
+      }
+    },
+    "balance": 0.0,
+    "buffer_latency": 0,
+    "sink_latency": 0,
+    "resample_method": "copy",
+    "properties": {
+      "media.name": "Playback",
+      "application.name": "Firefox",
+      "application.icon_name": "firefox",
+      "application.process.binary": "firefox"
+    }
+  },
+  {
+    "index": 22,
+    "name": "Playback",
+    "owner_module": 4294967295,
+    "client": 41,
+    "sink": 1,
+    "sample_specification": "float32le 2ch 44100Hz",
+    "channel_map": "front-left,front-right",
+    "format": "pcm",
+    "corked": false,
+    "mute": true,
+    "volume": {
+      "front-left": {
+        "value": 32768,
+        "value_percent": "50%",
+        "db": "-18.06 dB"
+      },
+      "front-right": {
+        "value": 32768,
+        "value_percent": "50%",
+        "db": "-18.06 dB"
+      }
+    },
+    "balance": 0.0,
+    "buffer_latency": 0,
+    "sink_latency": 0,
+    "resample_method": "copy",
+    "properties": {
+      "media.name": "Playback",
+      "application.name": "Rhythmbox",
+      "application.icon_name": "rhythmbox",
+      "application.process.binary": "rhythmbox"
+    }
+  }
+]

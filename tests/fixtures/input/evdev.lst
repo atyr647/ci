@@ -1,0 +1,21 @@
+! model
+  pc105           Generic 105-key PC
+
+! layout
+  us              English (US)
+  de              German
+  fr              French
+  custom          A user-defined custom Layout
+  nec_vndr/jp     Japanese (PC-98)
+  bad$code        Not a layout
+
+! variant
+  dvorak          us: English (Dvorak)
+  intl            us: English (US, intl., with dead keys)
+  neo             de: German (Neo 2)
+  azerty          fr: French (AZERTY)
+  bad(variant     de: Not a variant
+
+! option
+  grp                  Switching to another layout
+  grp:win_space_toggle Win+Space

@@ -1,0 +1,7 @@
+# Single-user mode (kernel parameter "single"). Exit the shell to continue booting.
+type = process
+command = /bin/sh -l
+restart = false
+chain-to = boot
+options: shares-console
+depends-on: system

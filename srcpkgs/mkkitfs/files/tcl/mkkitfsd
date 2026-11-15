@@ -1,0 +1,483 @@
+#!/usr/bin/env tclsh
+# mkkitfsd -- the session's kit server (docs/MKKITFS.md): the control socket, references, linger,
+# idle exit, configuration and trust policy, in Tcl.  The data path -- the FUSE mount, chunk reads,
+# hashing, decoding -- is `mkkitfs serve` (C++), which this starts and gives its orders on a pipe.
+#
+#   mkkitfsd serve ?options?      run the server (a dinit user service, or started by `start`)
+#     -socket PATH                default $XDG_RUNTIME_DIR/kit/mkkitfs.sock
+#     -mountpoint DIR             default $XDG_RUNTIME_DIR/kit/mnt
+#     -config FILE                default /etc/kit/mkkitfs.conf, then $XDG_CONFIG_HOME/kit/mkkitfs.conf
+#     -keys FILE                  trusted minisign public keys (repeatable; adds to the config's)
+#     -cache MiB -threads N -linger SECONDS -idle-exit SECONDS -isolate 0|1 -require-signed 0|1
+#     -allow-other 0|1 -log FILE -engine PATH -ready-fd N
+#     -trust keys|kittrust -trust-anchor FILE -trust-state DIR -trust-mode installed|install
+#     -trust-other "ID ANCHOR ?STATE?"   (repeatable) another repository's key list (kittrust only)
+#   mkkitfsd start ?-socket PATH?  make sure a server runs; returns once it answers
+#   mkkitfsd ctl ?-socket PATH? VERB ARG...   one request; prints the reply lines (exit 0 ok, 1 err, 3 no server)
+#
+# The config file holds lines "key value" (read as data, never evaluated; # starts a comment):
+#   cache 64 | threads 16 | linger 30 | idle-exit 0 | isolate 1 | require-signed 0 | allow-other 0
+#   keys /etc/kit/trusted.pub        (repeatable)    | log FILE | engine /usr/bin/mkkitfs
+#   trust keys | kittrust            who decides whether a kit's signature is good:
+#     keys       mkkitfs, against the public keys of the `keys` files (any key signs any kit)
+#     kittrust   kit/kittrust (docs/KIT-TRUST.md): the root-signed key list at trust-anchor
+#                (default /etc/kit/trusted-keys) and its accepted updates in trust-state, with
+#                roles (an app key signs app kits, a system key system kits), expiry, revocation
+#   trust-anchor FILE | trust-state DIR | trust-mode installed|install (kittrust's -mode)
+#   trust-other ID ANCHOR ?STATE?     (repeatable) another repository's root-signed key list, each in
+#                interpreter of its own (kit's ::kit::trust does the same): it judges only the keys
+#                the main list does not have, never a system kit (only the main list signs those), and
+#                a list whose repository line is not ID is refused
+
+set here [file dirname [file normalize [info script]]]
+lappend auto_path $here
+package require mkkitfs
+package require unix_sockets
+
+proc die {msg {code 1}} { puts stderr "mkkitfsd: $msg" ; exit $code }
+
+array set cfg {
+    socket "" mountpoint "" cache 64 threads 16 linger 30 idle-exit 0 isolate 1 require-signed 0
+    allow-other 0 keys {} log "" engine "" ready-fd ""
+    trust keys trust-anchor /etc/kit/trusted-keys trust-state "" trust-mode installed trust-other {}
+}
+
+proc readConfig {file} {
+    global cfg
+    if {![file readable $file]} return
+    set ch [open $file r]
+    set lines [split [read $ch] \n]
+    close $ch
+    set n 0
+    foreach line $lines {
+        incr n
+        set line [string trim $line]
+        if {$line eq "" || [string index $line 0] eq "#"} continue
+        if {![regexp {^([a-z-]+)\s+(.*)$} $line -> k v] || ![info exists cfg($k)] || $k in {socket mountpoint ready-fd}} {
+            puts stderr "mkkitfsd: $file:$n: unknown setting '$line' (ignored)"
+            continue
+        }
+        if {$k in {keys trust-other}} { lappend cfg($k) $v } else { set cfg($k) $v }
+    }
+}
+
+proc keysFrom {files} {
+    set out {}
+    foreach f $files {
+        if {[catch {open $f r} ch]} { die "cannot read the keys in $f" }
+        foreach line [split [read $ch] \n] {
+            set line [string trim $line]
+            if {$line eq "" || [string index $line 0] eq "#" || [string match "untrusted comment:*" $line]} continue
+            lappend out $line
+        }
+        close $ch
+    }
+    return $out
+}
+
+proc runtimeDir {} {
+    if {![info exists ::env(XDG_RUNTIME_DIR)] || $::env(XDG_RUNTIME_DIR) eq ""} { die "XDG_RUNTIME_DIR is not set: give -socket and -mountpoint" 2 }
+    set d [file join $::env(XDG_RUNTIME_DIR) kit]
+    file mkdir $d
+    file attributes $d -permissions 0700
+    return $d
+}
+
+# a path with every symlink resolved (the engine reports kits by their real path)
+proc realpath {p} {
+    set p [file normalize $p]
+    for {set i 0} {$i < 40} {incr i} {
+        if {[catch {file type $p} t] || $t ne "link"} break
+        set p [file normalize [file join [file dirname $p] [file readlink $p]]]
+    }
+    return $p
+}
+
+# ---- the engine (mkkitfs serve) ------------------------------------------------------------------
+proc engineRequest {args} {
+    global engine
+    set req {}
+    foreach w $args { lappend req [mkkitfs::esc $w] }
+    puts $engine [join $req \t]
+    flush $engine
+    set data {}
+    while {1} {
+        if {[gets $engine line] < 0} { die "the data path (mkkitfs serve) has gone away" }
+        set f [mkkitfs::fields $line]
+        switch -- [lindex $f 0] {
+            ok { return [list ok $data [lrange $f 1 end]] }
+            err { return [list err [lindex $f 1] [lindex $f 2]] }
+            default { lappend data [lrange $f 1 end] }
+        }
+    }
+}
+
+proc engineGone {} {
+    global engine cfg
+    if {[gets $engine line] >= 0 || ![eof $engine]} return
+    puts stderr "mkkitfsd: the data path has gone away"
+    catch {file delete $cfg(socket)}
+    exit 1
+}
+
+# ---- the session's kits: references and linger ---------------------------------------------------
+# kit(<id>) = dict of what the engine said; refs(<id>), keep(<id>); held(<chan>) = dict id -> count
+array set kit {} ; array set refs {} ; array set keep {} ; array set held {} ; array set lingering {} ; array set paths {}
+set lastActivity [clock seconds]
+
+proc reply {ch line} {
+    if {[catch {puts $ch $line ; flush $ch}]} { dropConn $ch }
+}
+proc okLine {args} { set out ok ; foreach a $args { append out \t [mkkitfs::esc $a] } ; return $out }
+proc errLine {code msg} { return "err\t[mkkitfs::esc $code]\t[mkkitfs::esc $msg]" }
+
+proc release {id {now 0}} {
+    global refs cfg lingering
+    if {[incr refs($id) -1] > 0} return
+    if {$now || $cfg(linger) == 0} { detach $id ; return }
+    # a kit run again soon is still mounted, so the kernel's caches of it are still warm
+    set lingering($id) [after [expr {$cfg(linger) * 1000}] [list lingerOver $id]]
+}
+proc lingerOver {id} {
+    global refs lingering
+    unset -nocomplain lingering($id)
+    if {[info exists refs($id)] && $refs($id) == 0} { detach $id }
+}
+proc detach {id} {
+    global kit refs keep lingering paths
+    if {[info exists lingering($id)]} { after cancel $lingering($id) ; unset lingering($id) }
+    engineRequest detach $id
+    unset -nocomplain kit($id) refs($id) keep($id) paths($id)
+}
+
+# ---- trust: kittrust's policy over the seal, checked here, bound to what the engine opens -------
+array set sigCache {}
+set trustStamp ""
+set others {}
+proc trustFiles {anchor state} {
+    return [concat [list $anchor] [expr {$state ne "" ? [glob -nocomplain -directory $state *] : {}}]]
+}
+proc trustLoad {} {
+    global cfg trustStamp sigCache others
+    # the key lists are read again when an anchor or an accepted update changes
+    set stamp {}
+    set files [trustFiles $cfg(trust-anchor) $cfg(trust-state)]
+    foreach o $cfg(trust-other) { lappend files {*}[trustFiles [lindex $o 1] [lindex $o 2]] }
+    foreach f $files {
+        if {![catch {file mtime $f} t]} { lappend stamp $f $t [file size $f] }
+    }
+    if {$stamp eq $trustStamp} return
+    kittrust configure -mode $cfg(trust-mode)
+    set o [list -anchor $cfg(trust-anchor)]
+    if {$cfg(trust-state) ne ""} { lappend o -state $cfg(trust-state) }
+    kittrust load {*}$o
+    foreach {id i} $others { catch {interp delete $i} }
+    set others {}
+    foreach spec $cfg(trust-other) {
+        lassign $spec id anchor state
+        if {[catch {otherList $id $anchor $state} i]} {
+            puts stderr "mkkitfsd: repository $id: $i (its kits are not trusted)"
+            continue
+        }
+        lappend others $id $i
+    }
+    set trustStamp $stamp
+    array unset sigCache
+}
+# another repository's list, in an interpreter of its own (kittrust keeps one list per interpreter)
+proc otherList {id anchor state} {
+    global cfg
+    if {[llength [list $id $anchor]] != 2 || $id eq "" || $anchor eq ""} { error "trust-other needs ID ANCHOR ?STATE?" }
+    set i [interp create]
+    if {[catch {
+        $i eval [list set auto_path $::auto_path]
+        $i eval {package require kittrust}
+        set rid [dict get [$i eval [list kittrust parsekeys [::kittrust::Slurp $anchor]]] repository]
+        if {$rid ne $id} { error "its key list $anchor is for repository $rid, not $id" }
+        $i eval [list kittrust configure -mode $cfg(trust-mode)]
+        set o [list -anchor $anchor]
+        if {$state ne ""} { lappend o -state $state }
+        set sum [$i eval [list kittrust load {*}$o]]
+        if {[dict get $sum repository] ne $id} { error "its recorded key list is for repository [dict get $sum repository], not $id" }
+    } err]} {
+        interp delete $i
+        error $err
+    }
+    return $i
+}
+# the main list's verdict, or another list's for a key only that one has (never for a system kit)
+proc trustJudge {stmt sig} {
+    global others
+    set t [kittrust check $stmt $sig]
+    if {[dict get $t state] ne "untrusted" || [dict get $t role] eq "system"} { return $t }
+    foreach {id i} $others {
+        set r [$i eval [list kittrust check $stmt $sig]]
+        if {[dict get $r state] eq "untrusted"} continue
+        return [dict replace $r detail "[dict get $r detail] (repository $id)"]
+    }
+    return $t
+}
+# -> {ok dict} or {err code message}; the dict: state detail keyid role name comment statement
+proc trustCheck {path} {
+    global sigCache
+    if {[catch {trustLoad} e opts]} { return [list err SIGNATURE "the trusted key list cannot be used: $e"] }
+    if {[catch {::kitfmt::Frame $path} fr opts]} {
+        set ec [dict get $opts -errorcode]
+        return [list err [expr {[lindex $ec 0] eq "KITFMT" ? [lindex $ec 1] : "NOTKIT"}] $fr]
+    }
+    set stmt [dict get $fr statement] ; set sig [dict get $fr signature]
+    set key [list $stmt $sig]
+    if {![info exists sigCache($key)]} {
+        if {[array size sigCache] > 1000} { array unset sigCache }
+        set sigCache($key) [trustJudge $stmt $sig]
+    }
+    return [list ok [dict replace $sigCache($key) statement [::kitfmt::sha256::hex $stmt]]]
+}
+
+proc doMount {ch w} {
+    global cfg kit refs keep held lingering paths
+    if {[llength $w] < 2 || [llength $w] % 2} { return [errLine CONFIG "usage: mount PATH ?signed 0|1? ?keep 0|1? ?key PUBKEY?..."] }
+    set signed $cfg(require-signed) ; set k 0 ; set keys $cfg(trusted)
+    foreach {o v} [lrange $w 2 end] {
+        switch -- $o {
+            signed { if {$v eq "1"} { set signed 1 } }
+            keep { set k [expr {$v eq "1"}] }
+            key { lappend keys $v }
+            default { return [errLine CONFIG "unknown mount option '$o' (signed, keep, key)"] }
+        }
+    }
+    set req [list attach [lindex $w 1] isolate [expr {$cfg(isolate) ? 1 : 0}]]
+    if {$cfg(trust) eq "kittrust"} {
+        lassign [trustCheck [lindex $w 1]] st t msg
+        if {$st eq "err"} { return [errLine $t $msg] }
+        if {$signed && [dict get $t state] ne "valid"} {
+            return [errLine SIGNATURE "the kit's signature is [dict get $t state]: [dict get $t detail]"]
+        }
+        lappend req statement [dict get $t statement]
+    } else {
+        lappend req signed $signed
+        foreach x $keys { lappend req key $x }
+    }
+    set r [engineRequest {*}$req]
+    if {[lindex $r 0] eq "err"} { return [errLine [lindex $r 1] [lindex $r 2]] }
+    set d [lindex $r 2]
+    if {$cfg(trust) eq "kittrust"} {
+        dict set d signature [dict get $t state]
+        dict set d keyid [dict get $t keyid]
+        dict set d role [dict get $t role]
+        dict set d signer [dict get $t name]
+        dict set d detail [dict get $t detail]
+    }
+    set id [dict get $d id]
+    if {[info exists lingering($id)]} { after cancel $lingering($id) ; unset lingering($id) }
+    set kit($id) $d
+    if {![info exists refs($id)]} { set refs($id) 0 ; set keep($id) 0 ; set paths($id) {} }
+    incr refs($id)
+    if {$k} { incr keep($id) } else { dict incr held($ch) $id }
+    set p [realpath [lindex $w 1]]
+    if {$p ni $paths($id)} { lappend paths($id) $p }
+    return [okLine {*}$d refs $refs($id)]
+}
+
+proc findKit {what} {
+    global kit paths
+    if {[string first / $what] < 0} { return [expr {[info exists kit($what)] ? $what : ""}] }
+    set p [realpath $what]
+    foreach id [array names paths] { if {$p in $paths($id)} { return $id } }
+    return ""
+}
+
+proc doUnmount {ch w} {
+    global refs keep held kit
+    if {[llength $w] < 2 || [llength $w] % 2} { return [errLine CONFIG "usage: unmount ID|PATH ?now 0|1?"] }
+    set now 0
+    foreach {o v} [lrange $w 2 end] {
+        if {$o ne "now"} { return [errLine CONFIG "unknown unmount option '$o' (now)"] }
+        set now [expr {$v eq "1"}]
+    }
+    set id [findKit [lindex $w 1]]
+    if {$id eq ""} { return [errLine NOENT "[lindex $w 1] is not mounted"] }
+    if {[dict exists $held($ch) $id]} {
+        if {[dict incr held($ch) $id -1] == 0} { dict unset held($ch) $id }
+    } elseif {$keep($id) > 0} {
+        incr keep($id) -1
+    } else {
+        return [errLine BUSY "$id is held by other connections only"]
+    }
+    set left [expr {$refs($id) - 1}]
+    release $id $now
+    return [okLine id $id refs $left attached [info exists kit($id)]]
+}
+
+proc doList {ch} {
+    global kit refs keep paths
+    foreach id [lsort [array names kit]] {
+        set d $kit($id)
+        set l [okLine id $id dir [dict get $d dir] name [dict get $d name] version [dict get $d version] \
+            kind [dict get $d kind] signature [dict get $d signature] refs $refs($id) keep $keep($id) paths [join $paths($id) " "]]
+        reply $ch kit[string range $l 2 end]   ;# a data line: "kit", then the fields
+    }
+    return [okLine count [array size kit]]
+}
+
+proc doStatus {} {
+    global cfg kit held
+    set r [engineRequest status]
+    return [okLine proto $::mkkitfs::proto version 1.0.0 socket $cfg(socket) mountpoint $cfg(mountpoint) \
+        kits [array size kit] connections [array size held] linger $cfg(linger) trust $cfg(trust) trust-mode $cfg(trust-mode) \
+        {*}[lrange [lindex $r 2] 0 end]]
+}
+
+proc handle {ch line} {
+    set w [mkkitfs::fields $line]
+    switch -- [lindex $w 0] {
+        hello - status { return [doStatus] }
+        mount { return [doMount $ch $w] }
+        unmount { return [doUnmount $ch $w] }
+        list { return [doList $ch] }
+        quit { reply $ch [okLine] ; shutdown }
+        default { return [errLine CONFIG "unknown request '[lindex $w 0]' (hello status mount unmount list quit)"] }
+    }
+}
+
+proc readable {ch} {
+    global lastActivity
+    if {[catch {gets $ch line} n] || $n < 0} {
+        if {[catch {eof $ch} e] || $e} { dropConn $ch }
+        return
+    }
+    set lastActivity [clock seconds]
+    set line [string trimright $line \r]
+    if {$line eq ""} return
+    if {[catch {handle $ch $line} out]} { set out [errLine CONFIG "internal error: $out"] }
+    reply $ch $out
+}
+
+proc dropConn {ch} {
+    global held lastActivity
+    if {![info exists held($ch)]} return
+    set h $held($ch)
+    unset held($ch)
+    catch {close $ch}
+    dict for {id n} $h { for {set i 0} {$i < $n} {incr i} { release $id } }
+    set lastActivity [clock seconds]
+}
+
+proc accept {ch} {
+    global held
+    set held($ch) {}
+    chan configure $ch -translation lf -encoding utf-8 -blocking 0 -buffering line
+    chan event $ch readable [list readable $ch]
+}
+
+proc idleCheck {} {
+    global cfg kit held lastActivity
+    if {$cfg(idle-exit) > 0 && ![array size kit] && ![array size held] && [clock seconds] - $lastActivity >= $cfg(idle-exit)} {
+        puts stderr "mkkitfsd: idle for $cfg(idle-exit) s: exiting"
+        shutdown
+    }
+    after 1000 idleCheck
+}
+
+proc shutdown {} {
+    global engine cfg listener
+    catch {close $listener}
+    catch {file delete $cfg(socket)}
+    catch { puts $engine quit ; flush $engine ; gets $engine }
+    catch {close $engine}
+    exit 0
+}
+
+# ---- main ------------------------------------------------------------------------------------------
+proc parseOpts {argv allowed} {
+    global cfg
+    set extra {}
+    foreach {k v} $argv {
+        set k [string trimleft $k -]
+        if {$k ni $allowed} { die "unknown option -$k" 2 }
+        if {$k eq "keys"} { lappend extra $v } elseif {$k eq "trust-other"} { lappend cfg($k) $v } elseif {$k eq "config"} {} else { set cfg($k) $v }
+    }
+    return $extra
+}
+
+lassign $argv verb
+set argv [lrange $argv 1 end]
+switch -- $verb {
+    serve {
+        if {[llength $argv] % 2} { die "options come in pairs" 2 }
+        set conf {}
+        foreach {k v} $argv { if {$k eq "-config"} { lappend conf $v } }
+        if {![llength $conf]} {
+            set xdg [expr {[info exists ::env(XDG_CONFIG_HOME)] && $::env(XDG_CONFIG_HOME) ne "" ? $::env(XDG_CONFIG_HOME) : [file join ~ .config]}]
+            set conf [list /etc/kit/mkkitfs.conf [file join $xdg kit mkkitfs.conf]]
+        }
+        foreach f $conf { readConfig $f }
+        set extraKeys [parseOpts $argv {socket mountpoint config keys cache threads linger idle-exit isolate require-signed allow-other log engine ready-fd trust trust-anchor trust-state trust-mode trust-other}]
+        lappend cfg(keys) {*}$extraKeys
+        set cfg(trusted) [keysFrom $cfg(keys)]
+        if {$cfg(trust) ni {keys kittrust}} { die "trust must be keys or kittrust" 2 }
+        if {$cfg(trust) eq "kittrust"} {
+            if {[catch {package require kittrust} e]} { die "trust kittrust: the kittrust package is not installed ($e)" }
+            if {[catch {trustLoad} e]} { die "trust kittrust: $e" }
+        }
+        if {$cfg(socket) eq ""} { set cfg(socket) [file join [runtimeDir] mkkitfs.sock] }
+        if {$cfg(mountpoint) eq ""} { set cfg(mountpoint) [file join [runtimeDir] mnt] }
+        if {![catch {unix_sockets::connect $cfg(socket)} c]} { close $c ; die "a server is already running on $cfg(socket)" 3 }
+        file mkdir $cfg(mountpoint)
+        if {$cfg(engine) eq ""} {
+            if {[info exists ::env(MKKITFS)] && $::env(MKKITFS) ne ""} { set cfg(engine) $::env(MKKITFS) } \
+            elseif {[file executable [file join $here .. mkkitfs]]} { set cfg(engine) [file join $here .. mkkitfs] } \
+            else { set cfg(engine) [lindex [auto_execok mkkitfs] 0] }
+        }
+        if {$cfg(engine) eq ""} { die "mkkitfs (the data path) is not installed" }
+        set cmd [list $cfg(engine) serve --mountpoint $cfg(mountpoint) --cache $cfg(cache) --threads $cfg(threads)]
+        if {$cfg(allow-other)} { lappend cmd --allow-other }
+        if {$cfg(log) ne ""} { lappend cmd --log $cfg(log) }
+        set engine [open |[concat $cmd [list 2>@stderr]] r+]
+        chan configure $engine -translation lf -encoding utf-8 -buffering line -blocking 1
+        if {[gets $engine first] < 0 || [lindex [mkkitfs::fields $first] 0] ne "ready"} {
+            die "the data path did not start: [lrange [mkkitfs::fields $first] 1 end]"
+        }
+        # the engine ending (crash, unmounted from outside) ends the session server too
+        chan event $engine readable engineGone
+        set listener [unix_sockets::listen $cfg(socket) accept]
+        file attributes $cfg(socket) -permissions 0600
+        if {$cfg(ready-fd) ne ""} {
+            set r [open /dev/fd/$cfg(ready-fd) w]
+            puts $r ready
+            close $r
+        }
+        after 1000 idleCheck
+        vwait forever
+    }
+    start {
+        set o [dict merge {-socket ""} $argv]
+        set ch [mkkitfs::connect -socket [dict get $o -socket] -start 1]
+        close $ch
+        exit 0
+    }
+    ctl {
+        set sock ""
+        if {[lindex $argv 0] eq "-socket"} { set sock [lindex $argv 1] ; set argv [lrange $argv 2 end] }
+        if {![llength $argv]} { die "usage: mkkitfsd ctl ?-socket PATH? VERB ARG..." 2 }
+        if {[catch {mkkitfs::connect -socket $sock -start 0} ch]} { puts stderr "mkkitfsd: $ch" ; exit 3 }
+        set w $argv
+        if {[lindex $w 0] in {mount unmount} && [llength $w] > 1 && ([lindex $w 0] eq "mount" || [file exists [lindex $w 1]])} {
+            lset w 1 [file normalize [lindex $w 1]]
+        }
+        # `ctl mount` keeps its reference after this process exits
+        if {[lindex $w 0] eq "mount" && "keep" ni [lrange $w 2 end]} { lappend w keep 1 }
+        set req {}
+        foreach x $w { lappend req [mkkitfs::esc $x] }
+        puts $ch [join $req \t]
+        flush $ch
+        while {[gets $ch line] >= 0} {
+            puts $line
+            set f [lindex [split $line \t] 0]
+            if {$f eq "ok"} { exit 0 }
+            if {$f eq "err"} { exit 1 }
+        }
+        exit 3
+    }
+    default { die "usage: mkkitfsd serve|start|ctl ... (see the comment at the top of mkkitfsd)" 2 }
+}

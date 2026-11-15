@@ -1,0 +1,42 @@
+# ribbon-tools: srcpkgs/ribbon-tools/template's do_install. The three generated files (ribbon-snapshot.conf,
+# scheduler.conf, swap.conf) are written by build.sh with the template's contents.
+file 644 usr/lib/ribbon @files/lib/common.sh
+file 644 usr/lib/ribbon @files/lib/pkg.sh
+file 644 usr/lib/ribbon @files/lib/pkg-update.sh
+file 644 usr/lib/ribbon @files/lib/pkg.tcl
+file 644 usr/lib/ribbon @files/lib/pkg-names.xbps
+file 644 usr/lib/ribbon @files/lib/pkg-names.ribbon
+bin @files/bin/ribbon
+bin @files/bin/ribbon-snapshot
+bin @files/bin/ribbon-update
+bin @files/bin/ribbon-gpu
+bin @files/bin/ribbon-swap
+bin @files/bin/ribbon-drives
+bin @files/bin/ribbon-hdr
+bin @files/bin/ribbon-scheduler
+bin @files/bin/ribbon-reset
+bin @files/bin/ribbon-doctor
+bin @files/bin/ribbon-limine
+bin @files/bin/ribbon-hw
+bin @files/bin/ribbon-reserve
+file 755 usr/lib/ribbon @files/bin/postinstall
+file 755 usr/lib/ribbon @files/bin/pending
+file 755 usr/lib/ribbon @files/bin/kernel-changed
+file 644 usr/lib/dinit.d @files/services/ribbon-pending
+file 644 usr/lib/dinit.d @files/services/scx
+file 644 usr/lib/dinit.d @files/services/ribbon-boot-ok
+file 644 usr/lib/dinit.d @files/services/ribbon-reserve
+dir usr/lib/dracut/modules.d/90ribbon-snapshot
+file 755 usr/lib/dracut/modules.d/90ribbon-snapshot @files/dracut/90ribbon-snapshot/module-setup.sh
+file 755 usr/lib/dracut/modules.d/90ribbon-snapshot @files/dracut/90ribbon-snapshot/ribbon-snapshot-overlay.sh
+dir usr/lib/dracut/modules.d/90ribbon-bcachefs
+file 755 usr/lib/dracut/modules.d/90ribbon-bcachefs @files/dracut/90ribbon-bcachefs/module-setup.sh
+file 755 usr/lib/dracut/modules.d/90ribbon-bcachefs @files/dracut/90ribbon-bcachefs/ribbon-bcachefs-unlock.sh
+# Void's kernel hook point: installed only on a base whose package manager is xbps
+base xbps file 755 etc/kernel.d/post-install @files/kernel.d/60-ribbon-limine
+base xbps file 755 etc/kernel.d/post-remove @files/kernel.d/60-ribbon-limine
+file 644 usr/lib/dracut/dracut.conf.d @build/ribbon-snapshot.conf 20-ribbon-snapshot.conf
+file 644 etc/ribbon @build/scheduler.conf
+file 644 etc/ribbon @build/swap.conf
+file 644 usr/share/licenses/ribbon-tools @repo/LICENSE
+state /var/lib/ribbon 0755 root root

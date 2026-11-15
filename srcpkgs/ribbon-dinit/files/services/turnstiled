@@ -1,0 +1,8 @@
+# Starts a per-user dinit (PipeWire, session dbus, ...) on first login.
+# Runs alongside elogind (elogind owns XDG_RUNTIME_DIR; see turnstiled.conf).
+type = process
+command = /usr/bin/turnstiled
+smooth-recovery = true
+logfile = /var/log/dinit/turnstiled.log
+depends-on: system
+waits-for: elogind

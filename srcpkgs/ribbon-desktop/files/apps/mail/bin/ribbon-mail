@@ -1,0 +1,3 @@
+#!/bin/sh
+# ribbon-mail - Mail (Tcl/Tk, /usr/lib/ribbon/mail): mail kept in ~/Mail, synced over IMAP, sent over SMTP
+exec wish -encoding utf-8 /usr/lib/ribbon/mail/main.tcl -name ribbon-mail -- "$@"

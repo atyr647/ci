@@ -1,0 +1,56 @@
+# Template file for 'ribbon-tools'
+pkgname=ribbon-tools
+version=0.1.0
+revision=1
+# No package manager here: the base's (xbps on Void) is ribbon-base's, and the
+# tools reach it only through lib/pkg.sh (the seam).
+depends="bash ribbon-dinit pciutils util-linux btrfs-progs snapper limine
+ dracut e2fsprogs power-profiles-daemon bolt"
+short_desc="Ribbon OS tools: safe updates, snapshots, disk reserve, GPU, swap, drives, HDR, scheduler"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/ribbon"
+make_dirs="/var/lib/ribbon 0755 root root"
+conf_files="/etc/ribbon/scheduler.conf /etc/ribbon/swap.conf"
+
+do_install() {
+	vinstall "${FILESDIR}/lib/common.sh" 644 usr/lib/ribbon
+	vinstall "${FILESDIR}/lib/pkg.sh" 644 usr/lib/ribbon
+	vinstall "${FILESDIR}/lib/pkg-update.sh" 644 usr/lib/ribbon
+	vinstall "${FILESDIR}/lib/pkg.tcl" 644 usr/lib/ribbon
+	vinstall "${FILESDIR}/lib/pkg-names.xbps" 644 usr/lib/ribbon
+	vinstall "${FILESDIR}/lib/pkg-names.ribbon" 644 usr/lib/ribbon
+	for f in ribbon ribbon-snapshot ribbon-update ribbon-gpu ribbon-swap \
+		ribbon-drives ribbon-hdr ribbon-scheduler ribbon-reset ribbon-doctor \
+		ribbon-limine ribbon-hw ribbon-reserve; do
+		vbin "${FILESDIR}/bin/${f}"
+	done
+	# Shared by both installers (Calamares and ribbon-install).
+	vinstall "${FILESDIR}/bin/postinstall" 755 usr/lib/ribbon
+	vinstall "${FILESDIR}/bin/pending" 755 usr/lib/ribbon
+	vinstall "${FILESDIR}/bin/kernel-changed" 755 usr/lib/ribbon
+	vinstall "${FILESDIR}/services/ribbon-pending" 644 usr/lib/dinit.d
+
+	vinstall "${FILESDIR}/services/scx" 644 usr/lib/dinit.d
+	vinstall "${FILESDIR}/services/ribbon-boot-ok" 644 usr/lib/dinit.d
+	vinstall "${FILESDIR}/services/ribbon-reserve" 644 usr/lib/dinit.d
+
+	vmkdir usr/lib/dracut/modules.d/90ribbon-snapshot
+	vinstall "${FILESDIR}/dracut/90ribbon-snapshot/module-setup.sh" 755 usr/lib/dracut/modules.d/90ribbon-snapshot
+	vinstall "${FILESDIR}/dracut/90ribbon-snapshot/ribbon-snapshot-overlay.sh" 755 usr/lib/dracut/modules.d/90ribbon-snapshot
+	vmkdir usr/lib/dracut/modules.d/90ribbon-bcachefs
+	vinstall "${FILESDIR}/dracut/90ribbon-bcachefs/module-setup.sh" 755 usr/lib/dracut/modules.d/90ribbon-bcachefs
+	vinstall "${FILESDIR}/dracut/90ribbon-bcachefs/ribbon-bcachefs-unlock.sh" 755 usr/lib/dracut/modules.d/90ribbon-bcachefs
+	# Void's kernel hook point (the xbps backend's); it calls kernel-changed.
+	vinstall "${FILESDIR}/kernel.d/60-ribbon-limine" 755 etc/kernel.d/post-install
+	vinstall "${FILESDIR}/kernel.d/60-ribbon-limine" 755 etc/kernel.d/post-remove
+	echo 'add_dracutmodules+=" ribbon-snapshot "' > ribbon-snapshot.conf
+	vinstall ribbon-snapshot.conf 644 usr/lib/dracut/dracut.conf.d 20-ribbon-snapshot.conf
+
+	printf '# Written by ribbon-scheduler. SCHEDULER=off uses the kernel EEVDF scheduler.\nSCHEDULER=scx_lavd\nARGS=""\nGAMEMODE_ARGS="--performance"\n' > scheduler.conf
+	vinstall scheduler.conf 644 etc/ribbon
+	printf '# Written by ribbon-swap. Change with: ribbon swap set ...\nZRAM_SIZE=50%%\nZRAM_ALGO=zstd\nSWAPFILE_SIZE=off\nHIBERNATE=no\n' > swap.conf
+	vinstall swap.conf 644 etc/ribbon
+
+	vinstall "${FILESDIR}/LICENSE" 644 usr/share/licenses/${pkgname}
+}

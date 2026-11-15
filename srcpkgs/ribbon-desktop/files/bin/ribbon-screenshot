@@ -1,0 +1,72 @@
+#!/bin/sh
+# ribbon-screenshot - Print and Shift+Print (labwc's rc.xml).
+#   ribbon-screenshot          the whole screen
+#   ribbon-screenshot region   a part of it, chosen with slurp (Escape there takes nothing)
+# grim writes the picture to Pictures/Screenshots (xdg-user-dir), every layer included, so the
+# game overlay shows in it (docs/DECISIONS-DELEGATED.md row 38). wl-copy puts it on the clipboard.
+# Then one notification (Notify-Final-5-History: Screenshot · "Screenshot taken" · the file under
+# the home folder) whose default action, Open, opens the picture with xdg-open. This process stays
+# to answer that action until the notification is dismissed or acted on (the history keeps an
+# expired one, and its Open still works), for at most RIBBON_SCREENSHOT_WAIT seconds (an hour).
+set -u
+mode=${1:-full}
+case $mode in
+	full|region) ;;
+	*) echo "usage: ribbon-screenshot [region]" >&2; exit 2;;
+esac
+pics=$(xdg-user-dir PICTURES 2>/dev/null) || pics=
+# xdg-user-dir answers the home folder itself when PICTURES is not set
+if [ -z "$pics" ] || [ "$pics" = "$HOME" ]; then pics=$HOME/Pictures; fi
+dir=$pics/Screenshots
+mkdir -p "$dir" || exit 1
+f=$dir/$(date +%F_%H-%M-%S).png
+n=1
+while [ -e "$f" ]; do f=$dir/$(date +%F_%H-%M-%S)-$n.png; n=$((n + 1)); done
+
+if [ "$mode" = region ]; then
+	# slurp fails when the choice is cancelled: no picture, no notification
+	g=$(slurp) || exit 0
+	[ -n "$g" ] || exit 0
+	grim -g "$g" "$f" || exit 1
+else
+	grim "$f" || exit 1
+fi
+wl-copy --type image/png < "$f" 2>/dev/null || true
+
+# the body as the board writes it: the path under the home folder
+case $f in
+	"$HOME"/*) shown=${f#"$HOME"/};;
+	*) shown=$f;;
+esac
+
+command -v gdbus >/dev/null 2>&1 || exit 0
+T=$(mktemp -d) || exit 0
+mon=
+trap 'kill $mon 2>/dev/null; rm -rf "$T"' EXIT
+trap 'exit 0' HUP INT TERM
+mkfifo "$T/sig" || exit 0
+# listen before sending, so an answer that comes at once is not missed
+# (it ends at the deadline, and reading then sees the end of the pipe)
+timeout "${RIBBON_SCREENSHOT_WAIT:-3600}" gdbus monitor --session --dest org.freedesktop.Notifications \
+	--object-path /org/freedesktop/Notifications >"$T/sig" 2>/dev/null &
+mon=$!
+exec 3<"$T/sig"
+IFS= read -r line <&3 || exit 0
+# a string in GVariant's text form: its quotes and backslashes escaped
+q() { printf '%s' "$1" | sed "s/\\\\/\\\\\\\\/g; s/'/\\\\'/g"; }
+r=$(gdbus call --session --timeout 15 --dest org.freedesktop.Notifications --object-path /org/freedesktop/Notifications \
+	--method org.freedesktop.Notifications.Notify -- Screenshot 0 "" "Screenshot taken" "$(q "$shown")" \
+	"['default', 'Open']" "{'image-path': <'$(q "$f")'>}" -1 2>/dev/null) || exit 0
+id=$(printf '%s\n' "$r" | sed -n 's/^(uint32 \([0-9]*\),)$/\1/p')
+[ -n "$id" ] || exit 0
+
+while IFS= read -r line <&3; do
+	case $line in
+		*".ActionInvoked (uint32 $id, 'default')"*)
+			xdg-open "$f" >/dev/null 2>&1 &
+			break;;
+		*".NotificationClosed (uint32 $id, uint32 1)"*) ;;
+		*".NotificationClosed (uint32 $id, uint32 "*) break;;
+	esac
+done
+exit 0

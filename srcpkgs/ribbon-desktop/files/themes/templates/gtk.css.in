@@ -1,0 +1,47 @@
+/* >>> ribbon-theme (managed by ribbon-theme; add your own CSS below this block) */
+/* Palette: @NAME@ */
+@define-color rb_bar @BAR@;
+@define-color rb_field @FIELD@;
+@define-color rb_pill @PILL@;
+@define-color rb_border @BORDER@;
+@define-color rb_fg @FG@;
+@define-color rb_muted @MUTED@;
+@define-color rb_accent @ACCENT@;
+@define-color rb_accent2 @ACCENT2@;
+@define-color rb_ink @INK@;
+@define-color rb_clock @CLOCK@;
+@define-color rb_ok @OK@;
+@define-color rb_on_accent @ON_ACCENT@;
+@define-color rb_win @WIN@;
+
+/* ------------------------------------------------------------------------
+ * Apps: a light Ribbon recolour on top of the GTK theme, so GTK apps,
+ * settings and dialogs match the bars.
+ * ---------------------------------------------------------------------- */
+window.background, .background, dialog, messagedialog { background-color: @rb_bar; color: @rb_fg; }
+headerbar, .titlebar, menubar, toolbar, .toolbar, actionbar, statusbar { background-color: @rb_bar; background-image: none; color: @rb_fg; border-color: @rb_border; }
+* { font-family: "Inter"; }
+entry, spinbutton { background-color: @rb_field; background-image: none; color: @rb_fg; border: 1px solid @rb_border; border-radius: 5px; }
+button { background-image: none; background-color: @rb_pill; color: @rb_fg; border: 1px solid @rb_border; border-radius: 5px; box-shadow: none; text-shadow: none; }
+button:hover { border-color: @rb_accent; }
+button:checked, button:active { background-color: @rb_border; border-color: @rb_accent; }
+button.flat, .linked button.flat { background-color: transparent; border-color: transparent; }
+treeview.view, iconview, .view, textview text, list, row, viewport { background-color: @rb_win; color: @rb_fg; }
+.sidebar, .sidebar list, placessidebar, placessidebar list, placessidebar row { background-color: @rb_bar; color: @rb_fg; }
+treeview.view header button { background-color: @rb_bar; border-color: @rb_border; }
+notebook header, notebook tab { background-color: @rb_bar; border-color: @rb_border; }
+notebook tab:checked { box-shadow: inset 0 -2px @rb_accent; }
+scrollbar, scrollbar trough { background-color: transparent; }
+scrollbar slider { background-color: @rb_border; border-radius: 8px; min-width: 6px; min-height: 6px; }
+menu, .menu, .context-menu, popover, popover.background { background-color: @rb_bar; color: @rb_fg; border: 1px solid @rb_border; }
+menu menuitem:hover, .menu menuitem:hover { background-color: @rb_pill; color: @rb_accent; }
+separator { background-color: @rb_border; }
+check, radio { background-color: @rb_field; border: 1px solid @rb_border; }
+check:checked, radio:checked { background-color: @rb_accent; color: @rb_on_accent; border-color: @rb_accent; }
+
+/* Accents across GTK apps */
+selection, *:selected, .view:selected { background-color: @rb_accent; color: @rb_on_accent; }
+progressbar progress, scale highlight, switch:checked { background-color: @rb_accent; border-color: @rb_accent; }
+entry:focus, entry:focus-within { border-color: @rb_accent; box-shadow: inset 0 0 0 1px @rb_accent; }
+tooltip { background-color: @rb_bar; color: @rb_fg; border: 1px solid @rb_border; border-radius: 6px; }
+/* <<< ribbon-theme */

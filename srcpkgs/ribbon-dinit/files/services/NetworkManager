@@ -1,0 +1,9 @@
+# NetworkManager (wired, Wi-Fi, VPN; the shell's network menu and Settings → Network speak to it on the system bus).
+# Ribbon's own description, for a base that has no other: a service in /etc/dinit.d or one converted from the
+# base's runit services (/run/dinit.d) is found first and wins. Enabled by the installer (boot.d).
+type = process
+command = /usr/sbin/NetworkManager -n
+smooth-recovery = true
+logfile = /var/log/dinit/NetworkManager.log
+depends-on: system
+depends-on: dbus

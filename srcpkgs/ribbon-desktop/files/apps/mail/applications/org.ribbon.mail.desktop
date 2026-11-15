@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Mail
+GenericName=Mail
+Comment=Mail kept on this computer, synced with your mail servers
+Exec=ribbon-mail
+Icon=mail-client
+Terminal=false
+Categories=Network;Email;
+StartupWMClass=RibbonMail
+Keywords=mail;email;imap;smtp;

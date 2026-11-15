@@ -1,0 +1,6 @@
+# The base of Ribbon's kernel configuration: Void Linux's x86_64 configuration of its linux6.18 package, verbatim
+# (void-packages, BSD-2-Clause), at the commit below. Ribbon's changes are the fragments beside it (NN-*.config),
+# applied in name order on top of it by srcpkgs/ribbon-kernel/files/kconfig.sh, then resolved by the kernel's own
+# `make olddefconfig` in CI, where kconfig.sh check refuses the build if any fragment line did not survive.
+# Fields: file, sha256, upstream path, void-packages commit, kernel version it was generated for.
+void-linux6.18-x86_64.config 1567b91730c6653484db8de21351a39730d7524721417456c3fbde0fe6e1d1b7 srcpkgs/linux6.18/files/x86_64-dotconfig b25881dcad95d750dc456e52afa146f6a1fe5183 6.18.63

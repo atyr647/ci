@@ -1,0 +1,8 @@
+# RAID, LVM, /etc/crypttab (non-root encrypted volumes prompt here), ZFS.
+type = scripted
+command = /usr/lib/ribbon/boot.sh devices
+restart = false
+start-timeout = 0
+options: starts-on-console
+depends-on: udevd
+waits-for: early-udev-settle

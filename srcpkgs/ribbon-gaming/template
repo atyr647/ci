@@ -1,0 +1,37 @@
+# Template file for 'ribbon-gaming'
+pkgname=ribbon-gaming
+version=0.1.0
+revision=1
+# steam, *-32bit and nvidia live in Void's nonfree/multilib repositories,
+# which Ribbon enables by default (ribbon-base xbps.d config).
+# System Wine and git stay (the user's call, 8 Nov); they become kits at
+# independence. Ribbon does not bundle the Star Citizen LUG Helper.
+# No GTK dialog tool here: no Ribbon program runs one (the welcome is
+# Tcl/Tk), and Steam depends on the one it uses itself.
+depends="ribbon-desktop scx
+ steam gamescope gamemode libgamemode-32bit MangoHud MangoHud-32bit vkBasalt
+ wine wine-32bit winetricks lutris protontricks protonplus
+ libgcc-32bit libstdc++-32bit libdrm-32bit libglvnd-32bit mesa-dri-32bit
+ vulkan-loader vulkan-loader-32bit pipewire-32bit
+ git xdg-utils"
+short_desc="Ribbon OS gaming: Steam, gamescope Game Mode, tuned defaults"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/ribbon"
+conf_files="/etc/gamemode.ini"
+
+do_install() {
+	vinstall "${FILESDIR}/90-ribbon-gaming.conf" 644 usr/lib/sysctl.d
+	vinstall "${FILESDIR}/90-ribbon-gaming-limits.conf" 644 etc/security/limits.d
+	vinstall "${FILESDIR}/ntsync.conf" 644 usr/lib/modules-load.d
+	vinstall "${FILESDIR}/99-ntsync.rules" 644 usr/lib/udev/rules.d
+	vinstall "${FILESDIR}/30-gaming.sh" 644 etc/ribbon/session.d
+	vinstall "${FILESDIR}/gamemode.ini" 644 etc
+	vinstall "${FILESDIR}/sudoers-gaming" 440 etc/sudoers.d 20-ribbon-gaming
+	vbin "${FILESDIR}/ribbon-gamemode-session"
+	vbin "${FILESDIR}/steamos-session-select"
+	# gamescope with its frame statistics sent to the game HUD (a Steam launch option: ribbon-gamescope -f -- %command%)
+	vbin "${FILESDIR}/ribbon-gamescope"
+	vinstall "${FILESDIR}/ribbon-gamemode.desktop" 644 usr/share/wayland-sessions
+	vinstall "${FILESDIR}/LICENSE" 644 usr/share/licenses/${pkgname}
+}

@@ -1,0 +1,9 @@
+Netid State  Recv-Q Send-Q                Local Address:Port  Peer Address:Port Process
+u_str ESTAB  0      0        /run/user/1000/wayland-0 5001              * 5002
+u_str ESTAB  4096   0                               * 5002              * 5001
+u_str ESTAB  0      0              @/tmp/.X11-unix/X0 6001              * 6002
+u_str ESTAB  128    0                               * 6002              * 6001
+u_str ESTAB  0      0     /run/dbus/system_bus_socket 7001              * 7002
+u_str ESTAB  999    0                               * 7002              * 7001
+u_str LISTEN 0      128      /run/user/1000/wayland-0 4000              * 0
+u_dgr UNCONN 0      0                               * 100               * 0

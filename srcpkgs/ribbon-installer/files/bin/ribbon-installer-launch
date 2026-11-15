@@ -1,0 +1,11 @@
+#!/bin/sh
+# Start the Ribbon installer (Tcl/Tk) from the live session, as the live
+# user. Only its backend (ribbon-install-probe, ribbon-install) runs as root,
+# through sudo or pkexec; passwords reach it on stdin, never on disk.
+# One installer at a time: a second start just brings nothing up.
+lock=${XDG_RUNTIME_DIR:-/tmp}/ribbon-installer.lock
+exec 9>"$lock"
+if command -v flock >/dev/null 2>&1 && ! flock -n 9; then
+	exit 0
+fi
+exec wish -encoding utf-8 /usr/lib/ribbon/installer/main.tcl -name ribbon-installer "$@"

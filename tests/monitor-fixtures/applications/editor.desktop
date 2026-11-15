@@ -1,0 +1,8 @@
+[Desktop Entry]
+Name=Editor
+Exec=env GDK_BACKEND=wayland /usr/bin/editor %F
+Type=Application
+
+[Desktop Action new]
+Name=New window
+Exec=editor --new

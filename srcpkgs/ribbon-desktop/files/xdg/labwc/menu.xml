@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<openbox_menu>
+  <menu id="root-menu" label="Ribbon">
+    <item label="Terminal"><action name="Execute" command="ribbon-terminal" /></item>
+    <item label="Files"><action name="Execute" command="ribbon-files" /></item>
+    <item label="Text editor"><action name="Execute" command="ribbon-editor" /></item>
+    <item label="Notes"><action name="Execute" command="ribbon-notes" /></item>
+    <item label="Web browser"><action name="Execute" command="ribbon-browser" /></item>
+    <item label="Steam"><action name="Execute" command="steam" /></item>
+    <separator />
+    <item label="Settings"><action name="Execute" command="ribbon-settings" /></item>
+    <item label="Displays"><action name="Execute" command="ribbon-settings --page display" /></item>
+    <item label="Appearance…"><action name="Execute" command="ribbon-settings --page appearance" /></item>
+    <item label="System monitor"><action name="Execute" command="ribbon-monitor" /></item>
+    <item label="Toggle HDR"><action name="Execute" command="sh -c 'ribbon-hdr status | head -n1 | grep -q &quot;HDR: on&quot; &amp;&amp; ribbon-hdr off || ribbon-hdr on'" /></item>
+    <item label="Toggle conky"><action name="Execute" command="sh -c 'pkill -x conky || ribbon-conky'" /></item>
+    <separator />
+    <item label="Reconfigure"><action name="Reconfigure" /></item>
+    <item label="Log out"><action name="Execute" command="labwc --exit" /></item>
+  </menu>
+</openbox_menu>

@@ -1,0 +1,14 @@
+# Packages in the live ISO (on top of ribbon-base). Everything here is
+# copied to the installed system; postinstall removes what isn't needed.
+ribbon-desktop
+ribbon-gaming
+ribbon-installer
+# Graphics for every vendor, so the live session works everywhere
+# (NVIDIA's own driver is installed by the installer when chosen).
+mesa-dri mesa-dri-32bit mesa-vulkan-radeon mesa-vulkan-intel mesa-vulkan-nouveau
+mesa-vaapi intel-media-driver linux-firmware-nvidia
+# Every filesystem the installers support
+zfs zfsbootmenu bcachefs-tools bcachefs-dkms
+# GRUB for installs that choose it (Limine, the default, is in ribbon-base;
+# postinstall removes GRUB when it isn't chosen)
+grub-x86_64-efi grub-btrfs os-prober

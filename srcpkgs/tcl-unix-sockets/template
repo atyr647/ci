@@ -1,0 +1,36 @@
+# Template file for 'tcl-unix-sockets'
+# Unix domain stream sockets as Tcl channels (unix_sockets::listen and
+# unix_sockets::connect), by Cyan Ogilvie. Ribbon's Tcl code reaches local
+# daemons (greetd, kitd, D-Bus) through it; tcl-unix-extra adds datagrams,
+# fd passing and peer credentials.
+# patches/ (offered upstream, see UPSTREAM.md): 0001 fixes a racy test,
+# 0002 adds the opt-in -passfds (connections that keep fds passed with
+# SCM_RIGHTS, and unix_sockets::fds). Without -passfds nothing changes.
+pkgname=tcl-unix-sockets
+version=0.7
+revision=2
+build_style=gnu-configure
+configure_args="--with-tcl=${XBPS_CROSS_BASE}/usr/lib"
+# install-doc expects prebuilt doc/*.n, which the release doesn't ship
+make_install_target="install-binaries"
+make_check_target="test"
+hostmakedepends="tcl"
+makedepends="tcl-devel"
+depends="tcl"
+# the -passfds tests send fds with python3 (socket.send_fds)
+checkdepends="python3"
+short_desc="Unix domain socket channels for Tcl"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="TCL"
+homepage="https://github.com/cyanogilvie/unix_sockets"
+# The v0.7 release asset (commit fb6b67bd, tag v0.7), not the tag archive:
+# it carries the generated configure and the tclconfig/teabase submodules
+# the archive lacks. Unlike tkdnd's, this tarball could be fetched, so the
+# checksum is pinned here instead of left to xgensum.
+distfiles="${homepage}/releases/download/v${version}/unix_sockets${version}.tar.gz"
+checksum=74d668247fc2682d3dda6858f76414659915f5a747cb99458c9ad1d3656861e3
+wrksrc="unix_sockets${version}"
+
+post_install() {
+	vlicense license.terms
+}

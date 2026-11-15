@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Install Ribbon
+Comment=Install Ribbon OS on this computer
+Exec=ribbon-installer-launch
+Icon=system-software-install
+Terminal=false
+Categories=System;
+Keywords=installer;setup;install;

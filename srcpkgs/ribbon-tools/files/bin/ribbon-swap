@@ -1,0 +1,181 @@
+#!/bin/bash
+# ribbon-swap - swap configuration chosen in the installer, changeable later.
+#
+#   zram     compressed swap in RAM (fast, the default)
+#   file     a swap file on disk (btrfs: in the @swap subvolume at /swap)
+#   hibernate  points the kernel at the swap file/partition to resume from
+#
+# Config: /etc/ribbon/swap.conf
+#   ZRAM_SIZE=50%|8G|off   ZRAM_ALGO=zstd   SWAPFILE_SIZE=16G|24576M|off   HIBERNATE=no|yes
+# Sizes: N with K, M or G, or plain bytes (the installer's custom swap size
+# arrives as MiB); zram also takes a percentage of RAM.
+set -u
+. /usr/lib/ribbon/common.sh
+
+CONF="${RIBBON_ROOT}/etc/ribbon/swap.conf"
+ZRAM_SIZE=50% ZRAM_ALGO=zstd SWAPFILE_SIZE=off HIBERNATE=no
+[ -r "$CONF" ] && . "$CONF"
+
+usage() {
+	cat <<EOF
+Usage: ribbon-swap <command>
+  status                                  show active swap
+  set [zram=SIZE|off] [file=SIZE|off] [hibernate=yes|no]
+                                          e.g. ribbon swap set zram=50% file=32G
+  recommend                               print a suggestion for this machine
+  boot                                    (internal) set up zram at boot
+EOF
+}
+
+mem_kib() { awk '/^MemTotal:/ {print $2}' /proc/meminfo; }
+
+to_bytes() { # 50% | 8G | 512M
+	local v=$1
+	case "$v" in
+		*%) echo $(( $(mem_kib) * 1024 * ${v%\%} / 100 )) ;;
+		*G|*g) echo $(( ${v%[Gg]} * 1024 * 1024 * 1024 )) ;;
+		*M|*m) echo $(( ${v%[Mm]} * 1024 * 1024 )) ;;
+		*K|*k) echo $(( ${v%[Kk]} * 1024 )) ;;
+		*) echo "$v" ;;
+	esac
+}
+
+swapfile_path() {
+	if [ "$(root_fstype)" = btrfs ]; then echo "${RIBBON_ROOT}/swap/swapfile"; else echo "${RIBBON_ROOT}/swapfile"; fi
+}
+
+cmd_boot() {
+	[ "$ZRAM_SIZE" = off ] && return 0
+	modprobe zram num_devices=1 2>/dev/null || return 0
+	local dev
+	dev=$(zramctl --find --size "$(to_bytes "$ZRAM_SIZE")" --algorithm "$ZRAM_ALGO" 2>/dev/null) || return 0
+	mkswap -q "$dev" >/dev/null && swapon -p 100 "$dev"
+}
+
+write_conf() {
+	mkdir -p "$(dirname "$CONF")"
+	cat > "$CONF" <<EOF
+# Written by ribbon-swap. Change with: ribbon swap set ...
+ZRAM_SIZE=$ZRAM_SIZE
+ZRAM_ALGO=$ZRAM_ALGO
+SWAPFILE_SIZE=$SWAPFILE_SIZE
+HIBERNATE=$HIBERNATE
+EOF
+	mkdir -p "${RIBBON_ROOT}/etc/sysctl.d"
+	if [ "$ZRAM_SIZE" != off ]; then
+		# zram is far cheaper than disk I/O: swap to it eagerly, without readahead.
+		printf 'vm.swappiness = 180\nvm.page-cluster = 0\nvm.watermark_boost_factor = 0\nvm.watermark_scale_factor = 125\n' \
+			> "${RIBBON_ROOT}/etc/sysctl.d/90-ribbon-swap.conf"
+	else
+		printf 'vm.swappiness = 60\n' > "${RIBBON_ROOT}/etc/sysctl.d/90-ribbon-swap.conf"
+	fi
+}
+
+fstab_del() { sed -i "\|$1|d" "${RIBBON_ROOT}/etc/fstab"; }
+
+make_swapfile() {
+	local size=$1 f; f=$(swapfile_path)
+	case "$(root_fstype)" in
+		zfs) die "swap files on ZFS can deadlock; use a swap partition (see docs/FILESYSTEMS.md)" ;;
+		bcachefs) die "bcachefs does not support swap files; use zram or a swap partition" ;;
+	esac
+	[ -e "$f" ] && { swapoff "$f" 2>/dev/null; rm -f "$f"; }
+	mkdir -p "$(dirname "$f")"
+	if [ "$(root_fstype)" = btrfs ]; then
+		btrfs filesystem mkswapfile --size "$size" "$f" >/dev/null || die "could not create $f"
+	else
+		fallocate -l "$size" "$f" 2>/dev/null || dd if=/dev/zero of="$f" bs=1M count=$(( $(to_bytes "$size") / 1048576 )) status=none
+		chmod 600 "$f"
+		mkswap -q "$f" || die "mkswap failed"
+	fi
+	fstab_del "${f#"$RIBBON_ROOT"} "
+	printf '%s none swap defaults,pri=10 0 0\n' "${f#"$RIBBON_ROOT"}" >> "${RIBBON_ROOT}/etc/fstab"
+	[ -z "$RIBBON_ROOT" ] && swapon -p 10 "$f"
+	ok "swap file ${f#"$RIBBON_ROOT"} ($size)"
+}
+
+remove_swapfile() {
+	local f; f=$(swapfile_path)
+	[ -e "$f" ] || return 0
+	[ -z "$RIBBON_ROOT" ] && swapoff "$f" 2>/dev/null
+	rm -f "$f"
+	fstab_del "${f#"$RIBBON_ROOT"} "
+	ok "removed swap file"
+}
+
+configure_resume() {
+	local f dev uuid off
+	cmdline_remove "$(cmdline_extra | tr ' ' '\n' | grep -E '^resume(_offset)?=' | tr '\n' ' ')"
+	rm -f "${RIBBON_ROOT}/etc/dracut.conf.d/30-ribbon-resume.conf"
+	[ "$HIBERNATE" = yes ] || return 0
+	f=$(swapfile_path)
+	if [ -e "$f" ]; then
+		dev=$(findmnt -no SOURCE -T "$f" | sed 's/\[.*\]//')
+		uuid=$(blkid -s UUID -o value "$dev")
+		if [ "$(root_fstype)" = btrfs ]; then
+			off=$(btrfs inspect-internal map-swapfile -r "$f")
+		else
+			off=$(filefrag -v "$f" | awk '$1=="0:" {print substr($4, 1, length($4)-2); exit}')
+		fi
+		cmdline_add "resume=UUID=$uuid" "resume_offset=$off"
+	else
+		dev=$(awk '$3=="swap" && $1 !~ /zram/ {print $1; exit}' "${RIBBON_ROOT}/etc/fstab")
+		[ -n "$dev" ] || die "hibernation needs a swap file or swap partition at least as large as RAM"
+		cmdline_add "resume=$dev"
+	fi
+	echo 'add_dracutmodules+=" resume "' > "${RIBBON_ROOT}/etc/dracut.conf.d/30-ribbon-resume.conf"
+	[ -z "$RIBBON_ROOT" ] && regen_initramfs
+	ok "hibernation configured"
+}
+
+cmd_set() {
+	local a
+	for a in "$@"; do
+		case "$a" in
+			zram=*) ZRAM_SIZE=${a#zram=} ;;
+			file=*) SWAPFILE_SIZE=${a#file=} ;;
+			hibernate=*) HIBERNATE=${a#hibernate=} ;;
+			algo=*) ZRAM_ALGO=${a#algo=} ;;
+			*) die "unknown setting '$a'" ;;
+		esac
+	done
+	[[ "$ZRAM_SIZE" =~ ^([0-9]+[KkMmGg]?|[0-9]+%|off)$ ]] || die "bad zram size '$ZRAM_SIZE' (e.g. 50%, 8G, off)"
+	[[ "$SWAPFILE_SIZE" =~ ^([0-9]+[KkMmGg]?|off)$ ]] || die "bad swap file size '$SWAPFILE_SIZE' (e.g. 16G, 24576M, off)"
+	[ "$SWAPFILE_SIZE" = off ] || [ "$(to_bytes "$SWAPFILE_SIZE")" -ge 41943040 ] || die "a swap file needs at least 40 MiB"
+	if [ "$HIBERNATE" = yes ] && [ "$SWAPFILE_SIZE" != off ]; then
+		local need; need=$(( $(mem_kib) * 1024 ))
+		[ "$(to_bytes "$SWAPFILE_SIZE")" -ge "$need" ] || warn "swap file is smaller than RAM; hibernation may fail"
+	fi
+	write_conf
+	if [ "$SWAPFILE_SIZE" = off ]; then remove_swapfile; else make_swapfile "$SWAPFILE_SIZE"; fi
+	configure_resume
+	if [ -z "$RIBBON_ROOT" ]; then
+		sysctl -q -p "/etc/sysctl.d/90-ribbon-swap.conf"
+		update_bootloader
+	fi
+}
+
+cmd_recommend() {
+	local gib=$(( $(mem_kib) / 1024 / 1024 ))
+	echo "RAM: ${gib} GiB"
+	if [ "$gib" -lt 32 ]; then
+		echo "Suggested: zram=50% file=$((40 - gib))G   (Star Citizen and similar games want ~40 GiB RAM+swap)"
+	else
+		echo "Suggested: zram=25% file=off   (add file=${gib}G hibernate=yes if you want hibernation)"
+	fi
+}
+
+cmd_status() {
+	swapon --show
+	zramctl 2>/dev/null
+	echo; cat "$CONF" 2>/dev/null
+}
+
+case "${1:-}" in
+	boot) cmd_boot ;;
+	set) need_root; shift; cmd_set "$@" ;;
+	status) cmd_status ;;
+	recommend) cmd_recommend ;;
+	-h|--help|"") usage ;;
+	*) usage >&2; exit 2 ;;
+esac

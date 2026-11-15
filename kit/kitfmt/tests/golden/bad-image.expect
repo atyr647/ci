@@ -1,0 +1,3 @@
+# bad-image.kit: damaged on purpose; every reader must refuse it as follows
+open ok
+verify fail image

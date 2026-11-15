@@ -1,0 +1,7 @@
+# Puts the saved battery charge limit back at boot (Settings, Power): ribbon-power-helper apply reads
+# /etc/ribbon/power-helper.conf and writes the threshold to each battery. No saved limit, nothing changes.
+type = scripted
+command = /usr/bin/ribbon-power-helper apply
+restart = false
+log-type = buffer
+depends-on: system

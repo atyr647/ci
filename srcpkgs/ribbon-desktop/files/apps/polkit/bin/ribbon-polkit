@@ -1,0 +1,7 @@
+#!/bin/sh
+# ribbon-polkit - the polkit authentication agent (Tcl/Tk, /usr/lib/ribbon/polkit). Autostarted by the
+# session; it asks for the password in a card and passes it to polkit-agent-helper-1.
+# No core files: a crash must not write the password to disk.
+# shellcheck disable=SC3045
+ulimit -c 0
+exec wish -encoding utf-8 /usr/lib/ribbon/polkit/main.tcl -name ribbon-polkit -- "$@"
