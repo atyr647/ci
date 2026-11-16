@@ -1,0 +1,300 @@
+make-4.4.1_1: configuring ...
+make-4.4.1_1: installed successfully.
+pahole-1.32_1: configuring ...
+pahole-1.32_1: installed successfully.
+linux6.18-headers-6.18.63_1: configuring ...
+linux6.18-headers-6.18.63_1: installed successfully.
+linux-headers-6.18_1: configuring ...
+linux-headers-6.18_1: installed successfully.
+dkms-3.3.0_1: configuring ...
+dkms-3.3.0_1: installed successfully.
+
+19 downloaded, 20 installed, 0 updated, 20 configured, 0 removed, 0 on hold.
+1 package will be downloaded:
+
+  nvidia-dkms-595.112.07_2 
+1 package will be installed:
+
+  nvidia-dkms-595.112.07_2 
+
+Size to download:             8805KB
+Size required on disk:          28MB
+Space available on disk:       103GB
+
+
+[*] Downloading packages
+nvidia-dkms-595.112.07_2.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+nvidia-dkms-595.112.07_2.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+nvidia-dkms-595.112.07_2.x86_64.xbps: [8804KB 0%] 109MB/s ETA: 00m00s
+nvidia-dkms-595.112.07_2.x86_64.xbps: [8804KB 1%] 484KB/s ETA: 00m54s
+nvidia-dkms-595.112.07_2.x86_64.xbps: 8804KB [avg rate: 26MB/s]
+Added DKMS module 'nvidia-595.112.07'.
+Building DKMS module 'nvidia-595.112.07' for kernel-6.18.63-ribbon_1... done.
+Installing DKMS module 'nvidia-595.112.07' for kernel-6.18.63-ribbon_1... done.
+Building DKMS module 'nvidia-595.112.07' for kernel-6.18.63_1... done.
+Installing DKMS module 'nvidia-595.112.07' for kernel-6.18.63_1... done.
+nvidia-dkms-595.112.07_2: verifying RSA signature...
+
+[*] Collecting package files
+nvidia-dkms-595.112.07_2: collecting files...
+
+[*] Unpacking packages
+nvidia-dkms-595.112.07_2: unpacking ...
+
+[*] Configuring unpacked packages
+nvidia-dkms-595.112.07_2: configuring ...
+nvidia-dkms-595.112.07_2: installed successfully.
+
+1 downloaded, 1 installed, 0 updated, 1 configured, 0 removed, 0 on hold.
+Sign command: /lib/modules/6.18.63-ribbon_1/build/scripts/sign-file
+Signing key: /var/lib/dkms/mok.key
+Public certificate (MOK): /var/lib/dkms/mok.pub
+
+Building module(s)........................ done.
+Signing module /var/lib/dkms/nvidia/595.112.07/build/nvidia.ko
+Signing module /var/lib/dkms/nvidia/595.112.07/build/nvidia-uvm.ko
+Signing module /var/lib/dkms/nvidia/595.112.07/build/nvidia-modeset.ko
+Signing module /var/lib/dkms/nvidia/595.112.07/build/nvidia-drm.ko
+nvidia 595.112.07: 4 modules
+9 packages will be downloaded:
+
+  libffi-3.3_2 
+  python3-3.14.8_1 
+  e2fsprogs-libs-1.47.2_1 
+  libsasl-2.1.28_3 
+  libldap-2.6.10_1 
+  mit-krb5-libs-1.21.3_1 
+  libtirpc-1.3.8_2 
+  libzfs-2.4.4_1 
+  zfs-2.4.4_1 
+9 packages will be installed:
+
+  libffi-3.3_2 
+  python3-3.14.8_1 
+  e2fsprogs-libs-1.47.2_1 
+  libsasl-2.1.28_3 
+  libldap-2.6.10_1 
+  mit-krb5-libs-1.21.3_1 
+  libtirpc-1.3.8_2 
+  libzfs-2.4.4_1 
+  zfs-2.4.4_1 
+
+Size to download:               43MB
+Size required on disk:          94MB
+Space available on disk:       103GB
+
+
+[*] Downloading packages
+libffi-3.3_2.x86_64.xbps.sig2: [512B 100%] 18MB/s ETA: 00m00s
+libffi-3.3_2.x86_64.xbps.sig2: 512B [avg rate: 18MB/s]
+libffi-3.3_2.x86_64.xbps: [19KB 20%] 78MB/s ETA: 00m00s
+libffi-3.3_2.x86_64.xbps: 19KB [avg rate: 377MB/s]
+libffi-3.3_2: verifying RSA signature...
+python3-3.14.8_1.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+python3-3.14.8_1.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+python3-3.14.8_1.x86_64.xbps: [7700KB 0%] 98MB/s ETA: 00m00s
+python3-3.14.8_1.x86_64.xbps: [7700KB 4%] 1011KB/s ETA: 00m21s
+python3-3.14.8_1.x86_64.xbps: 7700KB [avg rate: 23MB/s]
+python3-3.14.8_1: verifying RSA signature...
+e2fsprogs-libs-1.47.2_1.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+e2fsprogs-libs-1.47.2_1.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+e2fsprogs-libs-1.47.2_1.x86_64.xbps: [233KB 1%] 98MB/s ETA: 00m00s
+e2fsprogs-libs-1.47.2_1.x86_64.xbps: 233KB [avg rate: 5693MB/s]
+e2fsprogs-libs-1.47.2_1: verifying RSA signature...
+libsasl-2.1.28_3.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+libsasl-2.1.28_3.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+libsasl-2.1.28_3.x86_64.xbps: [55KB 7%] 100MB/s ETA: 00m00s
+libsasl-2.1.28_3.x86_64.xbps: 55KB [avg rate: 1374MB/s]
+libsasl-2.1.28_3: verifying RSA signature...
+libldap-2.6.10_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+libldap-2.6.10_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+libldap-2.6.10_1.x86_64.xbps: [194KB 2%] 93MB/s ETA: 00m00s
+libldap-2.6.10_1.x86_64.xbps: 194KB [avg rate: 4512MB/s]
+libldap-2.6.10_1: verifying RSA signature...
+mit-krb5-libs-1.21.3_1.x86_64.xbps.sig2: [512B 100%] 18MB/s ETA: 00m00s
+mit-krb5-libs-1.21.3_1.x86_64.xbps.sig2: 512B [avg rate: 18MB/s]
+mit-krb5-libs-1.21.3_1.x86_64.xbps: [756KB 0%] 118MB/s ETA: 00m00s
+mit-krb5-libs-1.21.3_1.x86_64.xbps: 756KB [avg rate: 22GB/s]
+mit-krb5-libs-1.21.3_1: verifying RSA signature...
+libtirpc-1.3.8_2.x86_64.xbps.sig2: [512B 100%] 15MB/s ETA: 00m00s
+libtirpc-1.3.8_2.x86_64.xbps.sig2: 512B [avg rate: 15MB/s]
+libtirpc-1.3.8_2.x86_64.xbps: [90KB 4%] 93MB/s ETA: 00m00s
+libtirpc-1.3.8_2.x86_64.xbps: 90KB [avg rate: 2089MB/s]
+libtirpc-1.3.8_2: verifying RSA signature...
+libzfs-2.4.4_1.x86_64.xbps.sig2: [512B 100%] 13MB/s ETA: 00m00s
+libzfs-2.4.4_1.x86_64.xbps.sig2: 512B [avg rate: 13MB/s]
+libzfs-2.4.4_1.x86_64.xbps: [1838KB 0%] 93MB/s ETA: 00m00s
+libzfs-2.4.4_1.x86_64.xbps: 1838KB [avg rate: 42GB/s]
+libzfs-2.4.4_1: verifying RSA signature...
+zfs-2.4.4_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+zfs-2.4.4_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+zfs-2.4.4_1.x86_64.xbps: [32MB 0%] 95MB/s ETA: 00m00s
+zfs-2.4.4_1.x86_64.xbps: [32MB 52%] 26MB/s ETA: 00m00s
+zfs-2.4.4_1.x86_64.xbps: 32MB [avg rate: 49MB/s]
+Byte-compiling python code in usr/lib/python3.14...
+Byte-compiling python3.14 code for module README.txt...
+Updating ldconfig(8) cache...
+Added DKMS module 'zfs-2.4.4'.
+Building DKMS module 'zfs-2.4.4' for kernel-6.18.63-ribbon_1... done.
+Installing DKMS module 'zfs-2.4.4' for kernel-6.18.63-ribbon_1... done.
+Building DKMS module 'zfs-2.4.4' for kernel-6.18.63_1... done.
+Installing DKMS module 'zfs-2.4.4' for kernel-6.18.63_1... done.
+zfs-2.4.4_1: verifying RSA signature...
+
+[*] Collecting package files
+libffi-3.3_2: collecting files...
+python3-3.14.8_1: collecting files...
+e2fsprogs-libs-1.47.2_1: collecting files...
+libsasl-2.1.28_3: collecting files...
+libldap-2.6.10_1: collecting files...
+mit-krb5-libs-1.21.3_1: collecting files...
+libtirpc-1.3.8_2: collecting files...
+libzfs-2.4.4_1: collecting files...
+zfs-2.4.4_1: collecting files...
+
+[*] Unpacking packages
+libffi-3.3_2: unpacking ...
+python3-3.14.8_1: unpacking ...
+python3-3.14.8_1: file `./usr/lib/python3.14/EXTERNALLY-MANAGED' won't be extracted, it matches a noextract pattern.
+python3-3.14.8_1: registered 'python' alternatives group
+Creating 'python' alternatives group symlink: pydoc -> /usr/bin/pydoc3.14
+Creating 'python' alternatives group symlink: python -> /usr/bin/python3.14
+Creating 'python' alternatives group symlink: python.1 -> /usr/share/man/man1/python3.14.1
+e2fsprogs-libs-1.47.2_1: unpacking ...
+libsasl-2.1.28_3: unpacking ...
+libldap-2.6.10_1: unpacking ...
+mit-krb5-libs-1.21.3_1: unpacking ...
+libtirpc-1.3.8_2: unpacking ...
+libzfs-2.4.4_1: unpacking ...
+zfs-2.4.4_1: unpacking ...
+
+[*] Configuring unpacked packages
+libffi-3.3_2: configuring ...
+libffi-3.3_2: installed successfully.
+python3-3.14.8_1: configuring ...
+python3-3.14.8_1: installed successfully.
+e2fsprogs-libs-1.47.2_1: configuring ...
+e2fsprogs-libs-1.47.2_1: installed successfully.
+libsasl-2.1.28_3: configuring ...
+libsasl-2.1.28_3: installed successfully.
+libldap-2.6.10_1: configuring ...
+libldap-2.6.10_1: installed successfully.
+mit-krb5-libs-1.21.3_1: configuring ...
+mit-krb5-libs-1.21.3_1: installed successfully.
+libtirpc-1.3.8_2: configuring ...
+libtirpc-1.3.8_2: installed successfully.
+libzfs-2.4.4_1: configuring ...
+libzfs-2.4.4_1: installed successfully.
+zfs-2.4.4_1: configuring ...
+zfs-2.4.4_1: installed successfully.
+
+9 downloaded, 9 installed, 0 updated, 9 configured, 0 removed, 0 on hold.
+Sign command: /lib/modules/6.18.63-ribbon_1/build/scripts/sign-file
+Signing key: /var/lib/dkms/mok.key
+Public certificate (MOK): /var/lib/dkms/mok.pub
+
+Running the pre_build script.................... done.
+Building module(s).......................... done.
+Signing module /var/lib/dkms/zfs/2.4.4/build/module/zfs.ko
+Signing module /var/lib/dkms/zfs/2.4.4/build/module/spl.ko
+Running the post_build script... done.
+zfs 2.4.4: 2 modules
+6 packages will be downloaded:
+
+  libaio-0.3.113_1 
+  libkeyutils-1.6.3_3 
+  libsodium-1.0.22_1 
+  liburcu-0.15.7_1 
+  bcachefs-tools-1.36.1_1 
+  bcachefs-dkms-1.36.1_1 
+6 packages will be installed:
+
+  libaio-0.3.113_1 
+  libkeyutils-1.6.3_3 
+  libsodium-1.0.22_1 
+  liburcu-0.15.7_1 
+  bcachefs-tools-1.36.1_1 
+  bcachefs-dkms-1.36.1_1 
+
+Size to download:             2688KB
+Size required on disk:        8201KB
+Space available on disk:       103GB
+
+
+[*] Downloading packages
+libaio-0.3.113_1.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+libaio-0.3.113_1.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+libaio-0.3.113_1.x86_64.xbps: [3668B 100%] 97MB/s ETA: 00m00s
+libaio-0.3.113_1.x86_64.xbps: 3668B [avg rate: 97MB/s]
+libaio-0.3.113_1: verifying RSA signature...
+libkeyutils-1.6.3_3.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+libkeyutils-1.6.3_3.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+libkeyutils-1.6.3_3.x86_64.xbps: [7508B 54%] 100MB/s ETA: 00m00s
+libkeyutils-1.6.3_3.x86_64.xbps: 7508B [avg rate: 184MB/s]
+libkeyutils-1.6.3_3: verifying RSA signature...
+libsodium-1.0.22_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+libsodium-1.0.22_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+libsodium-1.0.22_1.x86_64.xbps: [222KB 1%] 115MB/s ETA: 00m00s
+libsodium-1.0.22_1.x86_64.xbps: 222KB [avg rate: 6386MB/s]
+libsodium-1.0.22_1: verifying RSA signature...
+liburcu-0.15.7_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+liburcu-0.15.7_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+liburcu-0.15.7_1.x86_64.xbps: [57KB 7%] 98MB/s ETA: 00m00s
+liburcu-0.15.7_1.x86_64.xbps: 57KB [avg rate: 1381MB/s]
+liburcu-0.15.7_1: verifying RSA signature...
+bcachefs-tools-1.36.1_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+bcachefs-tools-1.36.1_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+bcachefs-tools-1.36.1_1.x86_64.xbps: [1722KB 0%] 98MB/s ETA: 00m00s
+bcachefs-tools-1.36.1_1.x86_64.xbps: [1722KB 13%] 2356KB/s ETA: 00m06s
+bcachefs-tools-1.36.1_1.x86_64.xbps: 1722KB [avg rate: 17MB/s]
+bcachefs-tools-1.36.1_1: verifying RSA signature...
+bcachefs-dkms-1.36.1_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+bcachefs-dkms-1.36.1_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+bcachefs-dkms-1.36.1_1.x86_64.xbps: [673KB 0%] 89MB/s ETA: 00m00s
+bcachefs-dkms-1.36.1_1.x86_64.xbps: 673KB [avg rate: 15GB/s]
+Added DKMS module 'bcachefs-1.36.1'.
+Building DKMS module 'bcachefs-1.36.1' for kernel-6.18.63-ribbon_1... done.
+Installing DKMS module 'bcachefs-1.36.1' for kernel-6.18.63-ribbon_1... done.
+Building DKMS module 'bcachefs-1.36.1' for kernel-6.18.63_1... done.
+Installing DKMS module 'bcachefs-1.36.1' for kernel-6.18.63_1... done.
+bcachefs-dkms-1.36.1_1: verifying RSA signature...
+
+[*] Collecting package files
+libaio-0.3.113_1: collecting files...
+libkeyutils-1.6.3_3: collecting files...
+libsodium-1.0.22_1: collecting files...
+liburcu-0.15.7_1: collecting files...
+bcachefs-tools-1.36.1_1: collecting files...
+bcachefs-dkms-1.36.1_1: collecting files...
+
+[*] Unpacking packages
+libaio-0.3.113_1: unpacking ...
+libkeyutils-1.6.3_3: unpacking ...
+libsodium-1.0.22_1: unpacking ...
+liburcu-0.15.7_1: unpacking ...
+bcachefs-tools-1.36.1_1: unpacking ...
+bcachefs-dkms-1.36.1_1: unpacking ...
+
+[*] Configuring unpacked packages
+libaio-0.3.113_1: configuring ...
+libaio-0.3.113_1: installed successfully.
+libkeyutils-1.6.3_3: configuring ...
+libkeyutils-1.6.3_3: installed successfully.
+libsodium-1.0.22_1: configuring ...
+libsodium-1.0.22_1: installed successfully.
+liburcu-0.15.7_1: configuring ...
+liburcu-0.15.7_1: installed successfully.
+bcachefs-tools-1.36.1_1: configuring ...
+bcachefs-tools-1.36.1_1: installed successfully.
+bcachefs-dkms-1.36.1_1: configuring ...
+bcachefs-dkms-1.36.1_1: installed successfully.
+
+6 downloaded, 6 installed, 0 updated, 6 configured, 0 removed, 0 on hold.
+Sign command: /lib/modules/6.18.63-ribbon_1/build/scripts/sign-file
+Signing key: /var/lib/dkms/mok.key
+Public certificate (MOK): /var/lib/dkms/mok.pub
+
+Building module(s)................ done.
+Signing module /var/lib/dkms/bcachefs/1.36.1/build/src/fs/bcachefs/bcachefs.ko
+bcachefs 1.36.1: 1 modules
+RESULT kernel-modules: ok (nvidia zfs bcachefs)

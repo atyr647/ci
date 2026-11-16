@@ -1,0 +1,11 @@
+[*] Updating repository `https://repo-default.voidlinux.org/current/x86_64-repodata' ...
+x86_64-repodata: [2171KB 0%] 122MB/s ETA: 00m00s
+x86_64-repodata: [2171KB 8%] 628KB/s ETA: 00m10s
+x86_64-repodata: 2171KB [avg rate: 7096KB/s]
+[*] Updating repository `https://repo-default.voidlinux.org/current/nonfree/x86_64-repodata' ...
+x86_64-repodata: [16KB 24%] 150MB/s ETA: 00m00s
+x86_64-repodata: 16KB [avg rate: 609MB/s]
+Do you want to import this public key? [Y/n] ERROR: Failed to import pubkey from https://repo-default.voidlinux.org/current: Resource temporarily unavailable
+`https://repo-default.voidlinux.org/current' repository has been RSA signed by "Void Linux"
+Fingerprint: 60:ae:0c:d6:f0:95:17:80:bc:93:46:7a:89:af:a3:2d
+RESULT kernel-firmware: FAILED (the firmware packages do not install)

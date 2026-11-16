@@ -1,0 +1,4 @@
+RESULT kernel-build: ok (6.18.63-ribbon_1, erofs-utils 1.9.4)
+RESULT kernel-modules: ok (nvidia zfs bcachefs)
+RESULT kernel-firmware: FAILED (the firmware packages do not install)
+RESULT kernel-images: ok (mkfs.erofs 1.9.4, 3 images verified in full)
