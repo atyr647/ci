@@ -1,0 +1,5 @@
+total 2627536
+drwxr-xr-x 2 root    root          4096 Nov 16 00:09 .
+drwxr-xr-x 8 builder builder       4096 Nov 16 00:09 ..
+-rw-r--r-- 1 root    root    2690580480 Nov 16 00:08 ribbon-0.1.0-x86_64.iso
+-rw-r--r-- 1 root    root            98 Nov 16 00:09 ribbon-0.1.0-x86_64.iso.sha256

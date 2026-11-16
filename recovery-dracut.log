@@ -1,0 +1,47 @@
+dracut[I]: Executing: /usr/bin/dracut --force --no-hostonly --kver 6.18.63_1 --add "btrfs ribbon-snapshot" /boot/initramfs-6.18.63_1.img
+dracut[I]: *** Including module: dash ***
+dracut[I]: *** Including module: i18n ***
+dracut[I]: *** Including module: drm ***
+dracut[I]: *** Including module: btrfs ***
+dracut[I]: *** Including module: crypt ***
+dracut[I]: *** Including module: crypt-lib ***
+dracut[I]: *** Including module: dm ***
+dracut[I]: *** Including module: fs-lib ***
+dracut[I]: *** Including module: kernel-modules ***
+dracut[I]: *** Including module: kernel-modules-extra ***
+dracut[I]: *** Including module: lvm ***
+dracut[I]: *** Including module: nvdimm ***
+dracut[I]: *** Including module: qemu ***
+dracut[I]: *** Including module: hwdb ***
+dracut[I]: *** Including module: lunmask ***
+dracut[I]: *** Including module: resume ***
+dracut[I]: *** Including module: rootfs-block ***
+dracut[I]: *** Including module: terminfo ***
+dracut[I]: *** Including module: udev-rules ***
+dracut[I]: *** Including module: virtfs ***
+dracut[I]: *** Including module: virtiofs ***
+dracut[I]: *** Including module: initqueue ***
+dracut[I]: *** Including module: usrmount ***
+dracut[I]: *** Including module: base ***
+dracut[I]: *** Including module: shell-interpreter ***
+dracut[I]: *** Including module: shutdown ***
+dracut[I]: *** Including module: ribbon-snapshot ***
+dracut[I]: *** Including module: zfs ***
+dracut-install: Failed to find module 'zfs'
+dracut[E]: FAILED:  /usr/lib/dracut/dracut-install -D /var/tmp/dracut.d2FoV5c/initramfs --kerneldir /usr/lib/modules/6.18.63_1 -m zfs
+dracut[I]: *** Including modules done ***
+dracut[I]: *** Installing kernel module dependencies ***
+dracut[I]: *** Installing kernel module dependencies done ***
+dracut[I]: *** Resolving dependencies for executables and libraries ***
+dracut[I]: *** Resolving dependencies for executables and libraries done ***
+dracut[I]: *** Generating early-microcode cpio image ***
+dracut[I]: *** Constructing AuthenticAMD.bin ***
+dracut[I]: *** Store current command line parameters ***
+dracut[I]: *** Stripping files ***
+dracut[I]: *** Stripping files done ***
+dracut[I]: *** Creating image file '/boot/initramfs-6.18.63_1.img' ***
+dracut[I]: *** Hardlinking files ***
+dracut[I]: *** Hardlinking files done ***
+dracut[E]: Cannot execute compression command 'zstd', falling back to default
+dracut[I]: Using auto-determined compression method 'pigz'
+dracut[I]: *** Creating initramfs image file '/boot/initramfs-6.18.63_1.img' done ***

@@ -1,0 +1,20 @@
+total 3568
+drwxr-xr-x 2 builder builder    4096 Nov 15 23:52 .
+drwxr-xr-x 8 builder builder    4096 Nov 16 00:09 ..
+-rw-r--r-- 1 builder builder   62770 Nov 15 23:52 base-files-0.146_1.x86_64.xbps
+-rw-r--r-- 1 builder builder 1052050 Nov 15 23:52 font-jetbrains-mono-2.304_1.x86_64.xbps
+-rw-r--r-- 1 builder builder  156375 Nov 15 23:52 mk4tcl-2.4.9.7_1.x86_64.xbps
+-rw-r--r-- 1 builder builder  245067 Nov 15 23:52 mkkitfs-1.0.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder    5516 Nov 15 23:52 ribbon-base-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder 1097572 Nov 15 23:52 ribbon-desktop-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder   34953 Nov 15 23:52 ribbon-dinit-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder    5167 Nov 15 23:52 ribbon-gaming-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder   91622 Nov 15 23:52 ribbon-installer-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder  113243 Nov 15 23:52 ribbon-kit-0.1.0_2.x86_64.xbps
+-rw-r--r-- 1 builder builder   53234 Nov 15 23:52 ribbon-tools-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder   27788 Nov 15 23:52 tcl-unix-extra-0.3_1.x86_64.xbps
+-rw-r--r-- 1 builder builder   10306 Nov 15 23:52 tcl-unix-sockets-0.7_2.x86_64.xbps
+-rw-r--r-- 1 builder builder   37556 Nov 15 23:52 tkdnd-2.9.5_1.x86_64.xbps
+-rw-r--r-- 1 builder builder  528546 Nov 15 23:52 wlroots0.20-0.20.2_2.x86_64.xbps
+-rw-r--r-- 1 builder builder   84441 Nov 15 23:52 wlroots0.20-devel-0.20.2_2.x86_64.xbps
+-rw-rw-r-- 1 builder builder    5404 Nov 15 23:52 x86_64-repodata

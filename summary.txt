@@ -1,0 +1,68 @@
+RESULT mk4tcl: ok (Mk4tcl 2.4.9.7 built from the checked Metakit tarball)
+RESULT unix_sockets: ok (unix_sockets 0.7 built from the checked tarball)
+RESULT check: FAILED (tests/run.sh exit 1; 5549 ok, 14 FAIL, 34 skip: see check-fails.txt)
+kernel: vmlinuz  cmdline: root=live:CDLABEL=VOID_LIVE init=/sbin/init ro rd.luks=0 rd.md=0 rd.dm=0 loglevel=4 vconsole.unicode=1 vconsole.keymap=us locale.LANG=en_US.UTF-8 loglevel=3 split_lock_detect=off rd.overlayfs=1 console=tty0 console=ttyS0,115200 loglevel=6 ribbon.ci=1
+accel: -accel kvm -cpu host
+RIBBON-CI info probe started; kernel 6.18.63_1
+RIBBON-CI ok   dinit is PID 1 (after 0 s)
+RIBBON-CI ok   dbus is running (after 0 s)
+RIBBON-CI ok   elogind is running (after 0 s)
+RIBBON-CI ok   greetd is running (after 0 s)
+RIBBON-CI ok   NetworkManager is running (after 0 s)
+RIBBON-CI ok   polkit answers on the system bus (after 0 s)
+RIBBON-CI ok   the live user's labwc session is running (after 2 s)
+RIBBON-CI ok   the Ribbon shell is running (after 8 s)
+RIBBON-CI ok   the wallpaper is running (after 0 s)
+RIBBON-CI ok   the installer was offered (after 0 s)
+RIBBON-CI ok   PipeWire runs for the live user (after 0 s)
+RIBBON-CI info dinit [[+]     ] boot
+RIBBON-CI info dinit [{+}     ] system
+RIBBON-CI info dinit [{+}     ] early-pseudofs
+RIBBON-CI info dinit [{+}     ] early-kmods
+RIBBON-CI info dinit [{+}     ] udevd
+RIBBON-CI info dinit [{+}     ] early-udev-settle
+RIBBON-CI info dinit [{+}     ] early-udev-trigger
+RIBBON-CI info dinit [{+}     ] early-console
+RIBBON-CI info dinit [{+}     ] early-devices
+RIBBON-CI info dinit [{+}     ] early-filesystems
+RIBBON-CI info dinit [{+}     ] early-swap
+RIBBON-CI info dinit [{+}     ] early-sysctl
+RIBBON-CI info dinit [{+}     ] early-misc
+RIBBON-CI info dinit [{+}     ] early-apparmor
+RIBBON-CI info dinit [{+}     ] loginready
+RIBBON-CI info dinit [{+}     ] dbus (pid: 1208)
+RIBBON-CI info dinit [{+}     ] dbus-prepare
+RIBBON-CI info dinit [{+}     ] elogind (pid: 1215)
+RIBBON-CI info dinit [{+}     ] turnstiled (pid: 1207)
+RIBBON-CI info dinit [{+}     ] local.target
+RIBBON-CI info dinit [{+}     ] runit-compat
+RIBBON-CI info dinit [{+}     ] bluetoothd (pid: 1214)
+RIBBON-CI info dinit [{+}     ] agetty@tty3 (pid: 1220)
+RIBBON-CI info dinit [{+}     ] agetty@tty2 (pid: 1219)
+RIBBON-CI info dinit [     {-}] scx (exit status: 0)
+RIBBON-CI info dinit [{+}     ] power-profiles-daemon (pid: 1213)
+RIBBON-CI info dinit [{+}     ] ribbon-ci-probe (pid: 1218)
+RIBBON-CI info dinit [{+}     ] greetd (pid: 1216)
+RIBBON-CI info dinit [{+}     ] NetworkManager (pid: 1212)
+RIBBON-CI ok   no dinit service failed
+RIBBON-CI info memory 3300 MiB available; load 1.16 0.27 0.09
+RIBBON-CI ok   a screenshot of the session was taken (87102 bytes)
+RIBBON-CI done
+RESULT boot: ok
+recovery: building the disk image
+recovery: kernel 6.18.63_1  cmdline: root=UUID=ca05945f-5cbc-4747-879d-75879fb9e523 rootfstype=btrfs rootflags=subvol=@ rw console=tty0 console=ttyS0,115200 loglevel=6 ribbon.ci=1
+recovery: boot 1 (Tcl and kit broken, one try armed)
+  boot 1: ribbon-boot: trying the updated system (0 tries left after this one)
+  boot 1: ribbon-boot-ok
+  boot 1: ribbon-boot-ok: no login screen within 150 s; restarting (0 tries left before snapshot 1)
+  boot 1: ribbon-boot-ok
+recovery: boot 2 (the tries are used up)
+  boot 2: ribbon-boot: the updated system did not reach the login screen; starting snapshot 1
+  boot 2: ribbon-boot: booted snapshot 1 (fallback) with a temporary writable overlay
+  boot 2: ribbon-boot-ok
+  boot 2: ribbon-boot-ok (pid: 988)
+  boot 2: ribbon-boot-ok: this boot of a snapshot reached the login screen (session 1); the updated system stays set aside
+  boot 2: ribbon-boot-ok
+RESULT recovery: ok
+run: https://github.com/atyr647/ci/actions/runs/43776549241
+revision: 54f74fd

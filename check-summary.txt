@@ -1,0 +1,3 @@
+RESULT mk4tcl: ok (Mk4tcl 2.4.9.7 built from the checked Metakit tarball)
+RESULT unix_sockets: ok (unix_sockets 0.7 built from the checked tarball)
+RESULT check: FAILED (tests/run.sh exit 1; 5549 ok, 14 FAIL, 34 skip: see check-fails.txt)
