@@ -1,0 +1,192 @@
+[*] Updating repository `https://repo-default.voidlinux.org/current/x86_64-repodata' ...
+x86_64-repodata: [2166KB 0%] 115MB/s ETA: 00m00s
+x86_64-repodata: [2166KB 1%] 172KB/s ETA: 01m06s
+x86_64-repodata: 2166KB [avg rate: 11MB/s]
+[*] Updating repository `https://repo-default.voidlinux.org/current/nonfree/x86_64-repodata' ...
+x86_64-repodata: [16KB 24%] 126MB/s ETA: 00m00s
+x86_64-repodata: 16KB [avg rate: 510MB/s]
+12 packages will be downloaded:
+
+  linux-firmware-amd-20260810_1 
+  linux-firmware-intel-20260810_1 
+  linux-firmware-network-20260810_1 
+  linux-firmware-broadcom-20260810_1 
+  linux-firmware-nvidia-20260810_1 
+  alsa-ucm-conf-1.2.16.1_1 
+  sof-firmware-2025.12.2_1 
+  ipw2100-firmware-1.3_6 
+  ipw2200-firmware-3.1_6 
+  zd1211-firmware-1.5_3 
+  wifi-firmware-1.3_4 
+  wireless-regdb-2026.09.03_1 
+12 packages will be installed:
+
+  linux-firmware-amd-20260810_1 
+  linux-firmware-intel-20260810_1 
+  linux-firmware-network-20260810_1 
+  linux-firmware-broadcom-20260810_1 
+  linux-firmware-nvidia-20260810_1 
+  alsa-ucm-conf-1.2.16.1_1 
+  sof-firmware-2025.12.2_1 
+  ipw2100-firmware-1.3_6 
+  ipw2200-firmware-3.1_6 
+  zd1211-firmware-1.5_3 
+  wifi-firmware-1.3_4 
+  wireless-regdb-2026.09.03_1 
+
+Size to download:              601MB
+Size required on disk:         650MB
+Space available on disk:       103GB
+
+
+[*] Downloading packages
+linux-firmware-amd-20260810_1.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+linux-firmware-amd-20260810_1.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+linux-firmware-amd-20260810_1.x86_64.xbps: [30MB 0%] -- stalled -- ETA: 00m00s
+linux-firmware-amd-20260810_1.x86_64.xbps: [30MB 17%] 14MB/s ETA: 00m04s
+linux-firmware-amd-20260810_1.x86_64.xbps: [30MB 66%] 15MB/s ETA: 00m00s
+linux-firmware-amd-20260810_1.x86_64.xbps: 30MB [avg rate: 23MB/s]
+linux-firmware-amd-20260810_1: verifying RSA signature...
+linux-firmware-intel-20260810_1.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+linux-firmware-intel-20260810_1.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+linux-firmware-intel-20260810_1.x86_64.xbps: [13MB 0%] 106MB/s ETA: 00m00s
+linux-firmware-intel-20260810_1.x86_64.xbps: [13MB 5%] 63MB/s ETA: 00m16s
+linux-firmware-intel-20260810_1.x86_64.xbps: 13MB [avg rate: 1090MB/s]
+linux-firmware-intel-20260810_1: verifying RSA signature...
+linux-firmware-network-20260810_1.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+linux-firmware-network-20260810_1.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 0%] 67MB/s ETA: 00m00s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 4%] 18MB/s ETA: 00m23s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 8%] 18MB/s ETA: 00m22s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 12%] 18MB/s ETA: 00m21s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 16%] 18MB/s ETA: 00m20s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 20%] 18MB/s ETA: 00m19s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 24%] 18MB/s ETA: 00m18s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 28%] 18MB/s ETA: 00m17s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 32%] 18MB/s ETA: 00m16s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 37%] 18MB/s ETA: 00m15s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 41%] 18MB/s ETA: 00m14s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 45%] 18MB/s ETA: 00m13s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 49%] 18MB/s ETA: 00m12s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 53%] 18MB/s ETA: 00m11s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 57%] 18MB/s ETA: 00m10s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 61%] 18MB/s ETA: 00m09s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 65%] 18MB/s ETA: 00m08s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 70%] 18MB/s ETA: 00m07s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 74%] 18MB/s ETA: 00m06s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 78%] 18MB/s ETA: 00m05s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 82%] 18MB/s ETA: 00m04s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 87%] 18MB/s ETA: 00m03s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 91%] 18MB/s ETA: 00m02s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 95%] 18MB/s ETA: 00m01s
+linux-firmware-network-20260810_1.x86_64.xbps: [437MB 99%] 18MB/s ETA: 00m00s
+linux-firmware-network-20260810_1.x86_64.xbps: 437MB [avg rate: 18MB/s]
+linux-firmware-network-20260810_1: verifying RSA signature...
+linux-firmware-broadcom-20260810_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+linux-firmware-broadcom-20260810_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+linux-firmware-broadcom-20260810_1.x86_64.xbps: [12MB 0%] 109MB/s ETA: 00m00s
+linux-firmware-broadcom-20260810_1.x86_64.xbps: [12MB 96%] 19MB/s ETA: 00m00s
+linux-firmware-broadcom-20260810_1.x86_64.xbps: 12MB [avg rate: 20MB/s]
+linux-firmware-broadcom-20260810_1: verifying RSA signature...
+linux-firmware-nvidia-20260810_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+linux-firmware-nvidia-20260810_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+linux-firmware-nvidia-20260810_1.x86_64.xbps: [105MB 0%] 112MB/s ETA: 00m00s
+linux-firmware-nvidia-20260810_1.x86_64.xbps: [105MB 11%] 20MB/s ETA: 00m07s
+linux-firmware-nvidia-20260810_1.x86_64.xbps: [105MB 28%] 19MB/s ETA: 00m04s
+linux-firmware-nvidia-20260810_1.x86_64.xbps: [105MB 47%] 19MB/s ETA: 00m03s
+linux-firmware-nvidia-20260810_1.x86_64.xbps: [105MB 65%] 19MB/s ETA: 00m02s
+linux-firmware-nvidia-20260810_1.x86_64.xbps: [105MB 83%] 19MB/s ETA: 00m00s
+linux-firmware-nvidia-20260810_1.x86_64.xbps: 105MB [avg rate: 22MB/s]
+linux-firmware-nvidia-20260810_1: verifying RSA signature...
+alsa-ucm-conf-1.2.16.1_1.x86_64.xbps.sig2: [512B 100%] 18MB/s ETA: 00m00s
+alsa-ucm-conf-1.2.16.1_1.x86_64.xbps.sig2: 512B [avg rate: 18MB/s]
+alsa-ucm-conf-1.2.16.1_1.x86_64.xbps: [126KB 3%] 109MB/s ETA: 00m00s
+alsa-ucm-conf-1.2.16.1_1.x86_64.xbps: 126KB [avg rate: 3418MB/s]
+alsa-ucm-conf-1.2.16.1_1: verifying RSA signature...
+sof-firmware-2025.12.2_1.x86_64.xbps.sig2: [512B 100%] 16MB/s ETA: 00m00s
+sof-firmware-2025.12.2_1.x86_64.xbps.sig2: 512B [avg rate: 16MB/s]
+sof-firmware-2025.12.2_1.x86_64.xbps: [2994KB 0%] 103MB/s ETA: 00m00s
+sof-firmware-2025.12.2_1.x86_64.xbps: 2994KB [avg rate: 75GB/s]
+sof-firmware-2025.12.2_1: verifying RSA signature...
+ipw2100-firmware-1.3_6.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+ipw2100-firmware-1.3_6.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+ipw2100-firmware-1.3_6.x86_64.xbps: [174KB 2%] 103MB/s ETA: 00m00s
+ipw2100-firmware-1.3_6.x86_64.xbps: 174KB [avg rate: 4465MB/s]
+ipw2100-firmware-1.3_6: verifying RSA signature...
+ipw2200-firmware-3.1_6.x86_64.xbps.sig2: [512B 100%] 18MB/s ETA: 00m00s
+ipw2200-firmware-3.1_6.x86_64.xbps.sig2: 512B [avg rate: 18MB/s]
+ipw2200-firmware-3.1_6.x86_64.xbps: [147KB 2%] 98MB/s ETA: 00m00s
+ipw2200-firmware-3.1_6.x86_64.xbps: 147KB [avg rate: 3579MB/s]
+ipw2200-firmware-3.1_6: verifying RSA signature...
+zd1211-firmware-1.5_3.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+zd1211-firmware-1.5_3.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+zd1211-firmware-1.5_3.x86_64.xbps: [12KB 34%] 109MB/s ETA: 00m00s
+zd1211-firmware-1.5_3.x86_64.xbps: 12KB [avg rate: 319MB/s]
+zd1211-firmware-1.5_3: verifying RSA signature...
+wifi-firmware-1.3_4.x86_64.xbps.sig2: [512B 100%] 9091KB/s ETA: 00m00s
+wifi-firmware-1.3_4.x86_64.xbps.sig2: 512B [avg rate: 9091KB/s]
+wifi-firmware-1.3_4.x86_64.xbps: [544B 100%] 17MB/s ETA: 00m00s
+wifi-firmware-1.3_4.x86_64.xbps: 544B [avg rate: 17MB/s]
+wifi-firmware-1.3_4: verifying RSA signature...
+wireless-regdb-2026.09.03_1.x86_64.xbps.sig2: [512B 100%] 8621KB/s ETA: 00m00s
+wireless-regdb-2026.09.03_1.x86_64.xbps.sig2: 512B [avg rate: 8621KB/s]
+wireless-regdb-2026.09.03_1.x86_64.xbps: [9.8KB 40%] 81MB/s ETA: 00m00s
+wireless-regdb-2026.09.03_1.x86_64.xbps: 9.8KB [avg rate: 199MB/s]
+wireless-regdb-2026.09.03_1: verifying RSA signature...
+
+[*] Collecting package files
+linux-firmware-amd-20260810_1: collecting files...
+linux-firmware-intel-20260810_1: collecting files...
+linux-firmware-network-20260810_1: collecting files...
+linux-firmware-broadcom-20260810_1: collecting files...
+linux-firmware-nvidia-20260810_1: collecting files...
+alsa-ucm-conf-1.2.16.1_1: collecting files...
+sof-firmware-2025.12.2_1: collecting files...
+ipw2100-firmware-1.3_6: collecting files...
+ipw2200-firmware-3.1_6: collecting files...
+zd1211-firmware-1.5_3: collecting files...
+wifi-firmware-1.3_4: collecting files...
+wireless-regdb-2026.09.03_1: collecting files...
+
+[*] Unpacking packages
+linux-firmware-amd-20260810_1: unpacking ...
+linux-firmware-intel-20260810_1: unpacking ...
+linux-firmware-network-20260810_1: unpacking ...
+linux-firmware-broadcom-20260810_1: unpacking ...
+linux-firmware-nvidia-20260810_1: unpacking ...
+alsa-ucm-conf-1.2.16.1_1: unpacking ...
+sof-firmware-2025.12.2_1: unpacking ...
+ipw2100-firmware-1.3_6: unpacking ...
+ipw2200-firmware-3.1_6: unpacking ...
+zd1211-firmware-1.5_3: unpacking ...
+wifi-firmware-1.3_4: unpacking ...
+wireless-regdb-2026.09.03_1: unpacking ...
+
+[*] Configuring unpacked packages
+linux-firmware-amd-20260810_1: configuring ...
+linux-firmware-amd-20260810_1: installed successfully.
+linux-firmware-intel-20260810_1: configuring ...
+linux-firmware-intel-20260810_1: installed successfully.
+linux-firmware-network-20260810_1: configuring ...
+linux-firmware-network-20260810_1: installed successfully.
+linux-firmware-broadcom-20260810_1: configuring ...
+linux-firmware-broadcom-20260810_1: installed successfully.
+linux-firmware-nvidia-20260810_1: configuring ...
+linux-firmware-nvidia-20260810_1: installed successfully.
+alsa-ucm-conf-1.2.16.1_1: configuring ...
+alsa-ucm-conf-1.2.16.1_1: installed successfully.
+sof-firmware-2025.12.2_1: configuring ...
+sof-firmware-2025.12.2_1: installed successfully.
+ipw2100-firmware-1.3_6: configuring ...
+ipw2100-firmware-1.3_6: installed successfully.
+ipw2200-firmware-3.1_6: configuring ...
+ipw2200-firmware-3.1_6: installed successfully.
+zd1211-firmware-1.5_3: configuring ...
+zd1211-firmware-1.5_3: installed successfully.
+wifi-firmware-1.3_4: configuring ...
+wifi-firmware-1.3_4: installed successfully.
+wireless-regdb-2026.09.03_1: configuring ...
+wireless-regdb-2026.09.03_1: installed successfully.
+
+12 downloaded, 12 installed, 0 updated, 12 configured, 0 removed, 0 on hold.
+RESULT kernel-firmware: ok (657 MiB from Void's packages, 400 MiB kept, xz)

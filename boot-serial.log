@@ -1,0 +1,20 @@
+c[?7l[2J[0mSeaBIOS (version 1.16.3-debian-1.16.3-2)
+
+
+iPXE (https://ipxe.org) 00:03.0 CA00 PCI2.10 PnP PMM+BEFCAD00+BEF0AD00 CA00
+Press Ctrl-B to configure iPXE (PCI 00:03.0)...                                                                               
+
+
+Booting from ROM...
+Probing EDD (edd=off to disable)... ok
+c[?7l[2JKBOOT release 6.18.64-ribbon_1
+KBOOT ok sched_ext
+KBOOT ok ntsync
+KBOOT ok erofs
+KBOOT ok erofs deflate
+KBOOT ok kit org.ribbon.firmware: mounted (2805 files)
+KBOOT ok kit org.ribbon.kmod.bcachefs: bcachefs loaded
+KBOOT ok kit org.ribbon.kmod.nvidia: mounted (4 files)
+KBOOT ok kit org.ribbon.kmod.zfs: zfs loaded
+KBOOT done
+[    2.261788] reboot: Power down

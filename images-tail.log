@@ -1,0 +1,41 @@
+[*] Updating repository `https://repo-default.voidlinux.org/current/x86_64-repodata' ...
+1 package will be downloaded:
+
+  libdeflate-1.26_1 
+2 packages will be installed:
+
+  libdeflate-1.26_1 
+  erofs-utils-1.9.4_1 
+
+Size to download:               60KB
+Size required on disk:         863KB
+Space available on disk:       101GB
+
+
+[*] Downloading packages
+libdeflate-1.26_1.x86_64.xbps.sig2: [512B 100%] 17MB/s ETA: 00m00s
+libdeflate-1.26_1.x86_64.xbps.sig2: 512B [avg rate: 17MB/s]
+libdeflate-1.26_1.x86_64.xbps: [60KB 6%] 87MB/s ETA: 00m00s
+libdeflate-1.26_1.x86_64.xbps: [60KB 53%] 172KB/s ETA: 00m00s
+libdeflate-1.26_1.x86_64.xbps: 60KB [avg rate: 322KB/s]
+libdeflate-1.26_1: verifying RSA signature...
+
+[*] Verifying package integrity
+erofs-utils-1.9.4_1: verifying SHA256 hash...
+
+[*] Collecting package files
+libdeflate-1.26_1: collecting files...
+erofs-utils-1.9.4_1: collecting files...
+
+[*] Unpacking packages
+libdeflate-1.26_1: unpacking ...
+erofs-utils-1.9.4_1: unpacking ...
+
+[*] Configuring unpacked packages
+libdeflate-1.26_1: configuring ...
+libdeflate-1.26_1: installed successfully.
+erofs-utils-1.9.4_1: configuring ...
+erofs-utils-1.9.4_1: installed successfully.
+
+1 downloaded, 2 installed, 0 updated, 2 configured, 0 removed, 0 on hold.
+RESULT kernel-images: ok (mkfs.erofs 1.9.4, 4 images verified in full)

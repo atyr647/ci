@@ -1,0 +1,6 @@
+RESULT kernel-build: ok (6.18.64-ribbon_1, erofs-utils 1.9.4)
+RESULT kernel-modules: ok (nvidia zfs bcachefs)
+RESULT kernel-firmware: ok (657 MiB from Void's packages, 400 MiB kept, xz)
+RESULT kernel-images: ok (mkfs.erofs 1.9.4, 4 images verified in full)
+RESULT kernel-kits: ok (org.ribbon.firmware.kit org.ribbon.kmod.bcachefs.kit org.ribbon.kmod.nvidia.kit org.ribbon.kmod.zfs.kit)
+RESULT kernel-boot: ok (6.18.64-ribbon_1: 8 checks)

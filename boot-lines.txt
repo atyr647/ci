@@ -1,0 +1,10 @@
+KBOOT release 6.18.64-ribbon_1
+KBOOT ok sched_ext
+KBOOT ok ntsync
+KBOOT ok erofs
+KBOOT ok erofs deflate
+KBOOT ok kit org.ribbon.firmware: mounted (2805 files)
+KBOOT ok kit org.ribbon.kmod.bcachefs: bcachefs loaded
+KBOOT ok kit org.ribbon.kmod.nvidia: mounted (4 files)
+KBOOT ok kit org.ribbon.kmod.zfs: zfs loaded
+KBOOT done
