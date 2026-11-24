@@ -1,0 +1,35 @@
+  ok   publishing puts each system kit whole beside its bundle, and no app kit
+  ok   kit grab of a system kit by name wants kitd, and says so when there is no system bus; nothing is fetched
+  ok   a system kit FILE is refused in a person's own scope: it is never handed to kitd (root would read a file the person chose)
+  ok   kitd grab base mesa: done
+  ok   /usr is the merged view of both kits
+  ok   the snapshot was taken first, labelled with the plan, then pruned
+  ok   the change's log entry records the snapshot's id
+  ok   mesa's service: reloaded, found running, restarted
+  ok   mesa's udev rules: udev reloaded
+  ok   the whole kits were fetched (D46 A) and moved into the store
+  ok   the view's device list names both kits, for the initramfs
+  ok   kitd refuses an app kit (exit 2), nothing changes
+  ok   kitd check: mesa 1 -> 2
+  ok   the new view shows mesa 2; base is still there
+  ok   a program that had mesa 1 open keeps reading mesa 1
+  ok   the snapshot before the update is labelled with it
+  ok   sshd restarted again (mesa changed)
+  ok   kitd grab linux: installed, tagged restart, 'Restart to finish'
+  ok   the restart record of this boot names it
+  ok   linux's files are in /usr; nothing restarted (no service changed)
+  ok   a snapshot that fails: refused before anything is staged, /usr unchanged
+  ok   a root without snapshots: the change happens and says so
+  ok   toss tools: gone from /usr
+  ok   crash right after the switch: the set has tools, the view not yet
+  ok   recovery finishes the set's switch
+  ok   recovery brings the /usr view to the set: /usr shows tools
+  ok   the next system change first puts the view right: /usr shows tools (and then not linux)
+  ok   plain kit rewind (undo the toss): tools back in /usr, a snapshot first
+  ok   kit rewind mesa: back to mesa 1, its row tagged held
+  ok   udev rules that don't reload are said; sshd is restarted all the same
+  ok   kit check doesn't offer the held mesa
+  ok   a system kit with a desktop effect: grabbed, its entry in /usr from the image, nothing exported there
+  ok   an essential system kit can't be tossed
+  ok   an app kit with a service effect: refused by kit
+  ok   system kits: 34 checks

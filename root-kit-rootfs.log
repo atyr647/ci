@@ -1,0 +1,14 @@
+  ok   a root is made from the repository's kits: 6 system kits, /usr is view 1
+  ok   /usr is left empty and nothing is left mounted: it is the view's place
+  ok   the skeleton of a merged-/usr system: /bin, /sbin, /lib, /lib64 link into /usr; /tmp 1777, /root 0700
+  ok   the view's device list names each kit as the installed system will see it (/var/lib/kit/store/…), not by the build's path
+  ok   the kits' defaults are in the root's /etc and /var (ribbon.conf, kit.conf, /var/lib/greetd)
+  ok   kitd's working files are not left in the root
+  ok   the root's installed set holds what was asked for and what it needs
+  ok   the boot hook mounts the view as the root's /usr (it says: ribbon-boot: /usr is view 1 (6 system kits))
+  ok   /usr at boot is the kits' files, every one equal (492 files)
+  ok   through the skeleton's links the system's paths resolve (/bin/ribbon-session, /lib/ribbon/common.sh)
+  ok   unmounted, no loop device is left
+  ok   a directory that is not empty is refused
+  ok   kitd --root refuses / (the running system is changed through the bus)
+  ok   a kit the repository does not have fails the build, nothing left mounted

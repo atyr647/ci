@@ -1,0 +1,187 @@
+making disks
+ribbon-install-probe: disks
+2
+  ok   probe prints a dict
+  ok   probe takes under 2 s on 6 disks (122 ms)
+  ok   install media is left out
+  ok   five disks listed
+  ok   GPT, size in bytes
+  ok   ESP found, with its free space
+  ok   partition start and size in bytes
+  ok   MSR and recovery types
+  ok   free space between Windows and recovery
+  ok   Fedora found by its os-release
+  ok   disk-level os list
+  ok   empty disk: no table, all free
+  ok   probe left nothing mounted
+  ok   Windows 11 found (kernel version)
+  ok   NTFS used space
+  ok   resize: safe, min above use, max leaves 32 GiB
+  ok   alongside possible on the Windows disk, kernels on its EFI partition
+  ok   alongside possible with a 100 MB EFI partition: a boot partition is made
+  ok   resize max leaves Ribbon 32 GiB plus the 1 GiB boot partition
+  ok   alongside possible without an EFI partition: one is made
+ribbon-install-probe: Windows safety
+  ok   hibernated Windows: not safe (exit 0, a dict)
+  ok   the why explains Fast Startup
+  ok   after a full shutdown: safe
+WARNING: Dirty volume mount was forced by the 'force' mount option.
+  ok   the dirty flag is set (ntfsinfo)
+  ok   dirty NTFS: not safe, says why
+  ok   after a clean shutdown: safe again
+--check-answers
+  ok   erase on the empty disk
+  ok   the install media is refused
+  ok   unknown disk
+  ok   bad user name
+  ok   system user name
+  ok   bad host name
+  ok   unknown mode
+  ok   custom swap
+  ok   custom swap over half of Ribbon's space
+  ok   custom swap too small
+  ok   custom swap on ZFS
+  ok   GRUB with bcachefs
+  ok   unknown driver id
+  ok   game drive on the erased disk
+  ok   game drive elsewhere
+  ok   alongside: keep 30 GiB
+  ok   alongside: Windows below its minimum
+  ok   alongside: Ribbon below 32 GiB
+  ok   alongside: small EFI partition, a boot partition instead
+  ok   alongside: small EFI partition, with GRUB
+  ok   alongside: the boot partition comes out of Ribbon's 32 GiB-plus share
+  ok   alongside: ZFS still needs a whole disk
+  ok   alongside: no EFI partition on the disk
+  ok   alongside: not the Windows partition
+  ok   manual: ESP, /, swap, kept data partition
+  ok   manual: no /
+  ok   manual: no EFI partition
+  ok   manual: /boot/efi needs GRUB
+  ok   manual: /boot/efi with GRUB
+  ok   manual: partition used twice
+  ok   manual: two at one mount point
+  ok   manual: / too small
+  ok   manual: overlapping new partitions
+  ok   manual: outside free space
+  ok   manual: / must be formatted
+  ok   manual: delete Fedora, / in its space and beyond
+  ok   manual: deleted, then used
+  ok   keymap with a variant
+  ok   account picture that isn't an image
+  ok   manual: ZFS
+  ok   ext4 for / is refused
+  ok   manual: ext4 for / is refused
+  ok   manual: a new ext4 partition is refused
+  ok   xfs for / is refused
+  ok   manual: xfs for / is refused
+  ok   manual: a new xfs partition is refused
+  ok   f2fs for / is refused
+  ok   manual: f2fs for / is refused
+  ok   manual: a new f2fs partition is refused
+  ok   manual: the existing ext4 partition mounted at /home
+ribbon-install --answers: erase (btrfs)
+  ok   DONE, exit 0
+  ok   only protocol lines
+  ok   steps 1 and 3 with their titles, no Encrypting
+  ok   rsync progress became percentages
+  ok   percentages never go down
+  ok   partitions: 2 GiB ESP + btrfs
+  ok   nothing left mounted
+  ok   btrfs subvolumes
+  ok   system copied, /home left out
+  ok   fstab: / and /boot by UUID
+ribbon-install --answers: from the live base device, with no overlay layer
+Creating regular file /tmp/ribbon-installer-test.hBNbFl/base.img
+  ok   DONE, from the base device
+  ok   the base device is let go of (not mounted)
+  ok   the system was copied from it
+  ok   with neither, it stops and names both
+ribbon-install --answers: erase, encrypted btrfs
+  ok   DONE
+  ok   the Encrypting step
+  ok   root is LUKS2
+  ok   passphrase from the secrets opens it
+  ok   the mapping was closed
+ribbon-install --answers: alongside Windows
+  ok   DONE
+  ok   only protocol lines
+  ok   Windows' filesystem is 30 GiB (32212251136)
+WARNING: Dirty volume mount was forced by the 'force' mount option.
+  ok   ntfsresize left it marked for Windows' own check
+  ok   Windows' partition is 30 GiB
+WARNING: Dirty volume mount was forced by the 'force' mount option.
+  ok   Windows' files are intact
+  ok   Ribbon's partition is right after Windows
+  ok   it fills the space up to the recovery partition
+  ok   the recovery partition is untouched
+  ok   the EFI partition was not reformatted
+  ok   fstab mounts the shared EFI partition at /boot
+  ok   Windows Boot Manager is still there
+ribbon-install --answers: alongside Windows with a 100 MB EFI partition
+  ok   DONE
+  ok   only protocol lines
+  ok   Windows' partition is 20 GiB
+  ok   a boot partition right after Windows
+  ok   it is XBOOTLDR, FAT32, 1 GiB
+  ok   the probe calls it xbootldr
+  ok   Ribbon's partition follows it, to the end of the disk
+  ok   only one EFI partition on the disk
+  ok   Windows' EFI partition was not reformatted
+  ok   nothing on it changed (Ribbon's kernels go elsewhere)
+  ok   fstab: the boot partition at /boot
+  ok   fstab: Windows' EFI partition at /boot/efi
+  ok   fstab: /boot before /boot/efi
+  ok   Limine reads the kernels from the boot partition (its GUID)
+ribbon-install --answers: alongside Windows, no EFI partition on its disk
+  ok   DONE
+  ok   a new EFI partition (FAT32, 1 GiB)
+  ok   fstab: it is /boot, no /boot/efi
+  ok   no XBOOTLDR setting for Limine
+ribbon-install --answers: manual
+  ok   DONE
+  ok   new ESP (FAT32, 1 GiB), / (btrfs), swap
+  ok   the kept partition still holds Fedora
+  ok   fstab: / btrfs
+  ok   fstab: /boot
+  ok   fstab: swap
+  ok   fstab: the kept ext4 partition at /data, nofail
+  ok   system copied
+ribbon-install --answers: manual, deleting a partition (separate /home)
+  ok   DONE
+  ok   Fedora's partition was replaced by /home (btrfs)
+  ok   fstab: /home btrfs
+  ok   no @home subvolume next to a separate /home
+ribbon-install --answers: errors
+  ok   bad answers: ERROR line, exit != 0, nothing done
+  ok   answers with ext4 for /: one ERROR line, nothing done
+  ok   ribbon-install --fs ext4: one ERROR line, nothing done
+  ok   answers with xfs for /: one ERROR line, nothing done
+  ok   ribbon-install --fs xfs: one ERROR line, nothing done
+  ok   answers with f2fs for /: one ERROR line, nothing done
+  ok   ribbon-install --fs f2fs: one ERROR line, nothing done
+  ok   the disk was not touched
+ribbon-install --answers: the whole install (steps 4-6, a stand-in for chroot)
+  ok   the stand-in refuses a group the target lacks, as useradd does
+  ok   DONE, exit 0
+  ok   only protocol lines
+  ok   steps 1, 3, 4, 5 and 6 with their titles (no Encrypting)
+  ok   percentages never go down, and reach 100
+  ok   nothing left mounted
+  ok   the new system's commands, in order (groups it lacks left out)
+  ok   hostname and hosts
+  ok   time zone
+  ok   locale: LANG, and nothing of the base's edited from outside
+  ok   console keymap in /etc/vconsole.conf; rc.conf (Void's place) untouched on a base without xbps
+  ok   keyboard layout for the greeter and the desktop
+  ok   the account, its home in @home
+  ok   Windows on another disk: the hardware clock is local time (adjtime LOCAL, as Windows keeps it)
+  ok   no wheel group: an ERROR line naming it, no account made
+ribbon-install --answers: a system of kits (its /usr is a view)
+  ok   DONE: the install runs with /usr as the target's own view
+  ok   the hook was run on the target, and /usr was mounted there for the new system's steps
+  ok   nothing left mounted, the view included
+  ok   the installed root holds the view's files and an empty /usr (the view is mounted at boot)
+  ok   no Windows on the machine: no adjtime (the hardware clock is UTC) and no Windows entry for Limine
+  ok   no hook to mount the view with: an ERROR line saying so, not a system set up without its /usr
+installer disk tests: all checks passed

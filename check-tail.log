@@ -1,0 +1,400 @@
+  ok   the build had no network (only lo)
+  ok   the caller's environment did not reach the build
+  ok   the caller's home is hidden, the system is read-only, and the work directory is /run/build whatever it is outside
+  ok   build() does not see DESTDIR (stage() does): a build cannot compile the staging directory in
+  ok   what the recipe stages outside /usr travels as a default, mode kept
+  ok   the build's record names the sources' hashes, the recipe's, the sandbox, and that it was built against the host
+  ok   a second build makes the same image, byte for byte
+  ok   a recipe's new version replaces its old kit in OUT/kits
+  ok   a file the recipe links to from outside its directory is there in the sandbox
+  ok   a source with another sha256 is refused, and nothing of it is unpacked
+  ok   a recipe that stages /bin is refused (a recipe installs into /usr)
+  ok   a program that carries bytes after its ELF contents (an appended archive) is refused: stripping would take them off
+  ok   a file that names the staging directory is refused
+  ok   a failing build makes no kit
+  ok   a recipe's name is its directory's
+  ok   a missing source is said; the build itself never downloads
+  ok   every recipe in recipes/ reads (105)
+  ok   no two recipes make one kit
+-- 79-kit-image.sh
+  ok   kit-image.sh parses
+  ok   shellcheck: no warnings
+  ok   without arguments it says how it is called
+  ok   boot without an image says which file is missing
+  ok   the image's probe makes 30 checks and the verdict waits for its last line
+  ok   it says its kits are signed with the test keys (no machine trusts them)
+-- 79-kit-lint.sh
+  ok   Ribbon's recipes: 105 recipes (24 of the base set), 0 kits wanted
+  ok   a set in which every need is a recipe's, Ribbon's own or wanted passes (a base set that needs itself too)
+  ok   a need nothing makes and WANTED does not list is refused
+  ok   a WANTED line a recipe makes now is stale
+  ok   a WANTED line no recipe names is stale
+  ok   two recipes that make one kit are refused
+  ok   a base recipe that needs a kit outside the base set is refused
+  ok   a recipe without build_needs is refused (it would be built against the host)
+  ok     and so is a base recipe
+  ok     but not the stand-in (bootstrap), which is built against the host
+  ok   a BASE line without a recipe is refused
+  ok   a recipe that names the stand-in's kit is refused
+  ok   a recipe that does not read is refused
+-- 79-kit-ribbon-kits.sh
+  skip Ribbon kits (needs root: loop devices and mounts)
+-- 79-kit-rootfs.sh
+  skip a root from kits (needs root: loop devices and mounts)
+-- 79-kit-set.sh
+  ok   three recipes that need each other build as a set
+  ok   in the order they need each other (base, tool, app), not the alphabet's
+  ok   m-tool was built in a root that is z-base's kit and nothing else: no compiler, no /etc, nothing of the host
+  ok   a-app's build ran the tool from m-tool's kit
+  ok     and its root held what m-tool needs too (z-base), though the recipe names only m-tool
+  ok   each build's record says what its root was: the host for z-base, the kits and their images' hashes for a-app
+  ok   kits.txt lists the set, unmet.txt the run-time need no kit meets
+  ok   a second run builds nothing: every kit is up to date
+  ok   a new z-base rebuilds m-tool and a-app: their roots changed
+  ok   a build need that no recipe and no kit provides is refused before anything is built
+  ok   recipes that need each other in a circle are refused
+  ok   two kits of the set that bring one path are refused, the path named
+  ok   two recipes that make one kit are refused
+  ok   keep going: the failed recipe and what needs it are left out and said, the others are built, exit 1
+  ok   without it the first failure stops the set
+-- 79-kit-stages.sh
+  ok   a base set whose two recipes need each other and themselves to build is built, in three stages
+  ok   stage 0: the stand-in is built against the host, and its record says so
+  ok   stage 1: sh is built in the stand-in alone; its record names the stand-in's image and the needs it stood in for
+  ok     tool is built in the stand-in with sh's kit laid over it (and never its own, from an earlier run)
+  ok     there the kit's file took the place of the stand-in's (the one place a second bringer of a path is let in), and the stand-in's other files were still there
+  ok     the build was given the builder's compiler flags (-O2, no debug information)
+  ok   stage 2: tool is built in a root of stage 1's kits alone: nothing of the stand-in is in it
+  ok     its record names the kits, their images and the stage they came from
+  ok     and they are stage 1's own images
+  ok   stage 3, built in roots of stage 2's kits, is the set in OUT; the stand-in is not among its kits
+  ok     and both kits came out the same, byte for byte, as the stage before made them (same.txt)
+  ok     (stage 1's tool is not: its root was another)
+  ok   a second run builds nothing: the stand-in and every stage's kits are up to date
+  ok   bootstrap.sh OUT 1 stops after stage 1
+  ok   kit-set.sh leaves the base set and the stand-in to bootstrap.sh and builds the other recipes
+  ok     each in a root of the base set's kits (app's holds sh, which it names, and nothing else)
+  ok   named without a stage to take its needs from, the set is the circle it is: refused
+  ok   with KIT_SEED kit-set.sh builds it: needs that come from an earlier stage give no order (and the kits are stage 2's, byte for byte)
+  ok   KIT_SEED: a build need the seed does not hold is refused (nothing stands in for it)
+  ok   a stage is not built into the directory it is built from
+  ok   KIT_SEED and KIT_BOOTSTRAP together are refused
+  ok   KIT_BOOTSTRAP: a directory with no built stand-in is refused
+  ok   over the stand-in, two kits that bring one path are still refused
+  ok   a kit with a program that loads a library neither it nor a kit it needs holds is refused, the file and the library named
+  ok   with the need named (the kit that holds the library) it builds
+  ok   a recipe that stages /usr/sbin is refused (one directory for programs; likewise /usr/lib64)
+  ok   a kit with a program, built in a root without strip, is refused: it could not be stripped
+  ok     and so is any kit built in a root without find or head, which the search for programs needs (it would find nothing, and say nothing)
+-- 80-alttab-native.sh
+  skip alttab native: labwc 0.7 here; run with a test root (labwc 0.8 or later; CI: build/ci/labwc020.sh): tests/alttab-native/run.sh ROOT
+-- 80-alttab.sh
+  ok   switcher grid and app list (tests/shell-alttab.tcl)
+  ok   ribbon-shell-watch and ribbon-shell-switch build with -Werror
+  ok   switcher board apps draws headless
+  ok   switcher board many draws headless
+  ok   switcher board scrolled draws headless
+  ok   switcher board stack draws headless
+  ok   switcher board close draws headless
+  ok   switcher board quit draws headless
+  ok   switcher board game draws headless
+-- 90-install-caches.sh
+  ok   install made applications/mimeinfo.cache, with the entry's types
+  ok   the cache is not one of the package's files (it is the base's)
+  ok   GLib (gio mime) sees the type the entry declares
+  ok   install made the MIME database again: it knows application/x-ribbon-kit
+  ok   after uninstall GLib names nothing
+  ok   uninstall leaves the scratch root empty (the caches too)
+  ok   a staging DESTDIR without CACHES=1 holds the package's files and no caches
+install caches: all checks passed
+-- 90-install.sh
+  (Space Grotesk from this host: the template's checksum)
+  ok   make build
+  ok   make install DESTDIR=... PREFIX=/usr (533 files and links)
+  ok   a second make install leaves the same tree
+  ok   PREFIX other than /usr is refused
+  ok   mk4tcl installs what its template installs (9 paths (0 external or left out, 0 state directories))
+  ok   mk4tcl: state directories = the template's make_dirs
+  ok   mkkitfs installs what its template installs (21 paths (0 external or left out, 0 state directories))
+  ok   mkkitfs: state directories = the template's make_dirs
+  ok   ribbon-base installs what its template installs (23 paths (0 external or left out, 0 state directories))
+  ok   ribbon-base: state directories = the template's make_dirs
+  ok   ribbon-desktop installs what its template installs (409 paths (1 external or left out, 3 state directories))
+  ok   ribbon-desktop: state directories = the template's make_dirs (/var/lib/greetd 0750 _greeter _greeter)
+  ok   ribbon-dinit installs what its template installs (82 paths (13 external or left out, 13 state directories))
+  ok   ribbon-dinit: state directories = the template's make_dirs (/etc/dinit.d/boot.d 0755 root root /etc/ribbon/sv2dinit 0755 root root /etc/zzz.d/suspend 0755 root root /etc/zzz.d/resume 0755 root root /var/log/dinit 0755 root root /var/lib/ribbon/dinit.d 0755 root root)
+  ok   ribbon-gaming installs what its template installs (29 paths (0 external or left out, 0 state directories))
+  ok   ribbon-gaming: state directories = the template's make_dirs
+  ok   ribbon-installer installs what its template installs (28 paths (0 external or left out, 0 state directories))
+  ok   ribbon-installer: state directories = the template's make_dirs
+  ok   ribbon-kit installs what its template installs (60 paths (0 external or left out, 0 state directories))
+  ok   ribbon-kit: state directories = the template's make_dirs
+  ok   ribbon-tools installs what its template installs (55 paths (0 external or left out, 3 state directories))
+  ok   ribbon-tools: state directories = the template's make_dirs (/var/lib/ribbon 0755 root root)
+  ok   tcl-unix-extra installs what its template installs (12 paths (0 external or left out, 0 state directories))
+  ok   tcl-unix-extra: state directories = the template's make_dirs
+  ok   make install = every package's install together
+  ok   the dependencies report names every declared dependency
+  ok   79 shell and 249 Tcl scripts parse; every #! is one of: #!/bin/sh #!/bin/bash #!/usr/bin/env tclsh #!/usr/bin/tclsh #!/usr/bin/env wish #!/usr/bin/wish #!/usr/sbin/nft -f
+  ok   ribbon-shell runs from the installed tree (its window drawn, no missing file)
+  ok   ribbon-settings runs from the installed tree (its window drawn, no missing file)
+  ok   ribbon-editor runs from the installed tree (its window drawn, no missing file)
+  ok   all three still running when stopped
+  ok   make uninstall removes everything it installed
+install: all checks passed
+-- 91-installer-pages.sh
+  ok   the Hardware page's swap sizes are postinstall's (126 cases)
+  ok   ribbon-install's help and boot loader prompt promise no Secure Boot
+  ok   installer rules: 44 checks
+  ok   installing
+  ok   the close button asks first: Stop installing or Keep installing (4%)
+  ok   Escape keeps installing
+  ok   so does Keep installing
+  ok   the install ran to Done
+  ok   the install finished although the window was asked to close; Done's close button quits
+  ok   the Hardware page matches the board (blurred RMSE 0.00975519)
+installer pages: all checks passed
+-- 92-installer-small-screens.sh
+  ok   1366x768: 28 checks (window, pages clear of the footer, Hardware scrolls)
+  ok   1280x800: 28 checks (window, pages clear of the footer, Hardware scrolls)
+  ok   1440x900: 28 checks (window, pages clear of the footer, Hardware scrolls)
+  ok   welcome at 1280x800 matches its Inst-C board (blurred RMSE 0.0126376)
+  ok   keyboard at 1366x768 matches its Inst-C board (blurred RMSE 0.0139632)
+  ok   hardware at 1366x768 matches its Inst-C board (blurred RMSE 0.00955261)
+  ok   you at 1366x768 matches its Inst-C board (blurred RMSE 0.00459923)
+  ok   summary at 1366x768 matches its Inst-C board (blurred RMSE 0.00822087)
+  ok   progress at 1366x768 matches its Inst-C board (blurred RMSE 0.00849129)
+  ok   done at 1366x768 matches its Inst-C board (blurred RMSE 0.00521072)
+  ok   1366x768: labwc shows the compact window, 1100x640
+  ok   1366x768: it lies between the top bars and the dock: 64 to 704
+  ok   1366x768: labwc keeps it where it asks, at 133, 64
+  ok   1366x768: Continue is on screen (the accent at its place)
+  ok   1366x768: the dock is at the screen's foot, below the window
+  ok   1366x768: under labwc the window matches the Inst-C1 board (blurred RMSE 0.0131102)
+  ok   1280x800: labwc shows the compact window, 1100x640
+  ok   1280x800: it lies between the top bars and the dock: 80 to 720
+  ok   1280x800: labwc keeps it where it asks, at 90, 80
+  ok   1280x800: Continue is on screen (the accent at its place)
+  ok   1280x800: the dock is at the screen's foot, below the window
+  ok   1280x800: under labwc the window matches the Inst-C1 board (blurred RMSE 0.0135448)
+  ok   1280x720: labwc shows the 1100x640 window at 90, 54
+  ok   1280x720: clear of the top bars
+  ok   1280x720: Continue is on screen
+  ok   1024x768: labwc shows the 1024x640 window at 0, 64
+  ok   1024x768: clear of the top bars
+  ok   1024x768: Continue is on screen
+  ok   1920x1080,1366x768: labwc shows the 1100x720 window at 410, 194
+  ok   1920x1080,1366x768: clear of the top bars
+  ok   1920x1080,1366x768: Continue is on screen
+installer on small screens: all checks passed
+-- 93-ci-kernel.sh
+  ok   the base is Void's linux6.18 configuration as pinned in SOURCE (void-linux6.18-x86_64.config)
+  ok   the base is a 6.18 x86_64 configuration
+  ok   kconfig.sh dir: the base, then 2 fragments in order
+  ok   the fragments lint (well formed, known to the base, one value each)
+  ok   merged, every fragment line is in place
+  ok   merged, no option is set twice
+  ok   on Void's base, check names what Ribbon changes (deflate erofs, sched_ext, xz modules, the trims)
+  ok   a setting olddefconfig dropped fails check, by name
+  ok   a changed value fails check
+  ok   a "not set" option that olddefconfig removed holds
+  ok   lint refuses an option the base does not know (a typo)
+  ok   lint refuses two values for one option
+  ok   lint refuses a malformed line
+  ok   lint refuses an option without its prompt (the media types without CONFIG_MEDIA_SUPPORT_FILTER=y), by name
+  ok   merged: the media filter on, digital TV off, cameras and analog TV kept
+  ok   lint passes a gated option set to the default it keeps without its gate
+  ok   the trims keep VM storage, laptop Wi-Fi and cameras, desktop 10 GbE
+  ok   the template builds ribbon-kernel 6.18.64, the version Void's base configuration is for
+  ok   the release is 6.18.64-ribbon_1 (never Void's <version>_<revision>)
+  ok   distfiles: linux-6.18 and patch-6.18.64, both pinned
+  ok   the checksums are Void's (and kernel.org's) for linux 6.18 and patch-6.18.64
+  ok   depends: Void's linux6.18 (the fallback entry) and the headers DKMS needs
+  ok   kernel-hooks run for 6.18.64-ribbon_1 (initramfs, Limine)
+  ok   subpackages ribbon-kernel-headers and ribbon-kernel-dbg, linked in srcpkgs as void-packages has them
+  ok   do_configure writes a .config with every fragment and the release -ribbon_1
+  ok   do_configure stops, naming it, when olddefconfig drops a fragment line
+  ok   do_configure stops when build/kernel/config was not copied in
+  ok   modules are compressed with xz the way the kernel reads them, never zstd (D38)
+  ok   erofs-utils 1.9.4 (1.9 or later, D68)
+  ok   erofs-utils is pinned (its snapshot tarball and checksum)
+  ok   erofs-utils: deflate through libdeflate, no zstd
+  ok   tag: kernel-6.18.64_1-fafa89427d4d
+  ok   the key follows the inputs (a fragment changed is a new build)
+  ok   the key follows kitpack (kitfmt.tcl changed is a new build: the cached kits would be stale)
+  ok   build/kernel/dkms: each patch is for a module kit's module, and the key follows them
+  ok   modules: a module's patches are applied before DKMS builds it (one that does not apply stops it; Void's container gets patch), and a failed build shows DKMS's make.log
+  ok   prepare: both templates replace Void's, build/kernel/config goes in as files/config, the subpackage links
+  ok   fw-xz: zstd firmware becomes xz with CRC32 (FW_LOADER_COMPRESS_XZ), and its links follow
+  ok   fw-xz refuses a damaged firmware file and leaves it as it was
+  ok   verify-image: an image matches its tree
+  ok   verify-image refuses an image that lacks a file of its tree
+  ok   verify-image refuses changed bytes
+  ok   a module kit's manifest: system kind, its kernel kit exactly (D47), the module effect
+  ok   the firmware kit's manifest has the firmware effect
+  ok   kits: the image packed as a system kit and verified with kitfmt (every chunk, the image, the root)
+  ok   boot verdict: every check ok and done passes
+  ok   boot verdict: a FAIL line fails, by name
+  ok   boot verdict: a test that did not finish fails
+  ok   boot verdict: another kernel's release fails
+  ok   the test initramfs's /init parses, checks every module's vermagic and mounts each kit at its offset
+  ok   the boot test's /init runs kmod's insmod and modinfo by their paths, and takes only module files (.ko, .ko.xz) for modules
+  ok   kernel.yml: on the ribbon-image push; Void's container builds, kits and the boot test follow, the release only after them (7 kernel.sh commands, all known)
+  ok   ribbon-image.yml: the image job fetches the kernel's release into out/repo before it builds the packages
+  ok   build-packages.sh lays out ribbon-kernel's config and subpackage links, collects every subpackage
+  ok   build-packages.sh without a kernel release: ribbon-kernel is not built, and ribbon-base does not depend on it
+  ok   build-packages.sh with the release fetched: the prebuilt ribbon-kernel is used (indexed in xbps-src's repository before ribbon-base), and ribbon-base depends on it
+  ok   build-packages.sh collects an override's subpackages (bcachefs-dkms beside bcachefs-tools)
+  ok   fetch: no release for the key is one notice line, nothing fetched, exit 0 (Void's linux6.18 only)
+  ok   fetch: a published release is downloaded into the repository and checked
+  ok   fetch refuses a corrupt release
+  ok   fetch fails when GitHub cannot be reached (only a 404 means no release)
+  ok   the boot test's module list holds every module named (loop and erofs), in order
+  ok   boot test: a kernel's release is read from its setup header (nothing from a file that is no bzImage)
+  ok   boot test: the live boot must be Ribbon's kernel when the repository holds it; the recovery disk uses the ISO kernel's own modules
+  ok   ribbon-image.yml's Void container installs patch, which build-iso.sh needs for Ribbon's kernel (and says so when it is missing)
+  ok   export.sh sends kernel.yml as .github/workflows/kernel.yml
+  ok   shellcheck (warnings): kernel.sh, kconfig.sh, this step
+-- 93-ci-labwc020.sh
+  ok   the workflow: root, checks, installed image, results on ribbon-results-labwc020
+  ok   labwc020.sh runs the five test halves and the wlr-randr key check against the root
+  ok   the root has ffmpeg6, as ribbon-desktop depends on it (the HUD's game art)
+  ok   verdict: ok lines and notes pass
+  ok   verdict: a FAIL line fails
+  ok   verdict: an exit status fails
+  ok   verdict: a skip under the root fails
+  ok   verdict: the no-capture fallback under the root fails
+  ok   verdict: the no-ForEach fallback under the root fails
+  ok   verdict: the old-foot fallback under the root fails
+  ok   verdict: a check that ran nothing fails
+  ok   verdict: a part skipped with a note fails
+  ok   verdict: a helper that does not build fails
+  ok   verdict: the headless fallback of the input checks fails
+  ok   verdict: a key that did not reach the sheet (cancelled by hand) fails
+  ok   verdict: S10's host-only note is not a skip
+  ok   verdict: a timing run that measured nothing fails
+  ok   verdict: an empty timing log fails
+  ok   verdict: cold and warm timings pass
+  ok   randr-keys: wlr-randr --json with every fixture key passes (headless labwc)
+  ok   randr-keys: a key Settings → Display reads that wlr-randr lacks fails, and is named
+  ok   randr-keys stops the labwc it started
+  skip check-root and the HUD root switch (needs root's rights and a static busybox)
+  ok   initrd-extra: a newc archive of root's files: ribbon-ci/ and the pre-pivot hook in dracut-ng's hook directory, no /var or /lib entry
+  ok   the hook does nothing without ribbon.ci.install=1
+  ok   with ribbon.ci.install=1 the hook enables the install service in the live root and brings the probe
+  ok   the services run the scripts where the hook and the install put them
+  ok   summarize: one ok RESULT line per area
+  ok   summarize: a FAIL fails its area, an area with no check fails
+  ok   probe: the pre-update snapshot check takes ribbon-snapshot pre's snapper type (single) and ribbon-update's description
+  ok   probe: the update checks that the boot fallback was armed, so the cleared counter after it means something
+  ok   install: the log's end is relayed without rsync's progress meter (91 bytes for a 3 MB meter)
+  ok   the guest's ribbon-install options are all ribbon-install's (11)
+  ok   the guest's secrets are read by secrets.tcl as the password
+  ok   installed-test.sh takes the ISO by its absolute path, and says when there is none
+  ok   shellcheck: no warnings in the new scripts
+CI labwc 0.20 and installed image: all checks passed
+-- 93-ci.sh
+  ok   the export holds only the shipped sources and the named test suite (1822 files)
+  ok   the export has what the check job runs (tests/run.sh, Makefile, build/ci/check.sh, kit test data)
+  ok   no docs, design boards, wip or out/ exported
+  ok   every repository file the tests read is exported
+  ok   export.sh refuses a private key in srcpkgs (srcpkgs/ribbon-base/files/deploy.pem holds a private key or an access token)
+  ok   export.sh refuses an access token in tests (tests/fixtures/token.txt holds a private key or an access token)
+  ok   export.sh refuses a secret key that is not one of the named test keys (tests/fixtures/other/stray.key holds a private key or an access token)
+  ok   export.sh refuses a secret key pasted into a test script (tests/kit-embedded.tcl holds a private key or an access token)
+  ok   export.sh refuses a test key that a shipped file trusts (the test key tests/fixtures/kittrust/test-root.pub is trusted by shipped files)
+  ok   the clone's own HEAD still exports
+  ok   check-tools.txt names every command and pkg-config module the tests look for (101 commands, 21 pkg-config modules)
+  ok   every package check.sh installs exists on ubuntu-24.04 (105)
+  ok   ribbon-image.yml: check job first (build/ci/check.sh), image beside it, boot publishes both; build.yml the same
+  ok   build-mk4tcl.sh refuses a tarball that is not the template's distfile
+  ok   build-mk4tcl.sh refuses a directory that is not the Metakit source
+  ok   make install without a built Mk4tcl skips mk4tcl and installs nothing of it
+  ok   make install-mk4tcl puts down the template's files (/usr/lib/Mk4tcl2.4.9.7, the license)
+  ok   package require Mk4tcl loads the installed library
+  ok   the installed kit reads a kit with the installed Mk4tcl (kit info)
+  ok   uninstalled again, kit cannot read the kit (Mk4tcl is what it read it with)
+ci: all checks passed
+-- 93-installer-dialogs.sh
+  ok   dialog matches Inst-11-Partition (blurred RMSE 0.00501573)
+  ok   edit matches Inst-11b-Edit (blurred RMSE 0.00570819)
+  ok   unsafe matches Inst-12-Unsafe (blurred RMSE 0.00933102)
+  ok   check matches Inst-13-Check (blurred RMSE 0.0061446)
+  ok   planerror matches Inst-13b-PlanError (blurred RMSE 0.00619973)
+  ok   error matches Inst-14-Error (blurred RMSE 0.0081314)
+  ok   close matches Inst-14b-Close (blurred RMSE 0.00695352)
+  ok   noprobe matches Inst-15-NoProbe (blurred RMSE 0.00476573)
+  ok   hwscroll matches Inst-5b-Hardware (blurred RMSE 0.00973113)
+  ok   1440x900: 38 checks (sheets, Check again, refusals, Try again, scrolling, placement)
+  ok   1366x768: 38 checks (sheets, Check again, refusals, Try again, scrolling, placement)
+  ok   Stop installing closes the window and stops the backend (it never finished)
+  ok   Stop installing leaves no answers file (the name, the disk) in the runtime dir
+  ok   1366x768: the whole flow, 55 checks, to Done
+installer dialogs: all checks passed
+-- 93-iso-check.sh
+  ok   an image of Ribbon's packages, each kernel with zfs and bcachefs, passes (a package the image does not install is not looked at)
+  ok   a package database xbps-pkgdb -a finds faults in (an edited package file, an unmet dependency) stops the image, each fault shown
+  ok   a package Ribbon builds that the image took from Void's repository (same version) stops the image, named
+  ok   and so does another version than the repository's
+  ok   a kernel whose bcachefs module DKMS did not build stops the image, the kernel and module named
+  ok   an image with nothing of Ribbon's repository installed is refused
+  ok   build-iso.sh gives void-mklive Ribbon's repository last (the one it looks in first)
+  ok   build-iso.sh stops if mklive's order changes; iso-postsetup.sh runs iso-check.sh on the image
+  ok   greetd's override makes /etc/pam.d/greetd a configuration file (once), and build-packages.sh applies it
+  ok     and stops on a template whose conf_files it does not know
+  ok   the live installer launcher is build/live-rootfs's /etc/xdg/labwc/autostart (iso-postsetup.sh edits nothing in /usr), and live-cleanup knows it
+  ok   base-files' /etc/issue names Ribbon OS
+  ok   live-cleanup puts base-files' /etc/issue back over void-mklive's live greeting
+  ok   no template depends on wine-32bit (Void's wine is WoW64 and replaces it)
+  ok   build-iso.sh asks dracut for the overlayfs live root (rd.overlay=1)
+-- 94-session-labwc.sh
+  ok   dinit: labwc is running
+  ok   dinit: the shell is running
+  ok   dinit: the wallpaper (ribbon-wall) is running
+  ok   dinit: the polkit agent is running
+  ok   dinit: the idle timers (power-idle.tcl) is running
+  ok   dinit: the first-login welcome is running
+  ok   dinit: kanshi was started
+  ok   dinit: labwc runs with Ribbon's desktop name and config layers (--merge-config)
+  ok   dinit: ribbon-firstrun ran (the default scheme applied, the welcome flagged)
+  ok   dinit: ribbon-input wrote labwc's input layer from input.conf, and the session's programs have its layout (XKB_DEFAULT_LAYOUT=de)
+  ok   dinit: the shell's bars are mapped on XWayland (:0)
+  ok   dinit: the welcome's window is up
+  ok   dinit: the bars are on screen (grim: the left bar's band)
+  ok   dinit: the wallpaper is drawn under them (spread 36.9 in the middle)
+  ok   dinit: org.freedesktop.Notifications is owned on the session bus (the shell's server)
+  ok   dinit: the polkit agent registered with polkitd
+  ok   dinit: the autostart gave the user dinit the session's environment (WAYLAND_DISPLAY, DISPLAY, XDG_CURRENT_DESKTOP)
+  ok   dinit: ribbon-wall was started as a user service
+  ok   dinit: ribbon-shell was started as a user service
+  ok   dinit: ribbon-polkit was started as a user service
+  ok   dinit: ribbon-hud was started as a user service
+  ok   dinit: kanshi was started as a user service
+  ok   dinit: ribbon-power-idle was started as a user service
+  ok   dinit: the HUD's daemon is up (--auto, Show when a game starts is on by default)
+  ok   dinit: no error or traceback in the services' output, the session's or the shell's log
+  ok   keep: labwc is running
+  ok   keep: the shell is running
+  ok   keep: the wallpaper (ribbon-wall) is running
+  ok   keep: the polkit agent is running
+  ok   keep: the idle timers (power-idle.tcl) is running
+  ok   keep: the first-login welcome is running
+  ok   keep: kanshi was started
+  ok   keep: labwc runs with Ribbon's desktop name and config layers (--merge-config)
+  ok   keep: ribbon-firstrun ran (the default scheme applied, the welcome flagged)
+  ok   keep: ribbon-input wrote labwc's input layer from input.conf, and the session's programs have its layout (XKB_DEFAULT_LAYOUT=de)
+  ok   keep: the shell's bars are mapped on XWayland (:0)
+  ok   keep: the welcome's window is up
+  ok   keep: the bars are on screen (grim: the left bar's band)
+  ok   keep: the wallpaper is drawn under them (spread 36.9 in the middle)
+  ok   keep: org.freedesktop.Notifications is owned on the session bus (the shell's server)
+  ok   keep: the polkit agent registered with polkitd
+  ok   keep: without dinit the autostart starts the services itself
+  ok   keep: the HUD's daemon is up (--auto)
+  ok   keep: no error or traceback in the services' output, the session's or the shell's log
+the session under labwc: all checks passed
+
+[1m== Package names exist in Void[0m
+checked against 39648 Void packages: 0 missing
+
+[32mall checks passed[0m

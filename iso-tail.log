@@ -1,0 +1,400 @@
+tpm2-tss-4.2.1_1: configured successfully.
+traceroute-2.1.6_1: configuring ...
+traceroute-2.1.6_1: configured successfully.
+turnstile-0.1.11_1: configuring ...
+turnstile-0.1.11_1: configured successfully.
+twolame-0.4.0_2: configuring ...
+twolame-0.4.0_2: configured successfully.
+tzdata-2026f_1: configuring ...
+tzdata-2026f_1: configured successfully.
+uchardet-0.0.8_1: configuring ...
+uchardet-0.0.8_1: configured successfully.
+udisks2-2.10.1_1: configuring ...
+udisks2-2.10.1_1: configured successfully.
+unzip-6.0_15: configuring ...
+unzip-6.0_15: configured successfully.
+upower-1.91.3_2: configuring ...
+upower-1.91.3_2: configured successfully.
+usbutils-019_1: configuring ...
+usbutils-019_1: configured successfully.
+util-linux-2.41.4_1: configuring ...
+util-linux-2.41.4_1: configured successfully.
+util-linux-common-2.41.4_1: configuring ...
+util-linux-common-2.41.4_1: configured successfully.
+v4l-utils-1.32.0_1: configuring ...
+v4l-utils-1.32.0_1: configured successfully.
+vali-0.1.1_1: configuring ...
+vali-0.1.1_1: configured successfully.
+vkBasalt-0.3.2.10_1: configuring ...
+vkBasalt-0.3.2.10_1: configured successfully.
+vmaf-3.0.0_1: configuring ...
+vmaf-3.0.0_1: configured successfully.
+volume_key-0.3.12_10: configuring ...
+volume_key-0.3.12_10: conUpdating MIME database...
+Updating GTK+ icon cache for /usr/share/icons/hicolor...
+Updating MIME database...
+Updating MIME database...
+Updating MIME database...
+Updating MIME database...
+Updating GTK+ icon cache for /usr/share/icons/hicolor...
+Updating MIME database...
+Added DKMS module 'zfs-2.4.4'.
+Building DKMS module 'zfs-2.4.4' for kernel-6.18.64-ribbon_1... done.
+Installing DKMS module 'zfs-2.4.4' for kernel-6.18.64-ribbon_1... done.
+Building DKMS module 'zfs-2.4.4' for kernel-6.18.65_1... done.
+Installing DKMS module 'zfs-2.4.4' for kernel-6.18.65_1... done.
+Regenerating initramfs images using kernel hook 20-initramfs
+dracut[I]: Executing: /usr/bin/dracut --force boot/initramfs-6.18.64-ribbon_1.img 6.18.64-ribbon_1
+dracut[I]: 74nfs: Could not find any command of 'rpcbind portmap'!
+dracut[I]: *** Including module: bash ***
+dracut[I]: *** Including module: i18n ***
+dracut[I]: No KEYMAP configured.
+dracut[I]: *** Including module: drm ***
+dracut[I]: *** Including module: btrfs ***
+dracut[I]: *** Including module: crypt ***
+dracut[I]: *** Including module: crypt-lib ***
+dracut[I]: *** Including module: dm ***
+dracut[I]: *** Including module: fs-lib ***
+dracut[I]: *** Including module: kernel-modules ***
+dracut[I]: *** Including module: kernel-modules-extra ***
+dracut[I]: *** Including module: lvm ***
+dracut[I]: *** Including module: resume ***
+dracut[I]: *** Including module: rootfs-block ***
+dracut[I]: *** Including module: terminfo ***
+dracut[I]: *** Including module: udev-rules ***
+dracut[I]: *** Including module: initqueue ***
+dracut[I]: *** Including module: usrmount ***
+dracut[I]: *** Including module: base ***
+dracut[I]: *** Including module: shell-interpreter ***
+dracut[I]: *** Including module: shutdown ***
+dracut[I]: *** Including module: ribbon-snapshot ***
+dracut[I]: *** Including module: ribbon-usrview ***
+dracut[I]: *** Including module: zfs ***
+dracut[I]: *** Including modules done ***
+dracut[I]: *** Installing kernel module dependencies ***
+dracut[I]: *** Installing kernel module dependencies done ***
+dracut[I]: *** Resolving dependencies for executables and libraries ***
+dracut[I]: *** Resolving dependencies for executables and libraries done ***
+dracut[I]: *** Generating early-microcode cpio image ***
+dracut[I]: *** Store current command line parameters ***
+dracut[I]: *** Stripping files ***
+dracut[I]: *** Stripping files done ***
+dracut[I]: *** Creating image file '/boot/initramfs-6.18.64-ribbon_1.img.tmp' ***
+dracut[I]: *** Hardlinking files ***
+dracut[I]: *** Hardlinking files done ***
+dracut[E]: Cannot execute compression command 'zstd', falling back to default
+dracut[I]: Using auto-determined compression method 'pigz'
+dracut[I]: *** Creating initramfs image file '/boot/initramfs-6.18.64-ribbon_1.img.tmp' done ***
+dracut[I]: *** Moving image file '/boot/initramfs-6.18.64-ribbon_1.img.tmp' to '/boot/initramfs-6.18.64-ribbon_1.img' ***
+dracut[I]: *** Moving image file '/boot/initramfs-6.18.64-ribbon_1.img.tmp' to '/boot/initramfs-6.18.64-ribbon_1.img' done ***
+dracut[I]: Executing: /usr/bin/dracut --force boot/initramfs-6.18.65_1.img 6.18.65_1
+dracut[I]: 74nfs: Could not find any command of 'rpcbind portmap'!
+dracut[I]: *** Including module: bash ***
+dracut[I]: *** Including module: i18n ***
+dracut[I]: No KEYMAP configured.
+dracut[I]: *** Including module: drm ***
+dracut[I]: *** Including module: btrfs ***
+dracut[I]: *** Including module: crypt ***
+dracut[I]: *** Including module: crypt-lib ***
+dracut[I]: *** Including module: dm ***
+dracut[I]: *** Including module: fs-lib ***
+dracut[I]: *** Including module: kernel-modules ***
+dracut[I]: *** Including module: kernel-modules-extra ***
+dracut[I]: *** Including module: lvm ***
+dracut[I]: *** Including module: resume ***
+dracut[I]: *** Including module: rootfs-block ***
+dracut[I]: *** Including module: terminfo ***
+dracut[I]: *** Including module: udev-rules ***
+dracut[I]: *** Including module: initqueue ***
+dracut[I]: *** Including module: usrmount ***
+dracut[I]: *** Including module: base ***
+dracut[I]: *** Including module: shell-interpreter ***
+dracut[I]: *** Including module: shutdown ***
+dracut[I]: *** Including module: ribbon-snapshot ***
+dracut[I]: *** Including module: ribbon-usrview ***
+dracut[I]: *** Including module: zfs ***
+dracut[I]: *** Including modules done ***
+dracut[I]: *** Installing kernel module dependencies ***
+dracut[I]: *** Installing kernel module dependencies done ***
+dracut[I]: *** Resolving dependencies for executables and libraries ***
+dracut[I]: *** Resolving dependencies for executables and libraries done ***
+dracut[I]: *** Generating early-microcode cpio image ***
+dracut[I]: *** Store current command line parameters ***
+dracut[I]: *** Stripping files ***
+dracut[I]: *** Stripping files done ***
+dracut[I]: *** Creating image file '/boot/initramfs-6.18.65_1.img.tmp' ***
+dracut[I]: *** Hardlinking files ***
+dracut[I]: *** Hardlinking files done ***
+dracut[E]: Cannot execute compression command 'zstd', falling back to default
+dracut[I]: Using auto-determined compression method 'pigz'
+dracut[I]: *** Creating initramfs image file '/boot/initramfs-6.18.65_1.img.tmp' done ***
+dracut[I]: *** Moving image file '/boot/initramfs-6.18.65_1.img.tmp' to '/boot/initramfs-6.18.65_1.img' ***
+dracut[I]: *** Moving image file '/boot/initramfs-6.18.65_1.img.tmp' to '/boot/initramfs-6.18.65_1.img' done ***
+ManageImages not enabled, no action taken
+figured successfully.
+vulkan-loader-1.4.363.0_1: configuring ...
+vulkan-loader-1.4.363.0_1: configured successfully.
+vulkan-loader-32bit-1.4.363.0_1: configuring ...
+vulkan-loader-32bit-1.4.363.0_1: configured successfully.
+wayland-1.26.0_1: configuring ...
+wayland-1.26.0_1: configured successfully.
+wayland-32bit-1.26.0_1: configuring ...
+wayland-32bit-1.26.0_1: configured successfully.
+webrtc-audio-processing-1.3_1: configuring ...
+webrtc-audio-processing-1.3_1: configured successfully.
+webrtc-audio-processing-32bit-1.3_1: configuring ...
+webrtc-audio-processing-32bit-1.3_1: configured successfully.
+which-2.25_1: configuring ...
+which-2.25_1: configured successfully.
+wifi-firmware-1.3_4: configuring ...
+wifi-firmware-1.3_4: configured successfully.
+wine-11.22_1: configuring ...
+wine-11.22_1: configured successfully.
+wine-common-11.22_1: configuring ...
+wine-common-11.22_1: configured successfully.
+winetricks-20260125_1: configuring ...
+winetricks-20260125_1: configured successfully.
+wireless-regdb-2026.09.03_1: configuring ...
+wireless-regdb-2026.09.03_1: configured successfully.
+wireless_tools-29_10: configuring ...
+wireless_tools-29_10: configured successfully.
+wireplumber-0.5.18_1: configuring ...
+wireplumber-0.5.18_1: configured successfully.
+wl-clipboard-2.3.0_1: configuring ...
+wl-clipboard-2.3.0_1: configured successfully.
+wlopm-1.0.0_1: configuring ...
+wlopm-1.0.0_1: configured successfully.
+wlr-randr-0.5.0_1: configuring ...
+wlr-randr-0.5.0_1: configured successfully.
+wlroots0.20-0.20.2_2: configuring ...
+wlroots0.20-0.20.2_2: configured successfully.
+wpa_supplicant-2.12_2: configuring ...
+wpa_supplicant-2.12_2: configured successfully.
+wtype-0.5_1: configuring ...
+wtype-0.5_1: configured successfully.
+x264-20250402.165_2: configuring ...
+x264-20250402.165_2: configured successfully.
+x265-4.2_1: configuring ...
+x265-4.2_1: configured successfully.
+xbps-0.60.7_1: configuring ...
+xbps-0.60.7_1: configured successfully.
+xbps-triggers-0.131_1: configuring ...
+xbps-triggers-0.131_1: configured successfully.
+xcb-util-errors-1.0.1_1: configuring ...
+xcb-util-errors-1.0.1_1: configured successfully.
+xcb-util-renderutil-0.3.10_1: configuring ...
+xcb-util-renderutil-0.3.10_1: configured successfully.
+xcb-util-wm-0.4.2_1: configuring ...
+xcb-util-wm-0.4.2_1: configured successfully.
+xdg-dbus-proxy-0.1.9_1: configuring ...
+xdg-dbus-proxy-0.1.9_1: configured successfully.
+xdg-desktop-portal-1.22.1_1: configuring ...
+xdg-desktop-portal-1.22.1_1: configured successfully.
+xdg-desktop-portal-gtk-1.15.3_1: configuring ...
+xdg-desktop-portal-gtk-1.15.3_1: configured successfully.
+xdg-desktop-portal-wlr-0.8.5_1: configuring ...
+xdg-desktop-portal-wlr-0.8.5_1: configured successfully.
+xdg-user-dirs-0.20_2: configuring ...
+xdg-user-dirs-0.20_2: configured successfully.
+xdg-utils-1.2.1_1: configuring ...
+xdg-utils-1.2.1_1: configured successfully.
+xfsprogs-6.19.0_1: configuring ...
+xfsprogs-6.19.0_1: configured successfully.
+xkbcomp-1.5.0_1: configuring ...
+xkbcomp-1.5.0_1: configured successfully.
+xkeyboard-config-2.49_1: configuring ...
+xkeyboard-config-2.49_1: configured successfully.
+xmessage-1.0.7_1: configuring ...
+xmessage-1.0.7_1: configured successfully.
+xorg-server-common-21.1.26_1: configuring ...
+xorg-server-common-21.1.26_1: configured successfully.
+xorg-server-xwayland-24.1.14_1: configuring ...
+xorg-server-xwayland-24.1.14_1: configured successfully.
+xrandr-1.5.4_1: configuring ...
+xrandr-1.5.4_1: configured successfully.
+xrdb-1.2.3_1: configuring ...
+xrdb-1.2.3_1: configured successfully.
+xset-1.2.6_1: configuring ...
+xset-1.2.6_1: configured successfully.
+xvidcore-1.3.7_1: configuring ...
+xvidcore-1.3.7_1: configured successfully.
+xz-5.8.4_1: configuring ...
+xz-5.8.4_1: configured successfully.
+zd1211-firmware-1.5_3: configuring ...
+zd1211-firmware-1.5_3: configured successfully.
+zenity-4.0.5_1: configuring ...
+zenity-4.0.5_1: configured successfully.
+zfs-2.4.4_1: configuring ...
+zfs-2.4.4_1: configured successfully.
+zfsbootmenu-3.1.0_1: configuring ...
+zfsbootmenu-3.1.0_1: configured successfully.
+zix-0.6.2_1: configuring ...
+zix-0.6.2_1: configured successfully.
+zix-32bit-0.6.2_1: configuring ...
+zix-32bit-0.6.2_1: configured successfully.
+zlib-1.4_1: configuring ...
+zlib-1.4_1: configured successfully.
+zlib-32bit-1.4_1: configuring ...
+zlib-32bit-1.4_1: configured successfully.
+Removing 'sh' alternatives group symlink: sh
+Removing 'sh' alternatives group symlink: sh.1
+dash-0.5.12_3: applying 'sh' alternatives group
+Creating 'sh' alternatives group symlink: sh -> /usr/bin/dash
+Creating 'sh' alternatives group symlink: sh.1 -> /usr/share/man/man1/dash.1
+[1m[6/14] Enabling services:  ...
+[m[1m[7/14] Copying directory structures into the rootfs ...
+[m[1m=> copying include directory '/__w/ci/ci/build/live-rootfs' ...
+[m'/__w/ci/ci/build/live-rootfs/etc/dinit.d/boot.d/ribbon-ci-probe' -> '/__w/ci/ci/out/void-mklive/mklive-build.HupXX/image/rootfs/etc/dinit.d/boot.d/ribbon-ci-probe'
+'/__w/ci/ci/build/live-rootfs/etc/dinit.d/ribbon-ci-probe' -> '/__w/ci/ci/out/void-mklive/mklive-build.HupXX/image/rootfs/etc/dinit.d/ribbon-ci-probe'
+'/__w/ci/ci/build/live-rootfs/etc/greetd/ribbon.toml' -> '/__w/ci/ci/out/void-mklive/mklive-build.HupXX/image/rootfs/etc/greetd/ribbon.toml'
+'/__w/ci/ci/build/live-rootfs/etc/ribbon/live' -> '/__w/ci/ci/out/void-mklive/mklive-build.HupXX/image/rootfs/etc/ribbon/live'
+'/__w/ci/ci/build/live-rootfs/etc/xdg/labwc' -> '/__w/ci/ci/out/void-mklive/mklive-build.HupXX/image/rootfs/etc/xdg/labwc'
+'/__w/ci/ci/build/live-rootfs/etc/xdg/labwc/autostart' -> '/__w/ci/ci/out/void-mklive/mklive-build.HupXX/image/rootfs/etc/xdg/labwc/autostart'
+'/__w/ci/ci/build/live-rootfs/usr/lib/ribbon/ci-probe' -> '/__w/ci/ci/out/void-mklive/mklive-build.HupXX/image/rootfs/usr/lib/ribbon/ci-probe'
+[1m[8/14] Running postsetup script: /__w/ci/ci/build/iso-postsetup.sh ...
+[mskip      NetworkManager (hand-written dinit service 'NetworkManager' exists)
+skip      bluetoothd (hand-written dinit service 'bluetoothd' exists)
+ok        boltd -> boltd (depends-on: dbus)
+skip      chronyd (hand-written dinit service 'chronyd' exists)
+ok        crond -> crond
+skip      cronie (hand-written dinit service 'cronie' exists)
+skip      dbus (skip list)
+ok        dhclient -> dhclient
+ok        dmeventd -> dmeventd
+skip      elogind (skip list)
+skip      greetd (skip list)
+ok        grub-btrfs -> grub-btrfs
+ok        iio-sensor-proxy -> iio-sensor-proxy
+ok        ip6tables -> ip6tables
+ok        iptables -> iptables
+skip      nftables (hand-written dinit service 'nftables' exists)
+ok        ntpd -> ntpd
+skip      polkitd (hand-written dinit service 'polkitd' exists)
+skip      power-profiles-daemon (hand-written dinit service 'power-profiles-daemon' exists)
+ok        rsyncd -> rsyncd
+ok        rtkit -> rtkit
+ok        smartd -> smartd
+ok        snapperd -> snapperd
+skip      turnstiled (skip list)
+skip      udevd (skip list)
+ok        uuidd -> uuidd
+ok        wpa_supplicant -> wpa_supplicant
+ok        zed -> zed
+ribbon-sv2dinit: 16 ok, 12 skipped, 0 refused
+iso-check: 21 packages from Ribbon's repository, 2 kernels with their modules (zfs bcachefs), the package database consistent
+[1m[9/14] Generating initramfs image (xz)...
+[mdracut[I]: Executing: /usr/bin/dracut -N --xz --add-drivers ahci --force-add "vmklive autoinstaller" --omit systemd /boot/initrd 6.18.64-ribbon_1
+dracut[I]: 74nfs: Could not find any command of 'rpcbind portmap'!
+dracut[I]: *** Including module: autoinstaller ***
+dracut[I]: *** Including module: vmklive ***
+dracut[I]: *** Including module: dash ***
+dracut[I]: *** Including module: i18n ***
+dracut[I]: *** Including module: network-manager ***
+dracut[I]: *** Including module: network ***
+dracut[I]: *** Including module: drm ***
+dracut[I]: *** Including module: net-lib ***
+dracut[I]: *** Including module: btrfs ***
+dracut[I]: *** Including module: crypt ***
+dracut[I]: *** Including module: crypt-lib ***
+dracut[I]: *** Including module: dm ***
+dracut[I]: *** Including module: dmsquash-live ***
+dracut[I]: *** Including module: fs-lib ***
+dracut[I]: *** Including module: img-lib ***
+dracut[I]: *** Including module: kernel-modules ***
+dracut[I]: *** Including module: kernel-modules-extra ***
+dracut[I]: *** Including module: kernel-network-modules ***
+dracut[I]: *** Including module: lvm ***
+dracut[I]: *** Including module: nvdimm ***
+dracut[I]: *** Including module: overlayfs ***
+dracut[I]: *** Including module: qemu ***
+dracut[I]: *** Including module: qemu-net ***
+dracut[I]: *** Including module: hwdb ***
+dracut[I]: *** Including module: lunmask ***
+dracut[I]: *** Including module: resume ***
+dracut[I]: *** Including module: rootfs-block ***
+dracut[I]: *** Including module: terminfo ***
+dracut[I]: *** Including module: udev-rules ***
+dracut[I]: *** Including module: virtfs ***
+dracut[I]: *** Including module: virtiofs ***
+dracut[I]: *** Including module: initqueue ***
+dracut[I]: *** Including module: usrmount ***
+dracut[I]: *** Including module: base ***
+dracut[I]: *** Including module: shell-interpreter ***
+dracut[I]: *** Including module: shutdown ***
+dracut[I]: *** Including module: ribbon-snapshot ***
+dracut[I]: *** Including module: ribbon-usrview ***
+dracut[I]: *** Including module: zfs ***
+dracut[I]: *** Including modules done ***
+dracut[I]: *** Installing kernel module dependencies ***
+dracut[I]: *** Installing kernel module dependencies done ***
+dracut[I]: *** Resolving dependencies for executables and libraries ***
+dracut[I]: *** Resolving dependencies for executables and libraries done ***
+dracut[I]: *** Generating early-microcode cpio image ***
+dracut[I]: *** Constructing AuthenticAMD.bin ***
+dracut[I]: *** Store current command line parameters ***
+dracut[I]: *** Stripping files ***
+dracut[I]: *** Stripping files done ***
+dracut[I]: *** Creating image file '/boot/initrd' ***
+dracut[I]: *** Hardlinking files ***
+dracut[I]: *** Hardlinking files done ***
+dracut[I]: *** Creating initramfs image file '/boot/initrd' done ***
+[1m[10/14] Generating isolinux support for PC-BIOS systems...
+[m[1m[11/14] Generating GRUB support for EFI systems...
+[m./mklive.sh: line 388: modprobe: command not found
+[1m[12/14] Cleaning up rootfs...
+[m[1m[13/14] Generating squashfs image (xz) from rootfs...
+[mParallel mksquashfs: Using 4 processors
+Creating 4.0 filesystem on /__w/ci/ci/out/void-mklive/mklive-build.HupXX/image/LiveOS/squashfs.img, block size 131072.
+[=\                                                        ]   3200/105920   3%[=======================\                                  ]  43500/105920  41%[========================/                                 ]  45900/105920  43%[============================\                             ]  52100/105920  49%[===============================/                          ]  58200/105920  54%[=================================-                        ]  61600/105920  58%[=================================|                        ]  62100/105920  58%[==================================\                       ]  64600/105920  60%[==================================/                       ]  64800/105920  61%[====================================|                     ]  67700/105920  63%[=======================================\                  ]  72800/105920  68%[===========================================-              ]  80000/105920  75%[============================================\             ]  81900/105920  77%[============================================|             ]  82100/105920  77%[===============================================|          ]  87900/105920  82%[===============================================-          ]  88000/105920  83%[================================================\         ]  89300/105920  84%[=================================================\        ]  91200/105920  86%[=========================================================\] 105920/105920 100%
+
+Exportable Squashfs 4.0 filesystem, xz compressed, data block size 131072
+	compressed data, compressed metadata, compressed fragments,
+	compressed xattrs, compressed ids
+	duplicates are removed
+Filesystem size 2508834.50 Kbytes (2450.03 Mbytes)
+	19.48% of uncompressed filesystem size (12880265.47 Kbytes)
+Inode table size 122428 bytes (119.56 Kbytes)
+	30.40% of uncompressed inode table size (402716 bytes)
+Directory table size 58 bytes (0.06 Kbytes)
+	100.00% of uncompressed directory table size (58 bytes)
+Number of duplicate files found 0
+Number of inodes 3
+Number of files 1
+Number of fragments 0
+Number of symbolic links 0
+Number of device nodes 0
+Number of fifo nodes 0
+Number of socket nodes 0
+Number of directories 2
+Number of hard-links 0
+Number of ids (unique uids + gids) 1
+Number of uids 1
+	root (0)
+Number of gids 1
+	root (0)
+[1m[14/14] Generating ISO image...
+[mGNU xorriso 1.5.6.pl02 : RockRidge filesystem manipulator, libburnia project.
+
+Drive current: -outdev 'stdio:/__w/ci/ci/out/iso/ribbon-0.1.0-x86_64.iso'
+Media current: stdio file, overwriteable
+Media status : is blank
+Media summary: 0 sessions, 0 data blocks, 0 data, 81.0g free
+Added to ISO image: directory '/'='/__w/ci/ci/out/void-mklive/mklive-build.HupXX/image'
+xorriso : UPDATE :      24 files added in 1 seconds
+xorriso : UPDATE :      24 files added in 1 seconds
+xorriso : NOTE : Copying to System Area: 432 bytes from file '/__w/ci/ci/out/void-mklive/mklive-build.HupXX/void-target/usr/lib/syslinux/isohdpfx.bin'
+xorriso : WARNING : Boot image load size exceeds 65535 blocks of 512 bytes. Will record 0 in El Torito to extend ESP to end-of-medium.
+xorriso : WARNING : EFI boot equipment is provided but no directory /EFI/BOOT
+xorriso : WARNING : will emerge in the ISO filesystem. A popular method to
+xorriso : WARNING : prepare a USB stick on MS-Windows relies on having in the
+xorriso : WARNING : ISO filesystem a copy of the EFI System Partition tree.
+libisofs: NOTE : Automatically adjusted MBR geometry to 1023/169/32
+libisofs: NOTE : Aligned image size to cylinder size by 288 blocks
+xorriso : UPDATE :  7.03% done
+xorriso : UPDATE :  88.14% done
+ISO image produced: 1383096 sectors
+Written to medium : 1383096 sectors at LBA 0
+Writing to 'stdio:/__w/ci/ci/out/iso/ribbon-0.1.0-x86_64.iso' completed successfully.
+
+[1mCreated /__w/ci/ci/out/iso/ribbon-0.1.0-x86_64.iso (2.7G) successfully.
+[mISO: out/iso/ribbon-0.1.0-x86_64.iso

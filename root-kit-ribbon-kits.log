@@ -1,0 +1,21 @@
+  ok   the builder runs over every package that make build made
+  ok   one kit per built package, named org.ribbon.NAME, at its template's version_revision
+  ok   ribbon-desktop needs the Ribbon kits its template depends on (base, kit), and no kit of the base's
+  ok   what the packages install outside /usr is listed (kit.conf, ribbon.conf, gamemode.ini) and travels in the kit as defaults, with the directories to make
+  ok   a second build makes the same images, byte for byte
+  ok   two kits that bring one path are refused, and the path is named
+  ok   kitd installs ribbon-desktop by the package's own name
+  ok     and brings the Ribbon kits it needs with it (base, kit), not the ones it does not (installer, gaming)
+  ok   the rest of Ribbon's packages install the same way
+  ok   /usr is the installed packages' files and nothing else: 663 entries of 8 kits, equal in path, type, mode, link and content
+  ok     it is one read-only erofs mount, and the session's program is in it, executable
+  ok   after the change the kits' defaults are in /etc (ribbon.conf, the sudoers file with its mode), put down by kit-defaults
+  ok     a file that was there already is the person's: the machine's own kit.conf was not replaced
+  ok     the directories the packages want are made (/var/lib/greetd 0750; root's until the account exists)
+  ok   kit-defaults again (as at boot): an edited file stays, a deleted one comes back, nothing else changes
+  ok     a link in a default's place, even a dangling one, is left alone
+  ok   a kit that brings a file another kit holds is refused, both kits and the path named; the set and /usr are as they were
+  ok     nothing of the refused kit stays staged or in the store
+  ok   a link where other kits have a directory (/usr/bin) is refused the same way
+  ok   a kit that only shares directories with the others installs
+Ribbon's packages as kits: 20 checks

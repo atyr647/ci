@@ -1,0 +1,30 @@
+  ok   kit-swapmount builds with -Wall -Wextra -Werror
+  ok   erofs-utils older than 1.9 is refused (D68): erofs-utils 1.9 or later is needed to build the /usr view (D68); this mkfs.erofs is 1.7
+  info mkfs.erofs here is 1.7: the rest runs with KIT_EROFS_MIN=1.7 (plain images, no xattrs)
+  ok   a kit whose seal doesn't name the installed root is refused
+  ok   an app kit is refused
+  ok   one kit twice in a view is refused
+  ok   the first view is mounted on the target
+  ok   the view's own image is a loop device, like its kits (not the file: see above)
+  ok   it shows every kit's files
+  ok   the view is read-only
+  ok   view-1.devices lists the kits in order, plain text
+  ok   current is 1
+  ok   each kit's image is one loop device, held by the mount alone (autoclear)
+  ok   the holder reads foo v1
+  ok   the live switch to foo 2
+  ok   every new lookup sees the new view
+  ok   the paths never vanished during the switch (watched in a tight loop)
+  ok   one mount at the target: the old view was detached, not stacked
+  ok   the holder's open file still reads foo v1
+  ok   the holder's cwd is still in the old view
+  ok   the holder opening the absolute path gets foo v2
+  ok   the old view's foo 1 image stays attached while the holder uses it
+  ok   the holder gone: the old view and its loop devices go with it
+  ok   current is 2
+  ok   a switch with a wrong root is refused, and /usr stays as it was
+  ok   a third view (back to foo 1, as a rewind would)
+  ok   views older than the one before are pruned
+  ok   unmounted (as after a reboot)
+  ok   restore mounts the current view again
+  ok   no loop device left behind

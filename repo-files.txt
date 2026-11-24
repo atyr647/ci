@@ -1,0 +1,27 @@
+total 133772
+drwxr-xr-x 2 builder builder      4096 Nov 24 18:46 .
+drwxr-xr-x 8 builder builder      4096 Nov 24 19:08 ..
+-rw-r--r-- 1 builder builder       763 Nov 24 18:37 SHA256SUMS.kernel
+-rw-r--r-- 1 builder builder     62777 Nov 24 18:45 base-files-0.146_1.x86_64.xbps
+-rw-r--r-- 1 builder builder    689594 Nov 24 18:45 bcachefs-dkms-1.36.1_1.x86_64.xbps
+-rw-r--r-- 1 builder builder   1764565 Nov 24 18:45 bcachefs-tools-1.36.1_1.x86_64.xbps
+-rw-r--r-- 1 builder builder    193039 Nov 24 18:37 erofs-utils-1.9.4_1.x86_64.xbps
+-rw-r--r-- 1 builder builder   1052034 Nov 24 18:46 font-jetbrains-mono-2.304_1.x86_64.xbps
+-rw-r--r-- 1 builder builder    463666 Nov 24 18:45 greetd-0.10.3_2.x86_64.xbps
+-rw-r--r-- 1 builder builder    156379 Nov 24 18:46 mk4tcl-2.4.9.7_1.x86_64.xbps
+-rw-r--r-- 1 builder builder    249381 Nov 24 18:46 mkkitfs-1.0.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder      5709 Nov 24 18:46 ribbon-base-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder   1103516 Nov 24 18:46 ribbon-desktop-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder     36858 Nov 24 18:46 ribbon-dinit-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder      5309 Nov 24 18:46 ribbon-gaming-0.1.0_2.x86_64.xbps
+-rw-r--r-- 1 builder builder     92679 Nov 24 18:46 ribbon-installer-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder 116392310 Nov 24 18:46 ribbon-kernel-6.18.64_1.x86_64.xbps
+-rw-r--r-- 1 builder builder  13770778 Nov 24 18:46 ribbon-kernel-headers-6.18.64_1.x86_64.xbps
+-rw-r--r-- 1 builder builder    125484 Nov 24 18:46 ribbon-kit-0.1.0_2.x86_64.xbps
+-rw-r--r-- 1 builder builder     58738 Nov 24 18:46 ribbon-tools-0.1.0_1.x86_64.xbps
+-rw-r--r-- 1 builder builder     27791 Nov 24 18:46 tcl-unix-extra-0.3_1.x86_64.xbps
+-rw-r--r-- 1 builder builder     10308 Nov 24 18:46 tcl-unix-sockets-0.7_2.x86_64.xbps
+-rw-r--r-- 1 builder builder     37559 Nov 24 18:46 tkdnd-2.9.5_1.x86_64.xbps
+-rw-r--r-- 1 builder builder    528545 Nov 24 18:45 wlroots0.20-0.20.2_2.x86_64.xbps
+-rw-r--r-- 1 builder builder     84441 Nov 24 18:45 wlroots0.20-devel-0.20.2_2.x86_64.xbps
+-rw-rw-r-- 1 builder builder      6626 Nov 24 18:46 x86_64-repodata

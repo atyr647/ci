@@ -1,0 +1,27 @@
+  ok   nothing installed anywhere: kit list says so
+  ok   grab of an app kit and a system kit in ONE command: done
+  ok     the app kit is in the person's own set, the system kit in the machine's
+  ok     the system kit's files are the machine's /usr, and no flag was named
+  ok     each kind had its own plan and question, in kit's own words
+  ok     polkit was asked to look first (the plan action), then, for the yes, once for the strong action, in that order
+  ok     the snapshot of the system change was taken (kitd's snapshot hook), the app kit needed none
+  ok   kit list shows both kinds, the system kit marked
+  ok   a no to the system plan: exit 1, nothing installed, nothing waiting
+  ok     polkit was asked to look, and never for the strong action (nothing was agreed to)
+  ok     the worker was released (no transaction left waiting)
+  ok   polkit refusing the strong action at the answer: not allowed (exit 1), nothing installed
+  ok     the worker was released all the same (a refused authorization is a no)
+  ok   an app kit that is up to date: nothing to do, kitd not involved
+  ok   kit check covers the system's kits as well: mesa 2
+  ok     the app part had nothing to update and said nothing of the system
+  ok   kit info of a system kit, by name
+  ok   kit toss by the SHORT name of an installed system kit goes to the machine's scope
+  ok     the app kit was not asked about
+  ok   plain kit rewind takes back the last change, whichever scope made it: the system's toss, mesa is back
+  ok     and when the newest change was the app kit's, the person's own scope rewinds it
+  ok   a system kit FILE is refused in the person's scope: it is not handed to kitd
+  ok   a client that asks kitd to install an APP kit system-wide is refused by kitd itself (exit 2), whatever it was told
+  ok   no system bus: a system kit by name says so (exit 3)
+  ok     and the app kit named beside it is still installed
+  ok   a plain check with no bus: this person's kits are checked, the system's are said to wait, exit 0
+kit scopes: 26 checks
