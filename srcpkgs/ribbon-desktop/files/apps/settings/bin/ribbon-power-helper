@@ -1,0 +1,339 @@
+#!/usr/bin/tclsh
+# ribbon-power-helper - the privileged half of Settings → Power (U14b). Runs as root through pkexec (polkit action
+# org.ribbon.power: an administrator's password is asked, and kept for a few minutes at the machine), following the
+# ribbon-login-theme precedent.
+#
+#   pkexec /usr/bin/ribbon-power-helper set NAME VALUE
+#   /usr/bin/ribbon-power-helper apply               (boot: put the saved charge limit back; needs no pkexec, runs as root)
+#
+# The caller never names a path and never sends free text: NAME and VALUE must each be one of the words below, compared
+# whole and case-sensitively; anything else is refused (exit 2) before a file is touched.
+#
+#   NAME                          VALUE                                      where it lands
+#   HandlePowerKey                ignore poweroff suspend hibernate          /etc/elogind/logind.conf.d/50-ribbon-power.conf
+#   HandleLidSwitch               ignore suspend hibernate poweroff lock       (the same drop-in, [Login])
+#   HandleLidSwitchExternalPower  ignore suspend hibernate poweroff lock
+#   CriticalPowerAction           PowerOff Hibernate HybridSleep             /etc/UPower/UPower.conf, [UPower]
+#   PercentageAction              1 to 15 (percent)                          (the same file; see below)
+#   ChargeLimit                   60 70 80 90 100 (percent)                  .../power_supply/*/charge_control_end_threshold
+#
+# Writes. logind: the drop-in is rewritten whole (only the three keys, from its own previous content plus the new
+# value) and renamed over the old one. elogind reads /etc/elogind/logind.conf.d/*.conf after logind.conf (checked in
+# elogind v255's conf-parser: config_parse_config_file), so the drop-in wins. UPower has no drop-in directory and reads
+# its file once at start: UPower.conf is rewritten with the one line changed (every other line kept, byte for byte) and
+# renamed over the old file. UPower needs PercentageLow > PercentageCritical > PercentageAction or it ignores all three,
+# so setting PercentageAction N lifts PercentageCritical to N+1 and PercentageLow to Critical+1 when they are not above it.
+# The charge limit is written to every battery's threshold file in sysfs (a sysfs write cannot be a rename) and kept in
+# /etc/ribbon/power-helper.conf, because the kernel forgets it at boot; "apply" writes it back.
+#
+# Applying. After a logind write: SIGHUP to elogind (elogind's SIGHUP handler reparses the config: logind.c
+# manager_dispatch_reload_signal). After a changed UPower.conf: SIGTERM to upowerd, which D-Bus starts again on the next
+# call (UPower reads its config only at start). The process is found in /proc (name, root-owned, the exe's name), never
+# from a pid file. If it is not found, the file is still written and the answer says so.
+#
+# Safety. Files are replaced by writing a new file beside the target (O_EXCL, never through a link) and a plain
+# rename(2), so a reader sees the old or the new file whole; the directory must be a real directory owned by root that
+# no one else can write; a file that is not a plain file (or a link to one) is not replaced. Exit codes: 0 done, 1 a
+# failure (nothing half-written), 2 the request was refused.
+#
+# Tests: with RIBBON_POWER_TEST set, RIBBON_POWER_ROOT=DIR works on DIR/etc and DIR/sys, RIBBON_POWER_PROC=DIR on DIR
+# instead of /proc, and RIBBON_POWER_KILL=PROGRAM sends the signals (called as PROGRAM -SIGNAL PID). Without
+# RIBBON_POWER_TEST these are not read (pkexec clears the environment anyway), and the helper refuses to run unless
+# it is root.
+
+set TEST [expr {[info exists ::env(RIBBON_POWER_TEST)] && $::env(RIBBON_POWER_TEST) ne ""}]
+
+proc die {msg {code 1}} { puts stderr "ribbon-power-helper: $msg"; exit $code }
+proc refuse {msg} { die $msg 2 }
+
+# A caller's word, shortened and printable, for an error line.
+proc shown {s} {
+	set s [string range $s 0 31]
+	regsub -all {[^[:print:]]} $s ? s
+	return "'$s'"
+}
+
+set NAMES [dict create \
+	HandlePowerKey {logind {ignore poweroff suspend hibernate}} \
+	HandleLidSwitch {logind {ignore suspend hibernate poweroff lock}} \
+	HandleLidSwitchExternalPower {logind {ignore suspend hibernate poweroff lock}} \
+	CriticalPowerAction {upower {PowerOff Hibernate HybridSleep}} \
+	PercentageAction {upower-pct {1 2 3 4 5 6 7 8 9 10 11 12 13 14 15}} \
+	ChargeLimit {limit {60 70 80 90 100}}]
+set LOGIND_KEYS {HandlePowerKey HandleLidSwitch HandleLidSwitchExternalPower}
+
+# ---- where things are ---------------------------------------------------------------------
+
+proc root {} {
+	if {!$::TEST || ![info exists ::env(RIBBON_POWER_ROOT)] || $::env(RIBBON_POWER_ROOT) eq ""} { return "" }
+	set r $::env(RIBBON_POWER_ROOT)
+	if {[file pathtype $r] ne "absolute"} { refuse "RIBBON_POWER_ROOT must be an absolute path" }
+	return [string trimright $r /]
+}
+proc etc {} { return [root]/etc }
+proc sysfs {} { return [root]/sys }
+proc procdir {} {
+	if {$::TEST && [info exists ::env(RIBBON_POWER_PROC)] && $::env(RIBBON_POWER_PROC) ne ""} { return $::env(RIBBON_POWER_PROC) }
+	return /proc
+}
+proc killer {} {
+	if {$::TEST && [info exists ::env(RIBBON_POWER_KILL)] && $::env(RIBBON_POWER_KILL) ne ""} { return $::env(RIBBON_POWER_KILL) }
+	return kill
+}
+proc dropin {} { return [etc]/elogind/logind.conf.d/50-ribbon-power.conf }
+proc upower_conf {} { return [etc]/UPower/UPower.conf }
+proc state_file {} { return [etc]/ribbon/power-helper.conf }
+
+# ---- writing, never through a symlink -----------------------------------------------------
+
+proc euid {} {
+	if {![info exists ::euid]} { set ::euid [exec id -u] }
+	return $::euid
+}
+
+# DIR must be a real directory owned by root (by the caller's user in a test) that no one else can write.
+# MAKE: create it (0755) when it is missing; its parent must be safe too.
+proc safe_dir {dir make} {
+	if {[catch {file lstat $dir st}]} {
+		if {!$make} { die "$dir does not exist" }
+		safe_dir [file dirname $dir] 0
+		if {[catch {file mkdir $dir} err]} { die "cannot create $dir: $err" }
+		file attributes $dir -permissions 0755
+		file lstat $dir st
+	}
+	if {$st(type) ne "directory"} { die "$dir is a $st(type), not a directory; not writing there" }
+	if {$st(uid) != [euid]} { die "$dir is not owned by root; not writing there" }
+	if {$st(mode) & 0022} { die "$dir can be written by others; not writing there" }
+}
+
+# Read a plain file (or a link to one) of at most MAX bytes; "" with ok 0 when it is not there.
+proc slurp {file max} {
+	if {[catch {file lstat $file st}]} { return [list 0 ""] }
+	if {[catch {file stat $file st}] || $st(type) ne "file"} { die "$file is not a plain file; not touching it" }
+	if {$st(size) > $max} { die "$file is larger than $max bytes; not touching it" }
+	if {[catch {open $file {RDONLY BINARY}} fh]} { die "cannot read $file: $fh" }
+	set data [read $fh]
+	close $fh
+	return [list 1 $data]
+}
+
+# Replace TARGET with DATA atomically: a new file beside it (O_EXCL), then rename(2). The directory is checked first.
+proc install {target data mode} {
+	set dir [file dirname $target]
+	set tmp [file join $dir .[file tail $target].[pid].[clock clicks]]
+	if {[catch {open $tmp {WRONLY CREAT EXCL BINARY} 0600} fh]} { die "cannot write in $dir: $fh" }
+	if {[catch {puts -nonewline $fh $data; flush $fh; close $fh} err]} {
+		catch {close $fh}; file delete -- $tmp; die "cannot write $tmp: $err"
+	}
+	file attributes $tmp -permissions $mode
+	if {![catch {file lstat $target st}]} {
+		switch -- $st(type) {
+			file {}
+			link { file delete -- $target }
+			default { file delete -- $tmp; die "$target is a $st(type); not replacing it" }
+		}
+	}
+	if {[catch {file rename -force -- $tmp $target} err]} { file delete -- $tmp; die "cannot install $target: $err" }
+}
+
+# ---- logind -----------------------------------------------------------------------------------
+
+# The drop-in's own settings as a dict (only the three keys with allowed values; anything else in it is dropped).
+proc read_dropin {} {
+	lassign [slurp [dropin] 65536] ok data
+	set d [dict create]
+	foreach line [split $data \n] {
+		if {![regexp {^(Handle[A-Za-z]+)=([a-z]+)$} $line -> k v]} continue
+		if {$k in $::LOGIND_KEYS && $v in [lindex [dict get $::NAMES $k] 1]} { dict set d $k $v }
+	}
+	return $d
+}
+
+proc set_logind {name value} {
+	safe_dir [etc]/elogind 0
+	safe_dir [etc]/elogind/logind.conf.d 1
+	set d [read_dropin]
+	dict set d $name $value
+	set out "# Written by ribbon-power-helper (Settings, Power). Edit there, not by hand.\n\[Login\]\n"
+	foreach k $::LOGIND_KEYS {
+		if {[dict exists $d $k]} { append out "$k=[dict get $d $k]\n" }
+	}
+	install [dropin] $out 0644
+	return [signal_named elogind /libexec/elogind/elogind HUP "elogind reloaded"]
+}
+
+# ---- UPower ---------------------------------------------------------------------------------
+
+# The value of KEY in the [UPower] section of the lines, "" when it is not there.
+proc ini_get {lines key} {
+	set in 0
+	set v ""
+	foreach line $lines {
+		if {[regexp {^\s*\[(.*)\]\s*$} $line -> sec]} { set in [expr {$sec eq "UPower"}]; continue }
+		if {$in && [regexp "^\\s*${key}\\s*=\\s*(\\S+)\\s*\$" $line -> x]} { set v $x }
+	}
+	return $v
+}
+
+# The lines with KEY set to VALUE in [UPower]: the first line for it is changed in place, repeats are dropped, and a
+# missing key goes at the end of the section. Every other line is kept as it was.
+proc ini_set {lines key value} {
+	set out {}
+	set in 0
+	set done 0
+	set last_in -1   ;# index in OUT after the last line of the [UPower] section
+	foreach line $lines {
+		if {[regexp {^\s*\[(.*)\]\s*$} $line -> sec]} {
+			if {$in && $last_in < 0} { set last_in [llength $out] }
+			set in [expr {$sec eq "UPower"}]
+			lappend out $line
+			continue
+		}
+		if {$in && [regexp "^\\s*${key}\\s*=" $line]} {
+			if {!$done} { lappend out "${key}=$value"; set done 1 }
+			continue
+		}
+		lappend out $line
+	}
+	if {!$done} {
+		if {$last_in >= 0} {
+			# before the blank lines that end the section
+			set at $last_in
+			while {$at > 0 && [string trim [lindex $out [expr {$at - 1}]]] eq ""} { incr at -1 }
+			set out [linsert $out $at "${key}=$value"]
+		} elseif {$in} {
+			set at [llength $out]
+			while {$at > 0 && [string trim [lindex $out [expr {$at - 1}]]] eq ""} { incr at -1 }
+			set out [linsert $out $at "${key}=$value"]
+		} else {
+			die "[upower_conf] has no \[UPower\] section; not changing it"
+		}
+	}
+	return $out
+}
+
+proc set_upower {name value} {
+	safe_dir [etc]/UPower 0
+	lassign [slurp [upower_conf] 262144] ok data
+	if {!$ok} { die "[upower_conf] does not exist; not creating it" }
+	if {[string first \0 $data] >= 0} { die "[upower_conf] is not a text file" }
+	set text $data   ;# bytes in, bytes out: a non-ASCII line is kept as it was
+	set lines [split $text \n]
+	set had_nl [expr {[string index $text end] eq "\n"}]
+	if {$had_nl} { set lines [lrange $lines 0 end-1] }
+	set new $lines
+	if {$name eq "PercentageAction"} {
+		# UPower wants Low > Critical > Action, or it ignores all three
+		set crit [ini_get $new PercentageCritical]; if {![string is integer -strict $crit]} { set crit 5 }
+		set low [ini_get $new PercentageLow]; if {![string is integer -strict $low]} { set low 20 }
+		set new [ini_set $new PercentageAction $value]
+		if {$crit <= $value} { set crit [expr {$value + 1}]; set new [ini_set $new PercentageCritical $crit] }
+		if {$low <= $crit} { set new [ini_set $new PercentageLow [expr {$crit + 1}]] }
+	} else {
+		set new [ini_set $new $name $value]
+	}
+	if {$new eq $lines} { return "UPower already set" }
+	install [upower_conf] "[join $new \n]\n" 0644
+	return [signal_named upowerd /upowerd TERM "UPower restarts on its next call"]
+}
+
+# ---- the processes -------------------------------------------------------------------------
+
+# Send SIGNAL to every root-owned process whose name is NAME and whose exe ends with EXESUFFIX. The answer is DONE when
+# one was found, else a note that the file is written and the service will read it at its next start.
+proc signal_named {name exesuffix signal done} {
+	set found {}
+	foreach p [glob -nocomplain -directory [procdir] -tails {[0-9]*}] {
+		if {![string is integer -strict $p]} continue
+		if {[catch {open [procdir]/$p/comm} fh]} continue
+		set comm [string trim [read $fh]]
+		close $fh
+		if {$comm ne $name} continue
+		if {[catch {open [procdir]/$p/status} fh]} continue
+		set status [read $fh]
+		close $fh
+		# the real and effective uid are root (the caller's, in a test)
+		if {![regexp {\nUid:\s+(\d+)\s+(\d+)} $status -> ru eu] || $ru != [euid] || $eu != [euid]} continue
+		if {!$::TEST} {
+			if {[catch {file readlink [procdir]/$p/exe} exe] || ![string match *$exesuffix $exe]} continue
+		}
+		lappend found $p
+	}
+	if {![llength $found]} { return "saved; $name is not running, so it reads this when it starts" }
+	foreach p $found {
+		if {[catch {exec [killer] -$signal $p} err]} { return "saved; could not signal $name ($err)" }
+	}
+	return $done
+}
+
+# ---- the charge limit ------------------------------------------------------------------------
+
+proc battery_files {} {
+	set out {}
+	foreach f [lsort [glob -nocomplain [sysfs]/class/power_supply/*/charge_control_end_threshold]] {
+		set dir [file dirname $f]
+		if {[catch {open $dir/type} fh]} continue
+		set type [string trim [read $fh]]
+		close $fh
+		if {$type eq "Battery"} { lappend out $f }
+	}
+	return $out
+}
+
+proc write_limit {value} {
+	set files [battery_files]
+	if {![llength $files]} { die "no battery has a charge limit" }
+	foreach f $files {
+		if {[catch {set fh [open $f w]; puts $fh $value; close $fh} err]} { die "cannot set the charge limit: $err" }
+	}
+	return [llength $files]
+}
+
+proc set_limit {value} {
+	# only a limit the hardware took is remembered
+	set n [write_limit $value]
+	safe_dir [etc]/ribbon 1
+	install [state_file] "# Written by ribbon-power-helper (Settings, Power). \"ribbon-power-helper apply\" reads it at boot.\nCHARGE_LIMIT=$value\n" 0644
+	return "charge limit $value% on $n battery(ies)"
+}
+
+proc apply {} {
+	lassign [slurp [state_file] 4096] ok data
+	if {!$ok} { return "nothing saved" }
+	foreach line [split $data \n] {
+		if {[regexp {^CHARGE_LIMIT=([0-9]{2,3})$} $line -> v] && $v in [lindex [dict get $::NAMES ChargeLimit] 1]} {
+			set n [write_limit $v]
+			return "charge limit $v% on $n battery(ies)"
+		}
+	}
+	return "nothing saved"
+}
+
+# ---- main ------------------------------------------------------------------------------------
+
+proc main {argv} {
+	if {![llength $argv]} { refuse "usage: ribbon-power-helper set NAME VALUE | apply" }
+	switch -- [lindex $argv 0] {
+		apply {
+			if {[llength $argv] != 1} { refuse "usage: ribbon-power-helper apply" }
+			if {!$::TEST && [euid] != 0} { die "run me as root" }
+			puts [apply]
+		}
+		set {
+			if {[llength $argv] != 3} { refuse "usage: ribbon-power-helper set NAME VALUE" }
+			lassign $argv - name value
+			if {![dict exists $::NAMES $name]} { refuse "unknown setting [shown $name]" }
+			lassign [dict get $::NAMES $name] kind allowed
+			if {$value ni $allowed} { refuse "[shown $value] is not allowed for $name" }
+			if {!$::TEST && [euid] != 0} { die "run me through pkexec" }
+			switch -- $kind {
+				logind { puts [set_logind $name $value] }
+				upower - upower-pct { puts [set_upower $name $value] }
+				limit { puts [set_limit $value] }
+			}
+		}
+		default { refuse "usage: ribbon-power-helper set NAME VALUE | apply" }
+	}
+}
+
+main $argv

@@ -1,0 +1,49 @@
+Ribbon OS: make the luminance SDR content is mapped to on HDR outputs
+configurable (WLR_HDR_SDR_WHITE_NITS, default 203 = upstream). Stops the
+normal desktop from looking dim/washed out when HDR is enabled.
+
+diff --git a/render/color.c b/render/color.c
+index e89fab2..00914a5 100644
+--- a/render/color.c
++++ b/render/color.c
+@@ -405,6 +405,31 @@ void wlr_color_primaries_transform_absolute_colorimetric(
+ 	wlr_matrix_multiply(matrix, xyz_to_destination, source_to_xyz);
+ }
+ 
++/*
++ * Ribbon OS: make the luminance that SDR white is mapped to on HDR (PQ)
++ * outputs configurable. Upstream hardcodes the BT.2408 value of 203 nits,
++ * which looks dim/washed out next to a monitor's normal SDR brightness.
++ * Both SDR->PQ and PQ->PQ conversions use this value as the reference, so
++ * HDR content is passed through unchanged; only SDR content is rescaled.
++ *
++ * WLR_HDR_SDR_WHITE_NITS: 80..1000, default 203 (upstream behaviour).
++ */
++static float pq_reference_luminance(void) {
++	static float cached = -1;
++	if (cached < 0) {
++		cached = 203;
++		const char *env = getenv("WLR_HDR_SDR_WHITE_NITS");
++		if (env != NULL && env[0] != '\0') {
++			char *end = NULL;
++			float v = strtof(env, &end);
++			if (end != env && v >= 80 && v <= 1000) {
++				cached = v;
++			}
++		}
++	}
++	return cached;
++}
++
+ void wlr_color_transfer_function_get_default_luminance(enum wlr_color_transfer_function tf,
+ 		struct wlr_color_luminances *lum) {
+ 	switch (tf) {
+@@ -412,7 +437,7 @@ void wlr_color_transfer_function_get_default_luminance(enum wlr_color_transfer_f
+ 		*lum = (struct wlr_color_luminances){
+ 			.min = 0.005,
+ 			.max = 10000,
+-			.reference = 203,
++			.reference = pq_reference_luminance(),
+ 		};
+ 		break;
+ 	case WLR_COLOR_TRANSFER_FUNCTION_BT1886:

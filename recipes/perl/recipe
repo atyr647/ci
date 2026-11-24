@@ -1,0 +1,31 @@
+# perl: the interpreter and its core modules. coreutils makes its manual pages with it, and so much else is built
+# with it (the kernel, OpenSSL, automake) that it belongs to the base set. Built as Linux From Scratch 12.4 builds it,
+# with the kit's zlib and its own bzip2 (there is no kit for that yet). Perl writes down where and when it was
+# configured (perl -V): those are given here, so the kit does not carry the name and kernel of the machine that built it.
+# Its modules' manual pages are in section 3perl (Thread.3perl), as Debian and Arch have them: Tcl's Thread.3 is not.
+name=perl
+kit=org.perl.perl
+version=5.42.0
+revision=1
+summary="The Perl language"
+license="Artistic-1.0-Perl OR GPL-1.0-or-later"
+source="https://www.cpan.org/src/5.0/perl-5.42.0.tar.xz"
+sha256="73cf6cc1ea2b2b1c110a18c14bbbc73a362073003893ffcedc26d22ebdbdd0c3"
+srcdir="perl-5.42.0"
+needs="org.gnu.glibc net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz net.zlib.zlib"
+
+build() {
+	BUILD_ZLIB=False; export BUILD_ZLIB
+	sh Configure -des -D prefix=/usr -D vendorprefix=/usr \
+		-D privlib=/usr/lib/perl5/5.42/core_perl -D archlib=/usr/lib/perl5/5.42/core_perl \
+		-D sitelib=/usr/lib/perl5/5.42/site_perl -D sitearch=/usr/lib/perl5/5.42/site_perl \
+		-D vendorlib=/usr/lib/perl5/5.42/vendor_perl -D vendorarch=/usr/lib/perl5/5.42/vendor_perl \
+		-D man1dir=/usr/share/man/man1 -D man3dir=/usr/share/man/man3 -D man3ext=3perl -D pager="/usr/bin/less -isR" \
+		-D useshrplib -D usethreads -D optimize="$CFLAGS" \
+		-D cf_by=ribbon -D cf_email=root@localhost -D perladmin=root@localhost -D myhostname=localhost -D mydomain=.localdomain \
+		-D myuname="linux ribbon" -D osvers=6.18 -D cf_time="$(date -u -d "@$SOURCE_DATE_EPOCH")"
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

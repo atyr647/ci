@@ -1,0 +1,25 @@
+# btrfs-progs: btrfs, mkfs.btrfs, btrfs check and the rest, with libbtrfsutil: Ribbon's default root filesystem and
+# its snapshots. With zlib and zstd compression; without lzo, the ext converter, the Python binding, udev and the
+# documentation (which needs Sphinx), each named off.
+name=btrfs-progs
+kit=org.kernel.btrfs-progs
+version=6.11
+revision=1
+summary="Tools for the btrfs filesystem"
+license="GPL-2.0-only AND LGPL-2.1-or-later"
+source="https://cdn.kernel.org/pub/linux/kernel/people/kdave/btrfs-progs/btrfs-progs-v6.11.tar.xz"
+sha256="ff9ae91521303a90d87e1c4be230f0121f39c44ddbe52c2aeae263c6fecfa099"
+srcdir="btrfs-progs-v6.11"
+needs="org.gnu.glibc org.kernel.util-linux net.zlib.zlib io.github.facebook.zstd"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.kernel.util-linux net.zlib.zlib io.github.facebook.zstd"
+
+build() {
+	./configure --prefix=/usr --bindir=/usr/bin --disable-documentation --disable-convert --disable-python \
+		--disable-libudev --disable-lzo --disable-backtrace --disable-zoned
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	rm -f "$DESTDIR"/usr/lib/libbtrfs.a "$DESTDIR"/usr/lib/libbtrfsutil.a
+}

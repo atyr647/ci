@@ -1,0 +1,14 @@
+#!/bin/sh
+# A stand-in for nvidia-smi --query-gpu=... -lms N (tests/hud-readers.tcl): two cards, a line each every 0.2 s; card 1
+# has no power figure, as on many laptops. NVSMI_LOG: a file that gets one line per start.
+[ -n "${NVSMI_LOG:-}" ] && echo "start $*" >> "$NVSMI_LOG"
+case "$*" in
+*"--query-gpu=index,utilization.gpu,memory.used,memory.total,temperature.gpu,power.draw --format=csv,noheader,nounits -lms 500"*) ;;
+*) echo "unexpected: $*" >&2; exit 2 ;;
+esac
+i=0
+while [ $i -lt 300 ]; do
+	echo "0, 43, 3072, 12282, 61, 118.40"
+	echo "1, 5, 100, 8192, 40, [N/A]"
+	sleep 0.2; i=$((i + 1))
+done

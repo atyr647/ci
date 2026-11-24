@@ -1,0 +1,22 @@
+# libpciaccess: finds PCI devices and maps their memory (libdrm's Intel library, and Xorg's drivers later). Its device
+# names come from pci.ids, which hwdata brings (blocked, decision 163): without it devices are named by number.
+# Without zlib (a compressed pci.ids).
+name=libpciaccess
+kit=org.x.libpciaccess
+version=0.19
+revision=1
+summary="PCI device access"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libpciaccess-0.19.tar.xz"
+sha256="3c55aa86c82e54a4e3109786f0463530d53b36b6d1cfd14616454f985dd2aa43"
+srcdir="libpciaccess-0.19"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Dpci-ids=/usr/share/hwdata -Dzlib=disabled
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

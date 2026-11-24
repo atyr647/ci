@@ -1,0 +1,6 @@
+# /usr/lib/ribbon/pkg-names.ribbon - Ribbon's own packages by the seam's ids (pkg.sh), on every base.
+# One line per id: ID PACKAGE. A package that make install put down (build/install/install.sh) leaves its
+# record on the system, /var/lib/ribbon/installed/PACKAGE.files; pkg.sh finds the record by this name and
+# then knows the id as installed, and removes the package by its record, without any package manager.
+
+installer            ribbon-installer

@@ -1,0 +1,211 @@
+# Template file for 'ribbon-desktop'
+pkgname=ribbon-desktop
+version=0.1.0
+revision=1
+# Settings replaces wdisplays, pavucontrol, network-manager-applet and blueman
+# (Display, Sound, Network, Bluetooth), the generated gtk.css on GTK's own
+# Adwaita replaces arc-theme, and the login screen runs in labwc, not cage.
+# Files mounts drives through udisks2 and keeps the Trash itself (no gvfs);
+# xdg-desktop-portal-gtk (file pickers for flatpak apps, and the
+# Settings portal that hands ribbon-theme's color-scheme to GTK 4,
+# libadwaita and Firefox) until a Ribbon file chooser portal exists.
+# dconf and gsettings-desktop-schemas: where ribbon-theme writes the
+# color-scheme, theme, icons, cursor and font for that portal.
+# mpv plays videos in the image viewer (embedded through its JSON IPC);
+# gnome-keyring is the Secret Service where Mail keeps passwords (decision
+# 47); desktop-file-utils and shared-mime-info make the desktop-entry and
+# MIME caches (update-desktop-database, update-mime-database) off Void.
+depends="ribbon-base ribbon-kit
+ labwc xorg-server-xwayland wlroots0.20
+ tk tkdnd font-inter font-jetbrains-mono pulseaudio-utils playerctl wtype
+ foot
+ udisks2 polkit
+ conky swaylock swayidle wlopm kanshi wlr-randr grim slurp
+ wl-clipboard xrdb brightnessctl xdg-desktop-portal xdg-desktop-portal-wlr
+ xdg-desktop-portal-gtk xdg-user-dirs xdg-utils dconf gsettings-desktop-schemas
+ greetd tcl-unix-sockets tcl-unix-extra setxkbmap
+ pipewire wireplumber alsa-pipewire libjack-pipewire rtkit
+ NetworkManager bluez
+ papirus-icon-theme dejavu-fonts-ttf noto-fonts-ttf noto-fonts-emoji
+ adwaita-icon-theme
+ firefox flatpak libdisplay-info
+ mesa-vaapi intel-media-driver libva-intel-driver ffmpeg6 bsdtar tcltls
+ upower alsa-ucm-conf sof-firmware iio-sensor-proxy hwids util-linux
+ wireless-regdb linux-firmware-broadcom
+ mpv gnome-keyring desktop-file-utils shared-mime-info"
+short_desc="Ribbon OS desktop: the Ribbon shell (Tcl/Tk) on labwc (Wayland)"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/ribbon"
+system_accounts="_greeter"
+_greeter_homedir="/var/lib/greetd"
+_greeter_pgroups="video,input"
+# the login screen's state (the last login) and drawing cache
+make_dirs="/var/lib/greetd 0750 _greeter _greeter"
+# ribbon-shell-watch (C): the Tcl/Tk shell's link to the compositor's window
+# and workspace lists. Space Grotesk (OFL) draws the wallpaper wordmark and
+# the login clock; its weight-600 instance is cut out at build time, for
+# the shell, the login screen and the installer alike (one copy, here).
+# ribbon-wall (C, with its policy in Tcl): the wallpaper; FFmpeg decodes
+# (VA-API, NVDEC), EGL/GLES2 draws, an embedded Tcl runs wall.tcl.
+hostmakedepends="pkg-config wayland-devel wayland-protocols tcl python3-fonttools"
+makedepends="wayland-devel ffmpeg6-devel Vulkan-Headers tcl-devel tk-devel libX11-devel libXext-devel
+ libXrender-devel libglvnd-devel libva-devel libxkbcommon-devel cairo-devel"
+_gf=86aced91de05cd4f96a06838124cca45be337b2b
+distfiles="https://raw.githubusercontent.com/google/fonts/${_gf}/ofl/spacegrotesk/SpaceGrotesk%5Bwght%5D.ttf>SpaceGrotesk-wght.ttf
+ https://raw.githubusercontent.com/google/fonts/${_gf}/ofl/spacegrotesk/OFL.txt>SpaceGrotesk-OFL.txt"
+checksum="acad6de1fc93436f5c0f1f4137751ef04f1aea3063e7036535970ffcfbd79f72
+ 564ce565c371c5e5bbf286006565a7c9aa55a9f56e7ca58d56e05d649dd61a72"
+skip_extraction="SpaceGrotesk-wght.ttf SpaceGrotesk-OFL.txt"
+font_dirs="/usr/share/fonts/TTF/ribbon"
+
+do_build() {
+	make -C "${FILESDIR}/shell-watch" CC="${CC}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" \
+		O="${wrksrc}" ribbon-shell-watch ribbon-shell-switch
+	make -C "${FILESDIR}/rbnalpha" CC="${CC}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" O="${wrksrc}"
+	make -C "${FILESDIR}/ribbon-wall" CC="${CC}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" \
+		O="${wrksrc}" LIBDIR=/usr/lib/ribbon/wall
+	# ribbon-polkit-keys: the password prompt's native keyboard (apps/polkit/native); the card is Tcl
+	make -C "${FILESDIR}/apps/polkit/native" CC="${CC}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" O="${wrksrc}"
+	# ribbon-hud-surface: the Game HUD's layer-shell overlay (apps/hud/main.tcl runs it from usr/lib/ribbon/hud)
+	make -C "${FILESDIR}/apps/hud/native" CC="${CC}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" O="${wrksrc}"
+	# VK_LAYER_RIBBON_hud_frames: frame times of Vulkan games outside gamescope (headers only, no libvulkan)
+	make -C "${FILESDIR}/apps/hud/native" CC="${CC}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" O="${wrksrc}" layer
+	# ribbon-fswatch: inotify on the folders Ribbon Files shows (shell/files.tcl runs it from PATH)
+	${CC} ${CFLAGS} -Wall -Wextra ${LDFLAGS} -o "${wrksrc}/ribbon-fswatch" "${FILESDIR}/fswatch/ribbon-fswatch.c"
+	python3 "${FILESDIR}/greeter/space-grotesk-semibold.py" \
+		"${XBPS_SRCDISTDIR}/${pkgname}-${version}/SpaceGrotesk-wght.ttf" "${wrksrc}/SpaceGrotesk-SemiBold.ttf"
+}
+
+do_install() {
+	vbin "${wrksrc}/ribbon-shell-watch"
+	# ribbon-shell-switch (C): the Alt+Tab keyboard, stills and window copies (shell/mod-alttab.tcl)
+	vbin "${wrksrc}/ribbon-shell-switch"
+	vbin "${wrksrc}/ribbon-fswatch"
+	# the wallpaper: ribbon-wall, its policy and the procedural designs
+	vbin "${wrksrc}/ribbon-wall"
+	vinstall "${FILESDIR}/ribbon-wall/wall.tcl" 644 usr/lib/ribbon/wall
+	vinstall "${FILESDIR}/ribbon-wall/look.tcl" 644 usr/lib/ribbon/wall
+	for f in "${FILESDIR}"/ribbon-wall/looks/*; do
+		vinstall "$f" 644 usr/share/ribbon/looks
+	done
+	for f in ribbon-session ribbon-firstrun ribbon-conky ribbon-theme ribbon-welcome \
+		ribbon-shell ribbon-shell-ctl ribbon-wallpaper ribbon-files ribbon-appearance ribbon-properties \
+		ribbon-screenshot ribbon-browser ribbon-notify-wait ribbon-lock ribbon-osd; do
+		vbin "${FILESDIR}/bin/${f}"
+	done
+	# the Ribbon shell itself (Tcl/Tk)
+	for f in "${FILESDIR}"/shell/*.tcl; do
+		vinstall "$f" 644 usr/lib/ribbon/shell
+	done
+	# Ribbon's font names (text.tcl): Inter and Space Grotesk at the exact
+	# weights, for the shell, the login screen, the installer and Appearance
+	vinstall "${FILESDIR}/shell/fonts.conf" 644 usr/lib/ribbon/shell
+	vinstall "${FILESDIR}/shell/fonts.conf" 644 usr/share/fontconfig/conf.avail 30-ribbon-fonts.conf
+	vmkdir etc/fonts/conf.d
+	ln -s ../../../usr/share/fontconfig/conf.avail/30-ribbon-fonts.conf "${DESTDIR}/etc/fonts/conf.d/30-ribbon-fonts.conf"
+	# the login screen (Tcl/Tk, greetd), sharing the shell's drawing code
+	for f in "${FILESDIR}"/greeter/*.tcl; do
+		vinstall "$f" 644 usr/lib/ribbon/greeter
+	done
+	vbin "${FILESDIR}/greeter/ribbon-greeter"
+	# rbnalpha (C + Tcl): see-through rounded windows with real shadows,
+	# rounded widgets, and raster.tcl's pixels and the login blur in C:
+	# package require rbnalpha, with /usr/lib/ribbon on auto_path
+	vinstall "${wrksrc}/librbnalpha.so" 755 usr/lib/ribbon/rbnalpha
+	vinstall "${FILESDIR}/rbnalpha/rbnalpha.tcl" 644 usr/lib/ribbon/rbnalpha
+	vinstall "${FILESDIR}/rbnalpha/pkgIndex.tcl" 644 usr/lib/ribbon/rbnalpha
+	# ribbon::dbus, the shell's D-Bus client in pure Tcl (on unix_extra):
+	# package require ribbon::dbus, with /usr/lib/ribbon on auto_path
+	for f in "${FILESDIR}"/dbus/*.tcl; do
+		vinstall "$f" 644 usr/lib/ribbon/dbus
+	done
+	# Appearance (Tcl/Tk): theme, colours, backgrounds; it uses the shell's
+	# drawing and text code
+	for f in "${FILESDIR}"/appearance/*.tcl; do
+		vinstall "$f" 644 usr/lib/ribbon/appearance
+	done
+	# the first-login welcome (Tcl/Tk, Appearance's controls)
+	vinstall "${FILESDIR}/welcome/main.tcl" 644 usr/lib/ribbon/welcome
+	# Properties (Tcl/Tk): an app's kit, a file, a folder; Appearance's
+	# window and controls, kit's library for apps (ribbon-kit, a dependency)
+	for f in "${FILESDIR}"/properties/*.tcl; do
+		vinstall "$f" 644 usr/lib/ribbon/properties
+	done
+	vinstall "${FILESDIR}/mime/ribbon-kit.xml" 644 usr/share/mime/packages
+	vinstall "${FILESDIR}/greeter/50-ribbon-greeter.rules" 644 usr/share/polkit-1/rules.d
+	# the login screen's theme, set by admins through pkexec (ribbon-theme login)
+	vinstall "${FILESDIR}/bin/ribbon-login-theme" 755 usr/lib/ribbon
+	vinstall "${FILESDIR}/polkit/org.ribbon.login-theme.policy" 644 usr/share/polkit-1/actions
+	vinstall "${FILESDIR}/polkit/50-ribbon-login-theme.rules" 644 usr/share/polkit-1/rules.d
+	vinstall "${XBPS_SRCDISTDIR}/${pkgname}-${version}/SpaceGrotesk-wght.ttf" 644 \
+		usr/share/fonts/TTF/ribbon "SpaceGrotesk[wght].ttf"
+	vinstall "${wrksrc}/SpaceGrotesk-SemiBold.ttf" 644 usr/share/fonts/TTF/ribbon
+	vlicense "${XBPS_SRCDISTDIR}/${pkgname}-${version}/SpaceGrotesk-OFL.txt" SpaceGrotesk-OFL.txt
+	# ribbon-polkit (apps/polkit, below) is the session's polkit agent; it starts this helper for the keyboard
+	vinstall "${wrksrc}/ribbon-polkit-keys" 755 usr/lib/ribbon/polkit
+	# the Game HUD's overlay helper (apps/hud/main.tcl and hud-surface.tcl look for it here)
+	vinstall "${wrksrc}/ribbon-hud-surface" 755 usr/lib/ribbon/hud
+	# its Vulkan frame layer, found by the loader through the implicit layer manifest
+	vinstall "${wrksrc}/libribbon-hud-frames.so" 755 usr/lib/ribbon/hud
+	vinstall "${FILESDIR}/apps/hud/native/ribbon-hud-frames.json" 644 usr/share/vulkan/implicit_layer.d
+	# Ribbon's image viewer: its command (apps/viewer/ribbon-viewer) and the desktop entry
+	# mimeapps.list names as the default for pictures
+	vbin "${FILESDIR}/apps/viewer/ribbon-viewer"
+	vinstall "${FILESDIR}/apps/viewer/org.ribbon.imageviewer.desktop" 644 usr/share/applications
+	vinstall "${FILESDIR}/greetd/greetd-launch" 755 usr/lib/ribbon
+	# D-Bus activation: notifications (ribbon-notify-wait until the shell owns the name), the ScreenSaver
+	# inhibitor (apps/settings/screensaver.tcl) and the FileChooser portal backend (appearance/chooser-portal.tcl)
+	for f in "${FILESDIR}"/dbus-services/*.service; do
+		vinstall "$f" 644 usr/share/dbus-1/services
+	done
+	vinstall "${FILESDIR}/xdg-desktop-portal/portals/ribbon.portal" 644 usr/share/xdg-desktop-portal/portals
+	# the PAM rule for "Log in without a password" (Settings → Users); INSTALL puts it into /etc/pam.d/greetd
+	vinstall "${FILESDIR}/greetd/pam-nopasswdlogin" 644 usr/share/ribbon/greetd
+	# apps:begin
+	# drop-in apps (C1): apps/<name>/ holds its *.tcl (to usr/lib/ribbon/<name>), bin/*,
+	# applications/*.desktop, policy/*.policy and policy/*.rules (polkit). A new app needs
+	# no edit here. (tests/steps.d/05-drop-in.sh runs this block against a fixture.)
+	for app_dir in "${FILESDIR}"/apps/*/; do
+		if [ ! -d "$app_dir" ]; then continue; fi
+		app=$(basename "$app_dir")
+		for f in "$app_dir"*.tcl; do if [ -f "$f" ]; then vinstall "$f" 644 usr/lib/ribbon/$app; fi; done
+		for f in "$app_dir"bin/*; do if [ -f "$f" ]; then vbin "$f"; fi; done
+		for f in "$app_dir"applications/*.desktop; do if [ -f "$f" ]; then vinstall "$f" 644 usr/share/applications; fi; done
+		for f in "$app_dir"policy/*.policy; do if [ -f "$f" ]; then vinstall "$f" 644 usr/share/polkit-1/actions; fi; done
+		for f in "$app_dir"policy/*.rules; do if [ -f "$f" ]; then vinstall "$f" 644 usr/share/polkit-1/rules.d; fi; done
+	done
+	# apps:end
+
+	# Read-only defaults; users override in ~/.config (see ribbon-session).
+	vmkdir usr/share/ribbon
+	vcopy "${FILESDIR}/xdg" usr/share/ribbon
+	vcopy "${FILESDIR}/themes" usr/share/ribbon
+	for f in "${FILESDIR}"/conky/layouts/*.conf; do
+		vinstall "$f" 644 usr/share/ribbon/conky/layouts
+	done
+	vinstall "${FILESDIR}/conky/lua/ribbon.lua" 644 usr/share/ribbon/conky/lua
+
+	# Pre-render every colour scheme's wallpaper; the default scheme (ribbon,
+	# Graphite) also provides the system window theme.
+	local out="${wrksrc}/render" p
+	for p in "${FILESDIR}"/themes/palettes/*.conf; do
+		p=$(basename "$p" .conf)
+		bash "${FILESDIR}/bin/ribbon-theme" render-from "${FILESDIR}/themes" "$p" "$out/$p"
+		vinstall "$out/$p/wallpaper.svg" 644 usr/share/ribbon/wallpapers "${p}.svg"
+	done
+	# usr/share/themes must exist first, or vcopy (cp -a) makes the theme's own folder usr/share/themes
+	vmkdir usr/share/themes
+	vcopy "$out/ribbon/themes/Ribbon" usr/share/themes
+
+	vinstall "${FILESDIR}/flatpak/flathub.flatpakrepo" 644 usr/share/ribbon/flatpak
+	vinstall "${FILESDIR}/greetd/config.toml" 644 usr/share/ribbon/greetd
+	vinstall "${FILESDIR}/sessions/ribbon.desktop" 644 usr/share/wayland-sessions
+	vinstall "${FILESDIR}/applications/ribbon-files.desktop" 644 usr/share/applications
+	vinstall "${FILESDIR}/applications/ribbon-appearance.desktop" 644 usr/share/applications
+	vinstall "${FILESDIR}/applications/ribbon-properties.desktop" 644 usr/share/applications
+	vinstall "${FILESDIR}/applications/ribbon-kit-run.desktop" 644 usr/share/applications
+	vinstall "${FILESDIR}/services/greetd" 644 usr/lib/dinit.d
+	vinstall "${FILESDIR}/services/ribbon-power-limit" 644 usr/lib/dinit.d
+	vinstall "${FILESDIR}/LICENSE" 644 usr/share/licenses/${pkgname}
+}

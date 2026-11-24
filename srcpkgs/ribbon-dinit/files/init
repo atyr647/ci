@@ -1,0 +1,59 @@
+#!/bin/sh
+# /usr/lib/ribbon/init - Ribbon OS PID 1 entry point (kernel: init=/usr/lib/ribbon/init)
+#
+# Runs before dinit and does two things that must happen before dinit loads
+# its "boot" service tree:
+#   1. on a base whose packages ship runit services (Void: /etc/sv), generates
+#      dinit service descriptions for them (ribbon-sv2dinit -> /run/dinit.d),
+#      so `dinitctl enable` works for any installed package from the very
+#      first boot; a base without /etc/sv has nothing to convert;
+#   2. picks the boot target from the kernel command line.
+#
+# This script must never fail: anything that goes wrong here is logged and
+# skipped, and dinit is always exec'd. If dinit itself is missing we drop to
+# an emergency shell instead of panicking the kernel.
+
+PATH=/usr/bin:/usr/sbin:/bin:/sbin
+export PATH
+
+mountpoint -q /proc || mount -t proc -o nosuid,noexec,nodev proc /proc
+mountpoint -q /run  || mount -t tmpfs -o mode=0755,nosuid,nodev run /run
+mkdir -p /run/dinit.d /run/ribbon
+
+target=boot
+for arg in $(cat /proc/cmdline 2>/dev/null); do
+	case "$arg" in
+		single|ribbon.single|rd.single) target=single ;;
+		emergency|ribbon.recovery) target=recovery ;;
+		ribbon.safe|ribbon.safe=1) : > /run/ribbon/safe-mode ;;
+		ribbon.nogen) : > /run/ribbon/sv2dinit-disabled ;;
+	esac
+done
+
+if [ -d /etc/sv ] && [ ! -e /run/ribbon/sv2dinit-disabled ] && [ -x /usr/bin/ribbon-sv2dinit ]; then
+	/usr/bin/ribbon-sv2dinit --boot >/run/ribbon/sv2dinit.log 2>&1 || :
+fi
+
+if [ -e /run/ribbon/safe-mode ]; then
+	RIBBON_SAFE=1
+	export RIBBON_SAFE
+fi
+
+# Service directories, first match wins:
+#   /etc/dinit.d              yours (overrides everything)
+#   /run/dinit.d              converted from /etc/sv this boot (a base with runit services)
+#   /var/lib/ribbon/dinit.d   last good conversion (fallback if this boot's failed)
+#   /usr/local/lib/dinit.d, /usr/lib/dinit.d   packaged services
+if [ -x /usr/bin/dinit ]; then
+	exec /usr/bin/dinit --system \
+		--services-dir /etc/dinit.d \
+		--services-dir /run/dinit.d \
+		--services-dir /var/lib/ribbon/dinit.d \
+		--services-dir /usr/local/lib/dinit.d \
+		--services-dir /usr/lib/dinit.d \
+		"$target"
+fi
+
+echo "ribbon-init: /usr/bin/dinit is missing; starting an emergency shell." >&2
+echo "Reinstall the dinit and ribbon-dinit packages from a rescue system (or boot a snapshot)." >&2
+exec /bin/sh -l

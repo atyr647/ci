@@ -1,0 +1,17 @@
+// The login screen's suspend, restart and power-off buttons: let the
+// greeter's own account (_greeter, which runs nothing else) ask elogind for
+// those, even when other people are still logged in. Nothing more.
+polkit.addRule(function(action, subject) {
+	if (subject.user != "_greeter")
+		return polkit.Result.NOT_HANDLED;
+	switch (action.id) {
+	case "org.freedesktop.login1.suspend":
+	case "org.freedesktop.login1.suspend-multiple-sessions":
+	case "org.freedesktop.login1.reboot":
+	case "org.freedesktop.login1.reboot-multiple-sessions":
+	case "org.freedesktop.login1.power-off":
+	case "org.freedesktop.login1.power-off-multiple-sessions":
+		return polkit.Result.YES;
+	}
+	return polkit.Result.NOT_HANDLED;
+});

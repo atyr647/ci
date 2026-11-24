@@ -1,0 +1,22 @@
+# wayland-protocols: the XML of Wayland's extension protocols (xdg-shell and the rest), what compositors and
+# clients generate their code from. Data only; without its tests.
+name=wayland-protocols
+kit=org.freedesktop.wayland-protocols
+version=1.50
+revision=1
+summary="Wayland's extension protocols"
+license="MIT"
+source="https://gitlab.freedesktop.org/wayland/wayland-protocols/-/releases/1.50/downloads/wayland-protocols-1.50.tar.xz"
+sha256="4460c20cfcf68b994a5ee206ed15fc19ad312f16c96075186e83b0e3f4aa48a5"
+srcdir="wayland-protocols-1.50"
+needs=""
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --sbindir=bin --sysconfdir=/etc --localstatedir=/var \
+		--buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Dtests=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

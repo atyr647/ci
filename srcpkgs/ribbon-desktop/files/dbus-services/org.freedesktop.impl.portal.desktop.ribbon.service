@@ -1,0 +1,3 @@
+[D-BUS Service]
+Name=org.freedesktop.impl.portal.desktop.ribbon
+Exec=/usr/bin/tclsh /usr/lib/ribbon/appearance/chooser-portal.tcl

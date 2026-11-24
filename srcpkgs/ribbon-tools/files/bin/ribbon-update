@@ -1,0 +1,208 @@
+#!/bin/bash
+# ribbon-update - the safe way to update Ribbon OS ("phase now" of
+# docs/SYSTEM-UPDATES.md §7.10: the base's packages, then `kit check` for apps).
+#   1. snapshot the system (btrfs/zfs/bcachefs)
+#   2. update the package manager itself, then everything else (pkg.sh's seam;
+#      its pkg_upgrade also makes dinit services of new or changed runit
+#      services, where the base has them)
+#   3. (the snapshot is this tool's: every update of the base goes through it;
+#      Ribbon puts no wrapper in front of the package manager)
+#   4. refresh the boot menu (new kernels, snapshot entries)
+#   5. update Flatpak apps
+#   6. kit check for the apps of the person who ran it (kits are per user)
+#   7. say whether a restart is needed: a new kernel, or a package that takes
+#      effect at restart, writes /run/ribbon/reboot-required (as pending does)
+#
+# For the desktop only: --tcl, as kit's (docs/KIT-CLI.md "Exit codes and
+# scripting"). The bar's updates panel and Settings → Updates are the prompt
+# and run kit themselves, so with --tcl nothing is asked and kit is not run:
+#     ribbon update --tcl        plan {rows R question Q checked T}   no root; nothing is done
+#     ribbon update --tcl --yes  done {rows R lines L stale {} names {} restart X time T}   (root: pkexec)
+# Rows are kit's: name short old new action bytes tags note. The plan also leaves what is waiting in
+# ${XDG_CACHE_HOME:-~/.cache}/ribbon/system-updates, in kit's cache file's form (lib/verbs.tcl saveUpdates:
+# checked T updates {{name N short N version OLD new NEW flags TAGS download BYTES} ...}), for the bar's chip and
+# Settings' rail count, as kit-updater leaves kit's.
+#
+# Tests: RIBBON_LIB (common.sh's directory), RIBBON_RUN (/run/ribbon),
+# RIBBON_MODULES (/usr/lib/modules).
+set -u
+LIB=${RIBBON_LIB:-/usr/lib/ribbon}
+. "$LIB/common.sh"
+declare -F pkg_upgrade >/dev/null || . "$LIB/pkg-update.sh"
+RUN=${RIBBON_RUN:-/run/ribbon}
+MODULES=${RIBBON_MODULES:-/usr/lib/modules}
+
+snapshot=${SNAPSHOT_BEFORE_UPDATE:-yes}
+assume_yes=
+tcl=0
+for a in "$@"; do
+	case "$a" in
+		--no-snapshot) snapshot=no ;;
+		-y|--yes) assume_yes=-y ;;
+		--tcl) tcl=1 ;;
+		-h|--help) echo "Usage: ribbon update [--no-snapshot] [-y]"; exit 0 ;;
+		*) die "unknown option $a (see: ribbon update --help)" ;;
+	esac
+done
+
+# ---- the plan: what the base's package manager would change -----------------------------------------------
+# A Tcl list element, quoted as Tcl reads it (a word with spaces or Tcl's special characters in braces).
+tclq() {
+	case "$1" in
+		'') printf '{}' ;;
+		*[[:space:]\"\{\}\\\$\;\[\]]*) printf '{%s}' "$(printf '%s' "$1" | tr -d '{}\\')" ;;
+		*) printf '%s' "$1" ;;
+	esac
+}
+
+# The rows as kit's dicts, from pkg_updates' lines on stdin: one per line.
+tcl_rows() {
+	local n old new bytes act tags
+	while IFS='|' read -r n old new bytes act tags; do
+		[ -n "$n" ] || continue
+		printf 'name %s short %s old %s new %s action %s bytes %s tags %s note {}\n' \
+			"$(tclq "$n")" "$(tclq "$n")" "$(tclq "$old")" "$(tclq "$new")" "$act" "$(tclq "$bytes")" "$(tclq "$tags")"
+	done
+}
+
+# kit's question (lib/ui.tcl question): Install?, Update?, Install N and update M?, and the restart tail.
+question() {
+	local ni=0 nu=0 rs=0 n old new bytes act tags q
+	while IFS='|' read -r n old new bytes act tags; do
+		[ -n "$n" ] || continue
+		case "$act" in install) ni=$((ni + 1)) ;; update) nu=$((nu + 1)) ;; esac
+		case " $tags " in *" restart "*) rs=1 ;; esac
+	done
+	if [ $nu -eq 0 ]; then q="Install?"; elif [ $ni -eq 0 ]; then q="Update?"; else q="Install $ni and update $nu?"; fi
+	[ $rs -eq 1 ] && q="$q (takes effect at restart)"
+	printf '%s' "$q"
+}
+
+# The cache file, from pkg_updates' lines on stdin (written whole, then renamed; the plan is only ever asked as a user).
+save_cache() {
+	local dir n old new bytes act tags list=
+	[ -n "${HOME:-}" ] || return 0
+	dir=${XDG_CACHE_HOME:-$HOME/.cache}/ribbon
+	mkdir -p "$dir" 2>/dev/null || return 0
+	while IFS='|' read -r n old new bytes act tags; do
+		[ -n "$n" ] || continue
+		list+="{name $(tclq "$n") short $(tclq "$n") version $(tclq "$old") new $(tclq "$new") flags $(tclq "$tags") download $(tclq "${bytes:-0}")} "
+	done
+	printf 'checked %s updates {%s}\n' "$(date +%s)" "${list% }" > "$dir/system-updates.new" &&
+		mv -f "$dir/system-updates.new" "$dir/system-updates"
+}
+
+if [ $tcl -eq 1 ] && [ -z "$assume_yes" ]; then
+	plan=$(pkg_updates); rc=$?
+	case $rc in
+		0) ;;
+		2) printf '' | save_cache; echo "Nothing to update outside kit"; exit 0 ;;   # no package manager, or the system is kits
+		*) exit 1 ;;                                                             # pkg_updates said why, on stderr
+	esac
+	printf '%s\n' "$plan" | save_cache
+	if [ -z "$plan" ]; then echo "Up to date"; exit 0; fi
+	rows=$(printf '%s\n' "$plan" | tcl_rows | while read -r r; do printf '{%s} ' "$r"; done)
+	printf 'plan {rows {%s} question {%s} checked %s}\n' "${rows% }" "$(printf '%s\n' "$plan" | question)" "$(date +%s)"
+	exit 0
+fi
+
+need_root "$@"
+
+backend=$(pkg_backend)
+kernels() { ls -1 "$MODULES" 2>/dev/null | sort; }
+before_kernels=$(kernels)
+plan='' was=''
+rc=0
+if [ "$backend" = none ] || [ "$backend" = kit ]; then
+	pkg_upgrade   # none: says why there is nothing for it to do; kit: the system kits through kitd (its snapshot, its switch)
+	rc=$?
+else
+	if [ "$snapshot" = yes ] && [ "$(ribbon-snapshot backend)" != none ]; then
+		msg "Taking a snapshot before updating"
+		ribbon-snapshot pre "ribbon update $(date +%F)" || die "snapshot failed; not updating (use --no-snapshot to override)"
+	fi
+
+	msg "Syncing repositories"
+	pkg_refresh || die "repository sync failed"
+
+	msg "Updating the package manager"
+	pkg_upgrade_self $assume_yes || die "the package manager's own update failed"
+
+	# what this update changes (after the package manager's own update, which may change the rest)
+	plan=$(pkg_updates 2>/dev/null) || plan=
+	was=$(pkg_versions)
+
+	msg "Updating the system"
+	pkg_upgrade $assume_yes
+	rc=$?
+fi
+
+msg "Refreshing the boot menu"
+update_bootloader || warn "boot menu refresh failed ($(boot_loader)); run: sudo ribbon boot update"
+ribbon-snapshot prune >/dev/null 2>&1 || :
+
+if [ $tcl -eq 0 ] && have flatpak; then
+	msg "Updating Flatpak apps"
+	flatpak update -y --noninteractive || warn "flatpak update failed"
+fi
+
+# ---- what changed: the planned packages whose installed version moved (or that are there now) -------------
+now=$(pkg_versions)
+changed=
+if [ -n "$plan" ]; then
+	while IFS='|' read -r n old new bytes act tags; do
+		[ -n "$n" ] || continue
+		v=$(printf '%s\n' "$now" | awk -v n="$n" '$1 == n { print $2; exit }')
+		w=$(printf '%s\n' "$was" | awk -v n="$n" '$1 == n { print $2; exit }')
+		[ -n "$v" ] && [ "$v" != "$w" ] || continue
+		changed+=$(printf '%s|%s|%s|%s|%s|%s' "$n" "$old" "$new" "$bytes" "$act" "$tags")$'\n'
+	done <<< "$plan"
+fi
+restart=$(printf '%s' "$changed" | awk -F'|' '$6 ~ /(^| )restart( |$)/ { print $1 " " $3 }')
+new_kernel=$(comm -13 <(printf '%s\n' "$before_kernels") <(kernels) | grep . | head -n1)
+if [ -n "$restart" ] || [ -n "$new_kernel" ]; then
+	mkdir -p "$RUN" && : > "$RUN/reboot-required"
+fi
+
+# ---- the apps: kit check as the person who ran this (not root's own kits) -----------------------------------
+kit_rc=0
+if [ $tcl -eq 0 ] && have kit; then
+	u=$(session_user)
+	if [ "$u" = root ]; then
+		msg "Not checking app kits: they belong to each user (run: kit check)"
+	else
+		msg "Updating app kits for $u"
+		home=$(getent passwd "$u" | cut -d: -f6)
+		runuser -u "$u" -- env HOME="${home:-/home/$u}" kit check ${assume_yes:+--yes}
+		kit_rc=$?
+		[ $kit_rc -eq 0 ] || warn "kit check exited with $kit_rc; run it again as $u: kit check"
+	fi
+fi
+
+lines=()
+[ -n "$restart" ] && lines+=("Restart to finish: $(printf '%s\n' "$restart" | paste -sd, - | sed 's/,/, /g').")
+if [ $tcl -eq 1 ]; then
+	if [ $rc -ne 0 ]; then
+		err "the system's update failed (exit $rc). To undo everything: sudo ribbon rollback"
+		exit $rc
+	fi
+	drows=$(printf '%s' "$changed" | while IFS='|' read -r n old new bytes act tags; do
+		[ -n "$n" ] || continue
+		printf '{name %s short %s old %s action done bytes {} tags {} new %s} ' "$(tclq "$n")" "$(tclq "$n")" "$(tclq "$new")" \
+			"$([ "$act" = install ] && echo installed || echo switched)"
+	done)
+	rlist=$(printf '%s\n' "$restart" | while read -r r; do [ -n "$r" ] && printf '{%s} ' "$r"; done)
+	llist=$(for l in "${lines[@]}"; do printf '{%s} ' "$l"; done)
+	printf 'done {rows {%s} lines {%s} stale {} names {} restart {%s} time %s}\n' "${drows% }" "${llist% }" "${rlist% }" "$(date +%s)"
+	exit 0
+fi
+
+if [ $rc -eq 0 ]; then
+	ok "System is up to date"
+	for l in "${lines[@]}"; do echo "$l"; done
+	if [ -n "$new_kernel" ]; then echo "A reboot is recommended (new kernel)."
+	elif [ -e "$RUN/reboot-required" ]; then echo "A reboot is recommended."; fi
+	exit $kit_rc
+fi
+err "The system's update exited with $rc. To undo everything: sudo ribbon rollback"
+exit $rc

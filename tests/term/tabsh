@@ -1,0 +1,14 @@
+#!/bin/sh
+# tabsh - a tab's "shell" in the test (foot.ini: shell=): sets its title, then sets the title of whatever
+# line arrives on its own FIFO (so the test can make a background tab print output); run:CMD runs CMD in front.
+td=$RTT_TABDIR
+printf '\033]2;tab-%s\007' "$$"
+mkfifo "$td/fifo.$$"
+exec 3<>"$td/fifo.$$"
+while read -r l <&3; do
+	case $l in
+	run:*) set -m; ${l#run:}; set +m ;;   # a command in front of the shell: job control gives it the terminal
+	notify:*) printf '\033]777;notify;done;%s\033\\' "${l#notify:}" ;;   # OSC 777: foot's [desktop-notifications] command runs
+	*) printf '\033]2;%s\007' "$l" ;;
+	esac
+done

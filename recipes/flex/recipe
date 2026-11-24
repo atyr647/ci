@@ -1,0 +1,23 @@
+# flex: makes scanners (lexers) from rules; the kernel's build uses it for its configuration language and others.
+# flex runs m4 at run time.
+name=flex
+kit=io.github.westes.flex
+version=2.6.4
+revision=1
+summary="The fast lexical analyser generator"
+license="BSD-2-Clause"
+source="https://github.com/westes/flex/releases/download/v2.6.4/flex-2.6.4.tar.gz"
+sha256="e87aae032bf07c26f85ac0ed3250998c37621d95f8bd748b31f15b33c45ee995"
+srcdir="flex-2.6.4"
+needs="org.gnu.glibc org.gnu.m4"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gnu.m4 org.gnu.bison"
+
+build() {
+	./configure --prefix=/usr --docdir=/usr/share/doc/flex --disable-static --disable-nls
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	ln -s flex "$DESTDIR/usr/bin/lex"
+}

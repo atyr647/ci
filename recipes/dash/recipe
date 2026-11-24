@@ -1,0 +1,20 @@
+# dash: a small POSIX shell, for scripts that ask for /bin/sh and want it fast. /usr/bin/sh stays bash (decision
+# 137): dash is here as itself, /usr/bin/dash.
+name=dash
+kit=au.org.apana.gondor.dash
+version=0.5.12
+revision=1
+summary="The Debian Almquist shell"
+license="BSD-3-Clause"
+source="http://gondor.apana.org.au/~herbert/dash/files/dash-0.5.12.tar.gz"
+sha256="6a474ac46e8b0b32916c4c60df694c82058d3297d8b385b74508030ca4a8f28a"
+srcdir="dash-0.5.12"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf"
+
+build() {
+	./configure --prefix=/usr --bindir=/usr/bin --mandir=/usr/share/man --without-libedit
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

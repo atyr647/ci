@@ -1,0 +1,5 @@
+# Session bus at $XDG_RUNTIME_DIR/bus (turnstile exports DBUS_SESSION_BUS_ADDRESS).
+type = process
+command = /usr/bin/dbus-daemon --session --address=unix:path=${XDG_RUNTIME_DIR}/bus --nofork --nopidfile --print-address=4
+ready-notification = pipefd:4
+smooth-recovery = true

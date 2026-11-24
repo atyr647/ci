@@ -1,0 +1,63 @@
+# Ribbon OS session startup (run by labwc). Add your own commands to
+# ~/.config/labwc/autostart; with merge-config both files run.
+
+# Let D-Bus activated apps (portals, notifications) and the per-user dinit
+# know about this Wayland session. The user dinit gets the session's whole
+# environment, as a program started here with & would: the Tk programs are X
+# clients of XWayland (DISPLAY), the password agent registers for
+# XDG_SESSION_ID, the shell's launcher reads XDG_DATA_DIRS, and the apps it
+# starts inherit the rest (ribbon-session's and labwc's environment files).
+dbus-update-activation-environment WAYLAND_DISPLAY DISPLAY XDG_CURRENT_DESKTOP XDG_SESSION_TYPE XDG_CONFIG_DIRS 2>/dev/null
+dinit=
+if command -v dinitctl >/dev/null 2>&1; then
+	set --
+	for v in $(awk 'BEGIN { for (k in ENVIRON) if (k ~ /^[A-Za-z_][A-Za-z0-9_]*$/ && k !~ /^(PWD|OLDPWD|SHLVL|_)$/) print k }'); do
+		eval "[ -n \"\${$v:-}\" ] && set -- \"\$@\" \"$v=\$$v\""
+	done
+	[ $# -gt 0 ] && dinitctl --user setenv "$@" >/dev/null 2>&1 && dinit=1
+fi
+
+# X resources for XWayland clients (Xft.dpi, antialiasing, hinting, cursor), written by ribbon-theme; with no
+# xrdb installed they keep the X defaults (GTK apps read settings.ini either way)
+xres="${XDG_CONFIG_HOME:-$HOME/.config}/ribbon/Xresources"
+if [ -r "$xres" ] && command -v xrdb >/dev/null 2>&1; then xrdb -nocpp -merge "$xres" >/dev/null 2>&1; fi
+
+# keep COMMAND...: run it again 2 s after it fails (a crash or an error status); after 5 starts within 60 s,
+# give up. A clean exit (status 0: a quit) and the end of the session are not restarted. The same policy as the
+# user services in /usr/lib/dinit.d/user, for a system without dinit. A program that is not installed is left out.
+keep() {
+	command -v "$1" >/dev/null 2>&1 || return 0
+	n=0 t0=$(date +%s)
+	while :; do
+		"$@" >/dev/null 2>&1 </dev/null && return 0
+		case ${WAYLAND_DISPLAY:-} in /*) sock=$WAYLAND_DISPLAY ;; *) sock=${XDG_RUNTIME_DIR:-/tmp}/${WAYLAND_DISPLAY:-} ;; esac
+		[ -S "$sock" ] || return 0
+		n=$((n + 1))
+		now=$(date +%s)
+		[ $((now - t0)) -lt 60 ] || { n=1 t0=$now; }
+		[ "$n" -lt 5 ] || return 1
+		sleep 2
+	done
+}
+# service NAME COMMAND...: the user service NAME under dinit (restarted after a crash); without dinit, or when
+# the service will not start, COMMAND under keep
+service() {
+	s=$1; shift
+	[ -n "$dinit" ] && dinitctl --user start "$s" >/dev/null 2>&1 && return 0
+	keep "$@" &
+}
+
+# the wallpaper (ribbon-wall: designs, pictures, slideshows, videos)
+service ribbon-wall ribbon-wall
+# the Ribbon shell (bars, launcher, menus; Tcl/Tk)
+service ribbon-shell ribbon-shell
+# the polkit password agent
+service ribbon-polkit ribbon-polkit
+# the game overlay's daemon: it shows the HUD for a game as Settings → Game overlay says (ribbon-hud, apps/hud);
+# it leaves at once when nothing asks for it
+service ribbon-hud wish -encoding utf-8 /usr/lib/ribbon/hud/main.tcl -name ribbon-hud --auto
+# the display profiles Settings → Display keeps
+service kanshi kanshi
+# the idle timers (Settings → Power)
+service ribbon-power-idle tclsh /usr/lib/ribbon/settings/power-idle.tcl
+[ -e "${XDG_CONFIG_HOME:-$HOME/.config}/ribbon/welcome-pending" ] && ribbon-welcome >/dev/null 2>&1 &

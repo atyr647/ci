@@ -1,0 +1,6 @@
+#%PAM-1.0
+# root's tools for many accounts at once
+auth      sufficient pam_rootok.so
+auth      required   pam_deny.so
+account   required   pam_permit.so
+password  include    system-auth

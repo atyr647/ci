@@ -1,0 +1,1031 @@
+# Tests for unix_extra, with real sockets in a temporary directory.
+#   tclsh tests/unix_extra.test ?-tmpdir DIR? ?tcltest options?
+# UNIX_EXTRA_DIR: where the built library and pkgIndex.tcl are.
+# UNIX_SOCKETS_DIR: where unix_sockets is, for the tests that use it
+# (skipped when it can't be loaded; the passfds tests also need a
+# unix_sockets with -passfds, i.e. srcpkgs/tcl-unix-sockets/patches).
+
+package require tcltest 2.2
+namespace import ::tcltest::*
+configure {*}$argv
+
+foreach v {UNIX_EXTRA_DIR UNIX_SOCKETS_DIR} {
+	if {[info exists env($v)]} {set auto_path [linsert $auto_path 0 $env($v)]}
+}
+package require unix_extra
+testConstraint unix_sockets [expr {![catch {package require unix_sockets}]}]
+testConstraint passfds [expr {[testConstraint unix_sockets] && [info commands ::unix_sockets::fds] ne ""}]
+
+# sun_path holds 107 bytes; keep the directory short.
+set sock [makeDirectory ux]
+set own_tmp ""
+if {[string length $sock] > 80} {
+	set own_tmp [exec mktemp -d]
+	set sock $own_tmp
+}
+set uid [exec id -u]
+set gid [exec id -g]
+set abstract "@unix_extra-test-[pid]"
+
+proc wait_for {varName {ms 2000}} {
+	set id [after $ms [list set $varName TIMEOUT]]
+	vwait $varName
+	after cancel $id
+	set $varName
+}
+
+# Send data on chan with one pipe per tag attached (data {} = sendfds'
+# default byte). Reading a received end gives back its tag.
+proc sendtagged {chan data args} {
+	set rs {}
+	foreach tag $args {
+		lassign [chan pipe] r w
+		puts $w $tag
+		close $w
+		lappend rs $r
+	}
+	if {$data eq ""} {
+		unix_extra::sendfds $chan $rs
+	} else {
+		unix_extra::sendfds $chan $rs $data
+	}
+	foreach r $rs {close $r}
+}
+proc tags {chans} {
+	lmap c $chans {set t [gets $c]; close $c; set t}
+}
+proc msgtags {msgs} {
+	lmap m $msgs {list [lindex $m 0] [tags [lindex $m 1]]}
+}
+# The fds this process holds without close-on-exec: what any child it
+# execs inherits. Taken once below, before any test runs, the set is what
+# this tclsh itself inherited (from tests/run.sh, a CI runner agent ...),
+# which no recipe here can or should keep from a child.
+proc execfds {} {
+	set r {}
+	foreach f [glob -tails -directory /proc/self/fd *] {
+		if {[catch {
+			set h [::open /proc/self/fdinfo/$f]
+			set info [read $h]
+			close $h
+		}]} continue
+		if {[regexp -line {^flags:\s*([0-7]+)} $info -> fl]
+		    && !([scan $fl %o] & 02000000)} {lappend r $f}
+	}
+	lsort -integer -unique [concat 0 1 2 $r]
+}
+set inherited_fds [execfds]
+proc nfds {} {
+	llength [glob -nocomplain -directory /proc/self/fd *]
+}
+# A script for a second tclsh that can load unix_extra.
+proc childscript {name args} {
+	makeFile [join [concat [list [list set auto_path $::auto_path] \
+		{package require unix_extra} [info body tags_def]] $args] \n] $name
+}
+proc tags_def {} {
+	proc tags {chans} {lmap c $chans {set t [gets $c]; close $c; set t}}
+}
+# A Tcl file channel on a unix stream socket (what fds and recvfds return
+# for a passed socket), and the other end of it.
+proc filechan_socket {} {
+	lassign [unix_extra::socketpair] x y
+	lassign [unix_extra::socketpair] p q
+	unix_extra::sendfds $p [list $y] Y
+	close $y
+	read $q 1
+	set f [unix_extra::fds $q]
+	close $p
+	close $q
+	list $x $f
+}
+
+# ---- datagrams ----
+
+test dgram-1.1 {bind, send, receive} -body {
+	set r [unix_extra::dgram $sock/d1]
+	set s [unix_extra::dgram]
+	list [unix_extra::sendto $s $sock/d1 READY=1] [unix_extra::recv $r]
+} -cleanup {close $r; close $s} -result {7 READY=1}
+
+test dgram-1.2 {message boundaries are kept, empty datagrams too} -body {
+	set r [unix_extra::dgram $sock/d2]
+	set s [unix_extra::dgram]
+	foreach m {a bcd {} STATUS=ok} {unix_extra::sendto $s $sock/d2 $m}
+	lmap _ {1 2 3 4} {unix_extra::recv $r}
+} -cleanup {close $r; close $s} -result {a bcd {} STATUS=ok}
+
+test dgram-1.3 {binary data and a large datagram survive} -body {
+	set r [unix_extra::dgram $sock/d3]
+	set s [unix_extra::dgram]
+	set bin [binary format c* {0 -1 10 13 0}]
+	set big [string repeat x 60000]
+	unix_extra::sendto $s $sock/d3 $bin
+	unix_extra::sendto $s $sock/d3 $big
+	list [expr {[unix_extra::recv $r] eq $bin}] [string length [unix_extra::recv $r]]
+} -cleanup {close $r; close $s} -result {1 60000}
+
+test dgram-1.4 {fileevent readable fires for a datagram} -body {
+	set r [unix_extra::dgram $sock/d4]
+	set s [unix_extra::dgram]
+	chan configure $r -blocking 0
+	chan event $r readable {set ::got [unix_extra::recv $r]}
+	after 10 [list unix_extra::sendto $s $sock/d4 WATCHDOG=1]
+	wait_for ::got
+} -cleanup {close $r; close $s; unset -nocomplain ::got} -result WATCHDOG=1
+
+test dgram-1.5 {closing removes the socket file} -body {
+	set r [unix_extra::dgram $sock/d5]
+	set before [file exists $sock/d5]
+	close $r
+	list $before [file exists $sock/d5]
+} -result {1 0}
+
+test dgram-1.6 {non-blocking recv with nothing queued: EAGAIN} -body {
+	set r [unix_extra::dgram $sock/d6]
+	chan configure $r -blocking 0
+	list [catch {unix_extra::recv $r} msg] [lrange $::errorCode 0 1]
+} -cleanup {close $r} -result {1 {POSIX EAGAIN}}
+
+test dgram-2.1 {abstract names: no file, still delivered} -body {
+	set r [unix_extra::dgram $abstract]
+	set s [unix_extra::dgram]
+	unix_extra::sendto $s $abstract hello
+	list [unix_extra::recv $r] [llength [glob -nocomplain -directory $sock *]]
+} -cleanup {close $r; close $s} -result {hello 0}
+
+test dgram-2.2 {an abstract name is free again after close} -body {
+	close [unix_extra::dgram $abstract]
+	set r [unix_extra::dgram $abstract]
+	expr {$r in [chan names]}
+} -cleanup {close $r} -result 1
+
+test dgram-3.1 {binding a path twice: EADDRINUSE} -body {
+	set r [unix_extra::dgram $sock/d7]
+	list [catch {unix_extra::dgram $sock/d7} msg] [lindex $::errorCode 1] $msg
+} -cleanup {close $r} -match glob -result {1 EADDRINUSE {bind: address already in use}}
+
+test dgram-3.2 {sending to nobody: ENOENT / ECONNREFUSED} -body {
+	set s [unix_extra::dgram]
+	set a [catch {unix_extra::sendto $s $sock/nobody x}]
+	set ea [lindex $::errorCode 1]
+	set b [catch {unix_extra::sendto $s @unix_extra-nobody-[pid] x}]
+	list $a $ea $b [lindex $::errorCode 1]
+} -cleanup {close $s} -result {1 ENOENT 1 ECONNREFUSED}
+
+test dgram-3.3 {path too long, empty path} -body {
+	list [catch {unix_extra::dgram /[string repeat a 107]} m1] $m1 \
+		[catch {unix_extra::dgram ""} m2] $m2 [lindex $::errorCode 0]
+} -match glob -result {1 {socket path is too long: /aaa*} 1 {empty socket path} UNIX_EXTRA}
+
+test dgram-3.4 {abstract names may use all 108 bytes} -body {
+	set name @[string repeat b 107]
+	set r [unix_extra::dgram $name]
+	set s [unix_extra::dgram]
+	unix_extra::sendto $s $name ok
+	unix_extra::recv $r
+} -cleanup {close $r; close $s} -result ok
+
+test dgram-3.5 {wrong arguments, unknown channel, not a socket} -body {
+	set f [open [makeFile x plain]]
+	list [catch {unix_extra::dgram a b} m1] $m1 \
+		[catch {unix_extra::recv nosuchchan} m2] $m2 \
+		[catch {unix_extra::sendto $f $sock/x y}] [lindex $::errorCode 1]
+} -cleanup {close $f} -result {1 {wrong # args: should be "unix_extra::dgram ?path?"} 1 {can not find channel named "nosuchchan"} 1 ENOTSOCK}
+
+# ---- sd_notify ----
+
+test notify-1.1 {notify uses $NOTIFY_SOCKET} -body {
+	set r [unix_extra::dgram $sock/n1]
+	set env(NOTIFY_SOCKET) $sock/n1
+	list [unix_extra::notify READY=1] [unix_extra::recv $r]
+} -cleanup {close $r; unset env(NOTIFY_SOCKET)} -result {1 READY=1}
+
+test notify-1.2 {notify to an abstract $NOTIFY_SOCKET} -body {
+	set r [unix_extra::dgram $abstract]
+	set env(NOTIFY_SOCKET) $abstract
+	list [unix_extra::notify "READY=1\nSTATUS=up"] [unix_extra::recv $r]
+} -cleanup {close $r; unset env(NOTIFY_SOCKET)} -result [list 1 "READY=1\nSTATUS=up"]
+
+test notify-1.3 {no $NOTIFY_SOCKET: nothing sent, returns 0} -body {
+	unset -nocomplain env(NOTIFY_SOCKET)
+	unix_extra::notify READY=1
+} -result 0
+
+test notify-1.4 {explicit path overrides the environment} -body {
+	set r [unix_extra::dgram $sock/n4]
+	set env(NOTIFY_SOCKET) $sock/elsewhere
+	list [unix_extra::notify STOPPING=1 $sock/n4] [unix_extra::recv $r]
+} -cleanup {close $r; unset env(NOTIFY_SOCKET)} -result {1 STOPPING=1}
+
+test notify-1.5 {a listener that has gone away is an error} -body {
+	list [catch {unix_extra::notify READY=1 $sock/gone} msg] $msg
+} -result {1 {notify: no such file or directory}}
+
+# ---- socketpair ----
+
+test socketpair-1.1 {stream pair carries lines both ways} -body {
+	lassign [unix_extra::socketpair] a b
+	puts $a ping; flush $a
+	set x [gets $b]
+	puts $b pong; flush $b
+	list $x [gets $a]
+} -cleanup {close $a; close $b} -result {ping pong}
+
+test socketpair-1.2 {dgram pair: sendto "" uses the connected peer} -body {
+	lassign [unix_extra::socketpair dgram] a b
+	unix_extra::sendto $a "" one
+	unix_extra::sendto $a "" two
+	list [unix_extra::recv $b] [unix_extra::recv $b]
+} -cleanup {close $a; close $b} -result {one two}
+
+test socketpair-1.3 {a child process talks over the other end} -body {
+	lassign [unix_extra::socketpair] a b
+	exec sh -c {read l; echo "got $l"} <@ $b >@ $b &
+	close $b
+	puts $a hello; flush $a
+	gets $a
+} -cleanup {close $a} -result {got hello}
+
+test socketpair-1.4 {bad type} -body {
+	unix_extra::socketpair seqpacket
+} -returnCodes error -result {bad type "seqpacket": must be stream or dgram}
+
+# ---- fd passing ----
+
+test fds-1.1 {pass a pipe's read end and read through it} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	unix_extra::sendfds $a [list $pr]
+	close $pr
+	lassign [unix_extra::recvfds $b] data chans
+	puts $pw "through the pipe"; flush $pw
+	list [expr {$data eq "\0"}] [llength $chans] [gets [lindex $chans 0]]
+} -cleanup {close $a; close $b; close $pw; foreach c $chans {close $c}} \
+	-result {1 1 {through the pipe}}
+
+test fds-1.2 {pass an open file with a message; it arrives read-only} -body {
+	set path [makeFile "file contents" passed]
+	lassign [unix_extra::socketpair] a b
+	set f [open $path]
+	unix_extra::sendfds $a [list $f] FILE
+	close $f
+	lassign [unix_extra::recvfds $b] data chans
+	set g [lindex $chans 0]
+	list $data [gets $g] [catch {puts $g x} msg] $msg
+} -cleanup {close $a; close $b; close $g} -match glob \
+	-result {FILE {file contents} 1 {channel "file*" wasn't opened for writing}}
+
+test fds-1.3 {several fds in one message} -body {
+	lassign [unix_extra::socketpair] a b
+	set ends {}
+	set ws {}
+	foreach i {1 2 3} {
+		lassign [chan pipe] r w
+		lappend ends $r; lappend ws $w
+	}
+	unix_extra::sendfds $a $ends
+	foreach r $ends {close $r}
+	lassign [unix_extra::recvfds $b] data chans
+	set out {}
+	foreach w $ws c $chans i {1 2 3} {
+		puts $w $i; flush $w
+		lappend out [gets $c]
+	}
+	list [llength $chans] $out
+} -cleanup {
+	close $a; close $b
+	foreach c [concat $ws $chans] {close $c}
+} -result {3 {1 2 3}}
+
+test fds-1.4 {a received channel works with fileevent} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	unix_extra::sendfds $a [list $pr]
+	close $pr
+	set c [lindex [unix_extra::recvfds $b] 1 0]
+	chan configure $c -blocking 0
+	chan event $c readable [list apply {c {set ::got [gets $c]}} $c]
+	after 10 [list apply {w {puts $w event; flush $w}} $pw]
+	wait_for ::got
+} -cleanup {close $a; close $b; close $pw; close $c; unset -nocomplain ::got} \
+	-result event
+
+test fds-1.5 {pending output is flushed first; maxbytes stops before the fds} -body {
+	lassign [unix_extra::socketpair] a b
+	chan configure $a -buffering full
+	lassign [chan pipe] pr pw
+	puts $a first
+	unix_extra::sendfds $a [list $pr] X
+	close $pr
+	set one [unix_extra::recvfds $b 6]
+	set two [unix_extra::recvfds $b]
+	list $one [lindex $two 0] [llength [lindex $two 1]]
+} -cleanup {close $a; close $b; close $pw; close [lindex $two 1 0]} \
+	-result [list [list "first\n" {}] X 1]
+
+test fds-1.6 {stream data after the fd message is left for Tcl} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	unix_extra::sendfds $a [list $pr] HDR
+	puts $a "next line"; flush $a
+	close $pr
+	lassign [unix_extra::recvfds $b 3] data chans
+	list $data [gets $b]
+} -cleanup {close $a; close $b; close $pw; foreach c $chans {close $c}} \
+	-result {HDR {next line}}
+
+test fds-1.7 {a passed socket keeps working (socket activation)} -body {
+	lassign [unix_extra::socketpair] a b
+	set r [unix_extra::dgram $sock/act]
+	unix_extra::sendfds $a [list $r]
+	set r2 [lindex [unix_extra::recvfds $b] 1 0]
+	set s [unix_extra::dgram]
+	unix_extra::sendto $s $sock/act activated
+	unix_extra::recv $r2
+} -cleanup {close $a; close $b; close $r2; close $r; close $s} -result activated
+
+test fds-1.8 {end of stream: empty data, no channels} -body {
+	lassign [unix_extra::socketpair] a b
+	close $a
+	unix_extra::recvfds $b
+} -cleanup {close $b} -result {{} {}}
+
+test fds-2.1 {recvfds refuses when Tcl has read ahead} -body {
+	lassign [unix_extra::socketpair] a b
+	puts -nonewline $a "line\nmore"; flush $a
+	gets $b
+	list [catch {unix_extra::recvfds $b} msg] [lindex $::errorCode 1]
+} -cleanup {close $a; close $b} -result {1 BUFFERED}
+
+test fds-2.2 {sendfds errors} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	list [catch {unix_extra::sendfds $a {}} m1] $m1 \
+		[catch {unix_extra::sendfds $a [list nosuch]} m2] $m2 \
+		[catch {unix_extra::sendfds $a [list $pr] ""} m3] $m3 \
+		[catch {unix_extra::sendfds $pw [list $pr]}] [lindex $::errorCode 1]
+} -cleanup {close $a; close $b; close $pr; close $pw} \
+	-result {1 {need 1 to 253 channels to send} 1 {can not find channel named "nosuch"} 1 {data must not be empty} 1 ENOTSOCK}
+
+test fds-2.3 {recvfds errors} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	list [catch {unix_extra::recvfds $b 0} m1] $m1 \
+		[catch {unix_extra::recvfds $pr}] [lindex $::errorCode 1] \
+		[catch {unix_extra::recvfds} m3] $m3
+} -cleanup {close $a; close $b; close $pr; close $pw} \
+	-result {1 {maxbytes must be a positive integer} 1 ENOTSOCK 1 {wrong # args: should be "unix_extra::recvfds channel ?maxbytes?"}}
+
+# ---- unix_extra stream channels ----
+
+test stream-1.1 {listen and connect: lines both ways} -body {
+	set ::acc {}
+	set l [unix_extra::listen $sock/s1 {apply {c {set ::acc $c}}}]
+	set c [unix_extra::connect $sock/s1]
+	wait_for ::acc
+	puts $c ping; flush $c
+	set x [gets $::acc]
+	puts $::acc pong; flush $::acc
+	list [string match uxlisten* $l] [string match uxstream* $c] \
+		[string match uxstream* $::acc] $x [gets $c] [file exists $sock/s1]
+} -cleanup {close $c; close $::acc; close $l} -result {1 1 1 ping pong 1}
+
+test stream-1.2 {abstract names; a taken path is EADDRINUSE; close removes the file} -body {
+	set ::acc {}
+	set l [unix_extra::listen $abstract {apply {c {set ::acc $c}}}]
+	set c [unix_extra::connect $abstract]
+	wait_for ::acc
+	set l2 [unix_extra::listen $sock/s2 list]
+	set r [list [catch {unix_extra::listen $sock/s2 list} m] $m [lindex $::errorCode 1]]
+	close $l2
+	lappend r [file exists $sock/s2] [catch {unix_extra::connect $sock/s2} m] $m
+} -cleanup {close $c; close $::acc; close $l} \
+	-result {1 {bind: address already in use} EADDRINUSE 0 1 {connect: no such file or directory}}
+
+test stream-1.3 {peercred on both ends} -body {
+	set ::acc {}
+	set l [unix_extra::listen $sock/s3 {apply {c {set ::acc $c}}}]
+	set c [unix_extra::connect $sock/s3]
+	wait_for ::acc
+	lmap ch [list $c $::acc] {
+		set cr [unix_extra::peercred $ch]
+		list [expr {[dict get $cr pid] == [pid]}] [dict get $cr uid]
+	}
+} -cleanup {close $c; close $::acc; close $l} -result [list [list 1 $uid] [list 1 $uid]]
+
+test stream-1.4 {an accept handler error is a background error and closes the channel} -body {
+	set old [interp bgerror {}]
+	set ::bg {}
+	interp bgerror {} {apply {{m o} {set ::bg $m}}}
+	set l [unix_extra::listen $sock/s4 {apply {c {error "no thanks"}}}]
+	set c [unix_extra::connect $sock/s4]
+	wait_for ::bg
+	list $::bg [read $c] [eof $c]
+} -cleanup {close $c; close $l; interp bgerror {} $old} -result {{no thanks} {} 1}
+
+test stream-1.5 {close write: the peer sees end of stream and can still answer} -body {
+	lassign [unix_extra::socketpair] a b
+	puts $a request
+	close $a write
+	set req [read $b]
+	puts $b answer; flush $b
+	list $req [eof $b] [gets $a]
+} -cleanup {close $a; close $b} -result [list "request\n" 1 answer]
+
+test stream-1.6 {close read: the peer's writes fail} -body {
+	lassign [unix_extra::socketpair] a b
+	close $b read
+	list [catch {puts $a x; flush $a} m] $m
+} -cleanup {catch {close $a}; close $b} -match glob \
+	-result {1 {error flushing "uxstream*": broken pipe}}
+
+test stream-1.7 {non-blocking reads: nothing yet, then a line in parts} -body {
+	lassign [unix_extra::socketpair] a b
+	chan configure $b -blocking 0
+	set r [list [gets $b line] [fblocked $b] [read $b]]
+	puts -nonewline $a "par"; flush $a
+	lappend r [gets $b line] [fblocked $b]
+	puts $a "tial"; flush $a
+	lappend r [gets $b line] $line
+} -cleanup {close $a; close $b} -result {-1 1 {} -1 1 7 partial}
+
+test stream-1.8 {wrong arguments} -body {
+	list [catch {unix_extra::connect} m1] $m1 [catch {unix_extra::listen x} m2] $m2 \
+		[catch {unix_extra::connect ""} m3] $m3
+} -result {1 {wrong # args: should be "unix_extra::connect path"} 1 {wrong # args: should be "unix_extra::listen path handler"} 1 {empty socket path}}
+
+# ---- the fd queue ----
+
+test queue-1.1 {fds interleaved with lines read by gets: none lost, in order} -body {
+	lassign [unix_extra::socketpair] a b
+	puts $a one; flush $a
+	sendtagged $a "two\n" p1
+	puts $a three; flush $a
+	sendtagged $a "four\n" p2 p3
+	sendtagged $a "five\n" p4
+	set out {}
+	foreach _ {1 2 3 4 5} {
+		lappend out [gets $b] [tags [unix_extra::fds $b]]
+	}
+	set out
+} -cleanup {close $a; close $b} -result {one {} two p1 three {} four {p2 p3} five p4}
+
+test queue-1.2 {one read: each message's fds, tagged with where the message ended} -body {
+	lassign [unix_extra::socketpair] a b
+	puts -nonewline $a "head:"; flush $a
+	sendtagged $a "A" p1 p2
+	sendtagged $a "BB" p3
+	puts -nonewline $a "tail"; flush $a
+	close $a
+	list [read $b] [msgtags [unix_extra::fds $b -messages]]
+} -cleanup {close $b} -result {head:ABBtail {{6 {p1 p2}} {8 p3}}}
+
+test queue-1.3 {fileevent and non-blocking gets: fds come with their messages} -body {
+	lassign [unix_extra::socketpair] a b
+	chan configure $b -blocking 0
+	set ::got {}
+	chan event $b readable [list apply {b {
+		while {[gets $b line] >= 0} {
+			lappend ::got $line [tags [unix_extra::fds $b]]
+		}
+		if {[eof $b]} {set ::done 1}
+	}} $b]
+	after 10 [list apply {a {
+		puts $a plain; flush $a
+		sendtagged $a "x1\n" f1
+		after 10 [list apply {a {
+			sendtagged $a "x2\nplain2\n" f2 f3
+			puts -nonewline $a "split"; flush $a
+			after 10 [list apply {a {
+				sendtagged $a " line\n" f4
+				close $a
+			}} $a]
+		}} $a]
+	}} $a]
+	wait_for ::done
+	set ::got
+} -cleanup {close $b; unset -nocomplain ::got ::done} \
+	-result {plain {} x1 f1 x2 {} plain2 {f2 f3} {split line} f4}
+
+test queue-1.4 {-all also takes fds whose message is buffered but not read yet} -body {
+	lassign [unix_extra::socketpair] a b
+	chan configure $b -blocking 0
+	sendtagged $a "no newline yet" p1
+	list [gets $b line] [chan pending input $b] [unix_extra::fds $b] \
+		[tags [unix_extra::fds $b -all]] [unix_extra::fds $b -all]
+} -cleanup {close $a; close $b} -result {-1 14 {} p1 {}}
+
+test queue-1.5 {sendfds' default one-byte message: read it, then take the fds} -body {
+	lassign [unix_extra::socketpair] a b
+	puts $a hello; flush $a
+	sendtagged $a {} p1
+	list [gets $b] [unix_extra::fds $b] [expr {[read $b 1] eq "\0"}] [tags [unix_extra::fds $b]]
+} -cleanup {close $a; close $b} -result {hello {} 1 p1}
+
+test queue-1.6 {recvfds still works on these channels and keeps the offsets} -body {
+	lassign [unix_extra::socketpair] a b
+	sendtagged $a "A" p1
+	sendtagged $a "BB\n" p2
+	lassign [unix_extra::recvfds $b 1] data chans
+	list $data [tags $chans] [gets $b] [msgtags [unix_extra::fds $b -messages]]
+} -cleanup {close $a; close $b} -result {A p1 BB {{4 p2}}}
+
+test queue-1.7 {a message larger than Tcl's buffer: its fds come with its first part} -body {
+	lassign [unix_extra::socketpair] a b
+	chan configure $b -buffersize 16 -translation binary
+	sendtagged $a [string repeat x 40] p1
+	set data [read $b 40]
+	set m [unix_extra::fds $b -messages]
+	list [string length $data] [lindex $m 0 0] [tags [lindex $m 0 1]]
+} -cleanup {close $a; close $b} -result {40 16 p1}
+
+test queue-1.8 {253 fds in one message all arrive} -body {
+	lassign [unix_extra::socketpair] a b
+	set f [open /dev/null]
+	unix_extra::sendfds $a [lrepeat 253 $f] X
+	close $f
+	read $b 1
+	set chans [unix_extra::fds $b]
+	llength $chans
+} -cleanup {close $a; close $b; foreach c $chans {close $c}} -result 253
+
+test queue-1.9 {fds: errors} -body {
+	lassign [chan pipe] pr pw
+	set d [unix_extra::dgram]
+	set l [unix_extra::listen $sock/q9 list]
+	lassign [unix_extra::socketpair] a b
+	list [catch {unix_extra::fds $pr} m1] $m1 \
+		[catch {unix_extra::fds $d}] [lindex $::errorCode 1] \
+		[catch {unix_extra::fds $l}] [lindex $::errorCode 1] \
+		[catch {unix_extra::fds $a -bogus} m4] $m4 \
+		[catch {unix_extra::fds} m5] $m5
+} -cleanup {close $pr; close $pw; close $d; close $l; close $a; close $b} -match glob \
+	-result {1 {channel "file*" is not a unix_extra stream channel (see unix_extra::adopt)} 1 NOTSTREAM 1 NOTSTREAM 1 {bad option "-bogus": must be -all or -messages} 1 {wrong # args: should be "unix_extra::fds channel ?-all? ?-messages?"}}
+
+test queue-2.1 {fds the kernel could not pass (open file limit) are reported, not dropped silently} -body {
+	set script [makeFile [join [list \
+		[list set auto_path $auto_path] \
+		{package require unix_extra} \
+		{lassign [unix_extra::socketpair] a b} \
+		{lassign [chan pipe] r w} \
+		{unix_extra::sendfds $a [list $r $r] "M\n"} \
+		{set hog {}} \
+		{while {![catch {open /dev/null} f]} {lappend hog $f}} \
+		{set line [gets $b]} \
+		{set e [catch {unix_extra::fds $b} m]} \
+		{set code [lindex $::errorCode 1]} \
+		{foreach f $hog {close $f}} \
+		{puts [list $line $e $code $m [unix_extra::fds $b]]}] \n] lost.tcl]
+	exec sh -c {ulimit -n 64 && exec "$0" "$1"} [info nameofexecutable] $script
+} -result {M 1 CTRUNC {file descriptors sent with the message ending at offset 2 were lost: the kernel could not pass them all (the open file limit?)} {}}
+
+# ---- closing ----
+
+test close-1.1 {queued fds never taken are closed with the channel} -body {
+	set before [nfds]
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	unix_extra::sendfds $a [list $pr $pr] one
+	unix_extra::sendfds $a [list $pr] two
+	close $pr
+	read $b 6
+	set queued [expr {[nfds] - $before}]
+	close $b
+	close $a
+	list $queued [catch {puts $pw x; flush $pw} m] $m [expr {[nfds] - $before}]
+} -cleanup {catch {close $pw}} -match glob -result {6 1 {error flushing "file*": broken pipe} 1}
+
+test close-1.2 {listen, connect and close leave no fds or files behind} -body {
+	set before [nfds]
+	set ::acc {}
+	set l [unix_extra::listen $sock/c2 {apply {c {lappend ::acc $c}}}]
+	set cl {}
+	foreach i {1 2 3} {
+		lappend cl [unix_extra::connect $sock/c2]
+		sendtagged [lindex $cl end] Z t$i
+	}
+	for {set i 0} {$i < 200 && [llength $::acc] < 3} {incr i} {after 10; update}
+	foreach c $::acc {read $c 1}
+	foreach c [concat $cl $::acc] {close $c}
+	close $l
+	list [llength $::acc] [expr {[nfds] - $before}] [file exists $sock/c2]
+} -result {3 0 0}
+
+# ---- adopt ----
+
+test adopt-1.1 {adopt a file channel: buffered input moves over, then no fd is lost} -body {
+	lassign [filechan_socket] x f
+	chan configure $f -buffering line
+	puts $x l1; puts $x l2; flush $x
+	set r [list [string match file* $f] [gets $f]]
+	set n [unix_extra::adopt $f]
+	sendtagged $x "l3\n" p1
+	lappend r [string match uxstream* $n] [expr {$f in [chan names]}] \
+		[gets $n] [gets $n] [msgtags [unix_extra::fds $n -messages]] [chan configure $n -buffering]
+} -cleanup {close $x; close $n} -result {1 l1 1 0 l2 l3 {{6 p1}} line}
+
+test adopt-1.2 {pending output goes out first; options carry over} -body {
+	lassign [filechan_socket] x f
+	chan configure $f -buffering full -translation {auto crlf}
+	puts $f first
+	set n [unix_extra::adopt $f]
+	puts $n second; flush $n
+	chan configure $x -translation binary
+	list [read $x 15] [chan configure $n -translation]
+} -cleanup {close $x; close $n} -result [list "first\r\nsecond\r\n" {auto crlf}]
+
+test adopt-1.3 {a non-blocking channel stays non-blocking, and fileevent works after} -body {
+	lassign [filechan_socket] x f
+	chan configure $f -blocking 0
+	set n [unix_extra::adopt $f]
+	chan event $n readable [list apply {n {
+		if {[gets $n line] >= 0} {set ::got [list $line [tags [unix_extra::fds $n]]]}
+	}} $n]
+	after 10 [list sendtagged $x "hi\n" p1]
+	list [chan configure $n -blocking] [wait_for ::got]
+} -cleanup {close $x; close $n; unset -nocomplain ::got} -result {0 {hi p1}}
+
+test adopt-1.4 {an old channel still shared with another interp is cut off the socket} -body {
+	lassign [filechan_socket] x f
+	interp create kid
+	interp share {} $f kid
+	set n [unix_extra::adopt $f]
+	puts $x data; flush $x
+	list [kid eval [list gets $f]] [kid eval [list eof $f]] \
+		[catch {kid eval [list puts $f x]; kid eval [list flush $f]} m] $m [gets $n]
+} -cleanup {interp delete kid; close $x; close $n} -match glob \
+	-result {{} 1 1 {error flushing "file*": broken pipe} data}
+
+test adopt-1.5 {adopt: one of ours comes back as it is; other channels are refused} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	set d [unix_extra::dgram]
+	set l [unix_extra::listen $sock/a5 list]
+	lassign [filechan_socket] x f
+	zlib push inflate $f
+	list [expr {[unix_extra::adopt $a] eq $a}] \
+		[catch {unix_extra::adopt $pr} m] $m \
+		[catch {unix_extra::adopt $d}] [lindex $::errorCode 1] \
+		[catch {unix_extra::adopt $l}] [lindex $::errorCode 1] \
+		[catch {unix_extra::adopt $f}] [lindex $::errorCode 1] \
+		[catch {unix_extra::adopt nosuch} m] $m [expr {$pr in [chan names]}]
+} -cleanup {
+	close $a; close $b; close $pr; close $pw; close $d; close $l; close $x; close $f
+} -match glob -result {1 1 {channel "file*" is not a connected unix stream socket} 1 NOTSTREAM 1 NOTSTREAM 1 STACKED 1 {can not find channel named "nosuch"} 1}
+
+test adopt-1.6 {adopting leaks no fds} -body {
+	set before [nfds]
+	lassign [filechan_socket] x f
+	set n [unix_extra::adopt $f]
+	close $n
+	close $x
+	expr {[nfds] - $before}
+} -result 0
+
+# ---- peer credentials ----
+
+test peercred-1.1 {socketpair: our own pid, uid and gid} -body {
+	lassign [unix_extra::socketpair] a b
+	set c [unix_extra::peercred $a]
+	list [expr {[dict get $c pid] == [pid]}] [dict get $c uid] [dict get $c gid]
+} -cleanup {close $a; close $b} -result [list 1 $uid $gid]
+
+test peercred-1.2 {errors: a file, a TCP socket, an unconnected datagram socket} -body {
+	set f [open [makeFile x plain2]]
+	set srv [socket -server {apply {{c args} {close $c}}} -myaddr 127.0.0.1 0]
+	set tcp [socket 127.0.0.1 [lindex [chan configure $srv -sockname] 2]]
+	set d [unix_extra::dgram]
+	list [catch {unix_extra::peercred $f}] [lindex $::errorCode 1] \
+		[catch {unix_extra::peercred $tcp} m2] $m2 \
+		[catch {unix_extra::peercred $d} m3] $m3
+} -cleanup {close $f; close $tcp; close $srv; close $d} -match glob \
+	-result {1 ENOTSOCK 1 {channel "sock*" is not a unix domain socket} 1 {channel "file*" has no connected peer}}
+
+# ---- with unix_sockets channels ----
+
+test unix_sockets-1.1 {peercred of a child that connected to unix_sockets::listen} \
+	-constraints unix_sockets -body {
+	set ::acc {}
+	set l [unix_sockets::listen $sock/us1 {apply {c {set ::acc $c}}}]
+	set script [makeFile [join [list \
+		[list set auto_path $auto_path] \
+		{package require unix_sockets} \
+		"set c \[[list unix_sockets::connect $sock/us1]\]" \
+		{puts $c; flush stdout; gets stdin}] \n] child.tcl]
+	set child [open |[list [info nameofexecutable] $script] r+]
+	set cname [gets $child]
+	wait_for ::acc
+	set srv [unix_extra::peercred $::acc]
+	list [expr {[dict get $srv pid] == [pid $child]}] [dict get $srv uid] [string match unix_socket* $cname]
+} -cleanup {
+	puts $child bye; flush $child; close $child
+	close $::acc; close $l; unset -nocomplain ::acc
+} -result [list 1 $uid 1]
+
+test unix_sockets-1.2 {fds over unix_sockets channels; the client sees our creds} \
+	-constraints unix_sockets -body {
+	set ::acc {}
+	set l [unix_sockets::listen $sock/us2 {apply {c {set ::acc $c}}}]
+	set cl [unix_sockets::connect $sock/us2]
+	wait_for ::acc
+	chan configure $::acc -blocking 1
+	lassign [chan pipe] pr pw
+	unix_extra::sendfds $cl [list $pr] "\x01\x00\x00\x00{}"
+	close $pr
+	lassign [unix_extra::recvfds $::acc] data chans
+	puts $pw via-unix_sockets; flush $pw
+	list $data [gets [lindex $chans 0]] [expr {[dict get [unix_extra::peercred $cl] pid] == [pid]}]
+} -cleanup {
+	close $cl; close $::acc; close $l; close $pw
+	foreach c $chans {close $c}
+	unset -nocomplain ::acc
+} -result [list "\x01\x00\x00\x00{}" via-unix_sockets 1]
+
+test unix_sockets-2.1 {adopt both ends of a unix_sockets connection, one in the accept handler} \
+	-constraints unix_sockets -body {
+	set ::acc {}
+	set l [unix_sockets::listen $sock/us3 {apply {c {set ::acc [unix_extra::adopt $c]}}}]
+	set cl [unix_extra::adopt [unix_sockets::connect $sock/us3]]
+	wait_for ::acc
+	puts $cl one; flush $cl
+	sendtagged $cl "two\n" p1 p2
+	puts $cl three; flush $cl
+	set out {}
+	foreach _ {1 2 3} {lappend out [gets $::acc] [tags [unix_extra::fds $::acc]]}
+	update
+	lappend out [string match uxstream* $::acc] [string match uxstream* $cl] \
+		[llength [lsearch -all -glob [chan names] unix_socket*]] \
+		[expr {[dict get [unix_extra::peercred $::acc] pid] == [pid]}]
+} -cleanup {close $cl; close $::acc; close $l; unset -nocomplain ::acc} \
+	-result {one {} two {p1 p2} three {} 1 1 1 1}
+
+test unix_sockets-2.2 {adopt after Tcl read ahead on a unix_sockets channel: no byte lost} \
+	-constraints unix_sockets -body {
+	set ::acc {}
+	set l [unix_sockets::listen $sock/us4 {apply {c {set ::acc $c}}}]
+	set cl [unix_extra::connect $sock/us4]
+	wait_for ::acc
+	puts $cl "a\nb"; flush $cl
+	set first [gets $::acc]
+	set n [unix_extra::adopt $::acc]
+	sendtagged $cl "c\n" p1
+	list $first [expr {$::acc in [chan names]}] [gets $n] [gets $n] \
+		[msgtags [unix_extra::fds $n -messages]]
+} -cleanup {close $cl; close $n; close $l; unset -nocomplain ::acc} \
+	-result {a 0 b c {{4 p1}}}
+
+# ---- unix_sockets -passfds channels ----
+
+test passfds-1.1 {unix_extra::fds works on a unix_sockets -passfds channel} \
+	-constraints passfds -body {
+	set ::acc {}
+	set l [unix_sockets::listen $sock/pf1 {apply {c {set ::acc $c}}} -passfds 1]
+	set cl [unix_extra::connect $sock/pf1]
+	wait_for ::acc
+	chan configure $::acc -blocking 1
+	puts $cl one; flush $cl
+	sendtagged $cl "two\n" p1
+	puts $cl three; flush $cl
+	sendtagged $cl "four\n" p2 p3
+	set out {}
+	foreach _ {1 2 3 4} {lappend out [gets $::acc] [tags [unix_extra::fds $::acc]]}
+	lappend out [string match unix_socket* $::acc]
+} -cleanup {close $cl; close $::acc; close $l; unset -nocomplain ::acc} \
+	-result {one {} two p1 three {} four {p2 p3} 1}
+
+test passfds-1.2 {connect -passfds: fileevent, -all and -messages through unix_extra::fds} \
+	-constraints passfds -body {
+	set ::acc {}
+	set l [unix_extra::listen $sock/pf2 {apply {c {set ::acc $c}}}]
+	set cl [unix_sockets::connect $sock/pf2 -passfds 1]
+	wait_for ::acc
+	chan configure $cl -blocking 0
+	set ::got {}
+	chan event $cl readable [list apply {c {
+		while {[gets $c line] >= 0} {lappend ::got $line [tags [unix_extra::fds $c]]}
+		if {[eof $c]} {set ::done 1}
+	}} $cl]
+	after 10 [list apply {a {
+		sendtagged $a "x1\nx2" f1
+		after 10 [list apply {a {
+			sendtagged $a "\nx3\n" f2 f3
+			close $a
+		}} $a]
+	}} $::acc]
+	wait_for ::done
+	set ::got
+} -cleanup {close $cl; close $l; unset -nocomplain ::acc ::got ::done} \
+	-result {x1 {} x2 f1 x3 {f2 f3}}
+
+test passfds-1.3 {unix_extra::fds -all -messages on a -passfds channel; errors pass through} \
+	-constraints passfds -body {
+	set ::acc {}
+	set l [unix_sockets::listen $sock/pf3 {apply {c {set ::acc $c}}} -passfds 1]
+	set plain [unix_sockets::connect $sock/pf3]
+	set cl [unix_extra::connect $sock/pf3]
+	wait_for ::acc
+	set first $::acc
+	set ::acc {}
+	wait_for ::acc
+	chan configure $::acc -blocking 1
+	sendtagged $cl "abc" p1 p2
+	list [read $::acc 1] [unix_extra::fds $::acc] [msgtags [unix_extra::fds $::acc -all -messages]] \
+		[catch {unix_extra::fds $plain} m] $m [lindex $::errorCode 1]
+} -cleanup {
+	close $cl; close $plain; close $first; close $::acc; close $l; unset -nocomplain ::acc
+} -match glob -result {a {} {{3 {p1 p2}}} 1 {channel "unix_socket*" is not a unix_sockets connection opened with -passfds 1} PASSFDS}
+
+test passfds-2.1 {adopt a -passfds channel after Tcl read ahead: no byte or fd lost, offsets rebased} \
+	-constraints passfds -body {
+	set ::acc {}
+	set l [unix_sockets::listen $sock/pf4 {apply {c {set ::acc $c}}} -passfds 1]
+	set cl [unix_extra::connect $sock/pf4]
+	wait_for ::acc
+	chan configure $::acc -blocking 1
+	puts $cl a; flush $cl
+	sendtagged $cl "b\n" p1
+	sendtagged $cl "c\nd\n" p2
+	# a and b, then c: Tcl has "d\n" buffered, p1 read but not taken, p2 pending
+	set out [list [gets $::acc] [gets $::acc] [gets $::acc]]
+	set n [unix_extra::adopt $::acc]
+	lappend out [msgtags [unix_extra::fds $n -messages]] [gets $n] [msgtags [unix_extra::fds $n -messages]]
+	sendtagged $cl "e\n" p3
+	lappend out [gets $n] [msgtags [unix_extra::fds $n -messages]] [expr {$::acc in [chan names]}]
+} -cleanup {close $cl; close $n; close $l; unset -nocomplain ::acc} \
+	-result {a b c {{-2 p1}} d {{2 p2}} e {{4 p3}} 0}
+
+test passfds-2.2 {adopting a -passfds channel leaks no fds} -constraints passfds -body {
+	set before [nfds]
+	set ::acc {}
+	set l [unix_sockets::listen $sock/pf5 {apply {c {set ::acc $c}}} -passfds 1]
+	set cl [unix_extra::connect $sock/pf5]
+	wait_for ::acc
+	chan configure $::acc -blocking 1
+	sendtagged $cl "x\n" p1 p2
+	sendtagged $cl "y\n" p3
+	gets $::acc
+	# listener, both ends, p1 and p2 (p3 is still in the kernel)
+	set n [unix_extra::adopt $::acc]
+	set during [expr {[nfds] - $before}]
+	gets $n
+	set t [tags [unix_extra::fds $n -all]]
+	close $n; close $cl; close $l
+	list $during $t [expr {[nfds] - $before}]
+} -cleanup {unset -nocomplain ::acc} -result {5 {p1 p2 p3} 0}
+
+# ---- handoff and takeover ----
+
+test handoff-1.1 {hand a live connection to another process: bytes, fds, order, options, data} \
+	-constraints unix_sockets -body {
+	set script [childscript handoff1.tcl \
+		"set t \[[list unix_extra::connect $sock/h1]\]" \
+		{set c [unix_extra::takeover $t data]} \
+		{set out [list $data [chan configure $c -translation] [chan configure $c -buffering]]} \
+		{lappend out [tags [unix_extra::fds $c]]} \
+		{while {[gets $c line] >= 0} {lappend out $line [tags [unix_extra::fds $c]]; if {$line eq "end"} break}} \
+		{puts $c $out} \
+		{close $c; close $t}]
+	set ::acc {}
+	set l [unix_extra::listen $sock/h1 {apply {c {set ::acc $c}}}]
+	set child [open |[list [info nameofexecutable] $script] r]
+	wait_for ::acc
+	lassign [unix_extra::socketpair] a b
+	chan configure $b -translation {auto crlf} -buffering line
+	puts $a l1; flush $a
+	sendtagged $a "l2\n" p1
+	puts $a l3; flush $a
+	sendtagged $a "l4\n" p2 p3
+	# l1 to l3 read: p1 read but not taken, "l4\n" buffered with p2 p3
+	set r [list [gets $b] [gets $b] [gets $b] [chan pending input $b]]
+	set before [nfds]
+	unix_extra::handoff $b $::acc session-42
+	lappend r [expr {$before - [nfds]}] [expr {$b in [chan names]}]
+	# the peer keeps writing; the child has the other end now
+	sendtagged $a "l5\n" p4
+	puts $a end; flush $a
+	lappend r [gets $a]
+} -cleanup {close $a; close $::acc; close $l; close $child; unset -nocomplain ::acc} \
+	-result {l1 l2 l3 3 4 0 {session-42 {auto crlf} line p1 l4 {p2 p3} l5 p4 end {}}}
+
+test handoff-1.2 {takeover from a channel that read the handoff message ahead; its other fds stay} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [unix_extra::socketpair] t1 t2
+	puts -nonewline $a "unread"; flush $a
+	read $b 2
+	sendtagged $t1 "q\n" q1
+	puts $t1 pre; flush $t1
+	unix_extra::handoff $b $t1
+	puts $t1 post; flush $t1
+	# the read that returns "pre" takes the whole handoff message too
+	set r [list [gets $t2] [gets $t2] [expr {[chan pending input $t2] > 24}]]
+	set n [unix_extra::takeover $t2 data]
+	lappend r [read $n 4] [tags [unix_extra::fds $t2]] [gets $t2] [string length $data] \
+		[string match uxstream* $n] [chan configure $n -blocking]
+	puts $n back; flush $n
+	lappend r [gets $a]
+} -cleanup {close $a; close $n; close $t1; close $t2} \
+	-result {q pre 1 read q1 post 0 1 1 back}
+
+test handoff-1.3 {a non-blocking channel stays non-blocking; half-closed stays half-closed} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [unix_extra::socketpair] t1 t2
+	chan configure $b -blocking 0
+	close $b write
+	unix_extra::handoff $b $t1
+	set n [unix_extra::takeover $t2]
+	puts $a hi; flush $a
+	chan configure $n -blocking 1
+	list [gets $n] [catch {puts $n x} m] $m [read $a]
+} -cleanup {close $a; close $n; close $t1; close $t2} -match glob \
+	-result {hi 1 {channel "uxstream*" wasn't opened for writing} {}}
+
+test handoff-2.1 {a failed handoff (the target's peer closed) leaves the channel intact} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [unix_extra::socketpair] t1 t2
+	close $t2
+	chan configure $b -translation {auto crlf}
+	puts $a x1; flush $a
+	sendtagged $a "x2\n" p1
+	puts $a x3; flush $a
+	set r [list [gets $b]]
+	set before [nfds]
+	lappend r [catch {unix_extra::handoff $b $t1 data} m] $m [lrange $::errorCode 0 1] \
+		[expr {[nfds] - $before}] [expr {$b in [chan names]}] [chan configure $b -translation] \
+		[gets $b] [tags [unix_extra::fds $b]] [gets $b]
+	puts $b reply; flush $b
+	lappend r [gets $a]
+} -cleanup {close $a; close $b; close $t1} \
+	-result {x1 1 {handoff: broken pipe} {POSIX EPIPE} 0 1 {auto crlf} x2 p1 x3 reply}
+
+test handoff-2.2 {handoff refusals leave the channel intact} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	lassign [filechan_socket] x f
+	set r [list [catch {unix_extra::handoff $b $pw} m1] [lindex $::errorCode 1] \
+		[catch {unix_extra::handoff $b $b} m2] $m2]
+	set nul [open /dev/null]
+	unix_extra::sendfds $a [lrepeat 253 $nul] M
+	close $nul
+	read $b 1
+	lappend r \
+		[catch {unix_extra::handoff $b $a} m3] [string match *252* $m3] [lindex $::errorCode 1] \
+		[catch {unix_extra::handoff $f $a} m4] [lindex $::errorCode 1] \
+		[catch {unix_extra::handoff $b} m5] $m5 \
+		[llength [set fs [unix_extra::fds $b]]]
+} -cleanup {
+	foreach c $fs {close $c}
+	close $a; close $b; close $pr; close $pw; close $x; close $f
+} -match glob -result {1 ENOTSOCK 1 {can't hand channel "uxstream*" off over itself} 1 1 NFDS 1 NOTSTREAM 1 {wrong # args: should be "unix_extra::handoff channel target ?data?"} 253}
+
+test handoff-2.3 {takeover errors} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	puts $a [string repeat x 30]; flush $a
+	set r [list [catch {unix_extra::takeover $b} m] $m [lindex $::errorCode 1]]
+	close $a
+	read $b
+	lappend r [catch {unix_extra::takeover $b} m] $m \
+		[catch {unix_extra::takeover $pr} m] [lindex $::errorCode 1] \
+		[catch {unix_extra::takeover} m] $m
+} -cleanup {close $b; close $pr; close $pw} \
+	-result {1 {takeover: not a handoff message} HANDOFF 1 {takeover: end of stream, no handoff message} 1 NOTSTREAM 1 {wrong # args: should be "unix_extra::takeover target ?dataVar?"}}
+
+test handoff-3.1 {exec recipe: only the inherited fd reaches the child, which takes the connection} -body {
+	set script [childscript handoff3.tcl \
+		{set inherited [lsort -integer [lmap f [glob -tails -directory /proc/self/fd *] {
+			if {[catch {file readlink /proc/self/fd/$f}]} continue; set f}]]} \
+		{set t [unix_extra::fdopen [lindex $argv 0]]} \
+		{set c [unix_extra::takeover $t]} \
+		{set out [list $inherited [tags [unix_extra::fds $c]] [gets $c] [tags [unix_extra::fds $c]]]} \
+		{puts $c $out; close $c; close $t}]
+	lassign [unix_extra::socketpair] here there
+	lassign [unix_extra::socketpair] a b
+	sendtagged $a "one\n" p1
+	sendtagged $a "two\n" p2
+	gets $b
+	set fd [unix_extra::inheritfd $there]
+	set child [open |[list [info nameofexecutable] $script $fd] r]
+	close $there
+	unix_extra::handoff $b $here
+	set out [gets $a]
+	lreplace $out 0 0 [expr {[lindex $out 0] eq [lsort -integer -unique [concat $::inherited_fds $fd]]}]
+} -cleanup {close $a; close $here; close $child} -result {1 p1 two p2}
+
+test handoff-3.2 {inheritfd and fdopen errors} -body {
+	lassign [unix_extra::socketpair] a b
+	lassign [chan pipe] pr pw
+	set fa [unix_extra::inheritfd $a]
+	list [catch {unix_extra::fdopen 0} m1] $m1 \
+		[catch {unix_extra::fdopen 100000}] [lindex $::errorCode 1] \
+		[catch {unix_extra::fdopen [unix_extra::inheritfd $pr]}] [lindex $::errorCode 1] \
+		[catch {unix_extra::fdopen $fa} m4] [expr {$m4 eq "fd $fa already belongs to channel \"$a\""}] \
+		[catch {unix_extra::fdopen x} m5] $m5 \
+		[catch {unix_extra::inheritfd nosuch} m6] $m6
+} -cleanup {close $a; close $b; close $pr; close $pw} \
+	-result {1 {fd 0 is a standard channel: use unix_extra::adopt on it} 1 EBADF 1 NOTSTREAM 1 1 1 {expected integer but got "x"} 1 {can not find channel named "nosuch"}}
+
+set failed [expr {$::tcltest::numTests(Failed) > 0}]
+cleanupTests
+if {$own_tmp ne ""} {file delete -force $own_tmp}
+exit $failed

@@ -1,0 +1,25 @@
+# tzdata: the IANA time zone database, compiled with glibc's zic into /usr/share/zoneinfo (with the posix and right
+# trees, as glibc expects them). The archive has no directory of its own.
+name=tzdata
+kit=org.iana.tzdata
+version=2026f
+revision=1
+summary="The IANA time zone database"
+license="LicenseRef-Public-Domain"
+source="https://data.iana.org/time-zones/releases/tzdata2026f.tar.gz"
+sha256="01b4a91cec5167ed48c11e8ab78f2048cead78ce94b0cafcad0ae8c5a3044d3d"
+srcdir=""
+needs=""
+build_needs="org.gnu.glibc org.gnu.bash org.gnu.coreutils org.gnu.findutils"
+
+stage() {
+	z=$DESTDIR/usr/share/zoneinfo
+	mkdir -p "$z/posix" "$z/right"
+	for tz in etcetera southamerica northamerica europe africa antarctica asia australasia backward; do
+		zic -L /dev/null -d "$z" "$tz"
+		zic -L /dev/null -d "$z/posix" "$tz"
+		zic -L leapseconds -d "$z/right" "$tz"
+	done
+	cp zone.tab zone1970.tab zonenow.tab iso3166.tab leap-seconds.list "$z/"
+	install -Dm644 LICENSE "$DESTDIR/usr/share/licenses/tzdata/LICENSE"
+}

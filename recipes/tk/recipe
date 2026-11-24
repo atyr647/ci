@@ -1,0 +1,35 @@
+# tk: Tk 9.1, the toolkit Ribbon's windows are made with (docs/STACK.md, 4), for X: Xft text, the screen saver
+# extension, and right-to-left text (HarfBuzz; the SheenBidi it also uses comes with Tk). wish is a link to wish9.1.
+# Its script library is files in /usr/lib/tk9.1, not a zip appended to the library (as Tcl's, decision 146).
+# The checksum is the SourceForge release file's as downloaded on 22 Nov; no second host carries the file and upstream
+# publishes no checksum, so nothing confirms it (decision 139).
+name=tk
+kit=org.tcl-lang.tk
+version=9.1.0
+revision=1
+summary="The Tk toolkit"
+license="TCL"
+source="https://prdownloads.sourceforge.net/tcl/tk9.1.0-src.tar.gz"
+sha256="772ce7a97c07c2db4c957c93af7ab4dff4bd3037772836b6afbcd0974023b3d6"
+srcdir="tk9.1.0"
+needs="org.gnu.glibc org.tcl-lang.tcl org.x.libx11 org.x.libxext org.x.libxft org.x.libxscrnsaver org.freedesktop.fontconfig io.github.harfbuzz.harfbuzz"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.tcl-lang.tcl org.x.xorgproto org.x.libx11 org.x.libxext org.x.libxft org.x.libxscrnsaver org.x.libxrender org.freedesktop.fontconfig org.freetype.freetype io.github.harfbuzz.harfbuzz"
+
+build() {
+	src=$PWD
+	cd unix
+	./configure --prefix=/usr --mandir=/usr/share/man --with-tcl=/usr/lib --enable-xft --enable-xss --enable-bidi --disable-rpath --disable-zipfs
+	make -j"$JOBS"
+	# the file that tells an extension's build where Tk is must name the installed places, not this build's
+	sed -e "s|$src/unix|/usr/lib|" -e "s|$src|/usr/include|" -i tkConfig.sh
+}
+
+stage() {
+	cd unix
+	make DESTDIR="$DESTDIR" install
+	make DESTDIR="$DESTDIR" install-private-headers
+	ln -s wish9.1 "$DESTDIR/usr/bin/wish"
+	if grep -l "/run/build" "$DESTDIR/usr/lib/tkConfig.sh"; then
+		echo "tkConfig.sh still names the build's directory" >&2; return 1
+	fi
+}

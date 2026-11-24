@@ -1,0 +1,22 @@
+# libevdev: reads and interprets the kernel's input events (libinput's base). Without its tools, tests and
+# documentation.
+name=libevdev
+kit=org.freedesktop.libevdev
+version=1.14.0
+revision=1
+summary="Input device events from the kernel"
+license="MIT"
+source="https://www.freedesktop.org/software/libevdev/libevdev-1.14.0.tar.xz"
+sha256="5a0966c7110648665983848bad696c7acba614a2160d2865d535397101007332"
+srcdir="libevdev-1.14.0"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --sbindir=bin --sysconfdir=/etc --localstatedir=/var \
+		--buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Dtools=disabled -Dtests=disabled -Ddocumentation=disabled -Dcoverity=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

@@ -1,0 +1,20 @@
+# xorgproto: the X Window System's protocol headers (X11/X.h, the extensions' headers) and their pkg-config files.
+# Headers only: nothing loads it, and every build against an X library names it.
+name=xorgproto
+kit=org.x.xorgproto
+version=2026.1
+revision=1
+summary="The X Window System's protocol headers"
+license="MIT"
+source="https://www.x.org/releases/individual/proto/xorgproto-2026.1.tar.xz"
+sha256="f9bfe4a9ed8c8ab9d2a3b0d49797f046052dadd06b7a8b45dbffaffb137e8290"
+srcdir="xorgproto-2026.1"
+needs=""
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr --docdir=/usr/share/doc/xorgproto --without-xmlto --without-fop --without-xsltproc
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

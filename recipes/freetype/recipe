@@ -1,0 +1,21 @@
+# freetype: renders font outlines into glyphs. With zlib (compressed fonts) and libpng (colour glyphs); without bzip2,
+# brotli (WOFF2 web fonts) and harfbuzz, each named off so that what a build root happens to hold changes nothing.
+name=freetype
+kit=org.freetype.freetype
+version=2.15.0
+revision=1
+summary="The FreeType font renderer"
+license="FTL OR GPL-2.0-or-later"
+source="https://download.savannah.gnu.org/releases/freetype/freetype-2.15.0.tar.xz"
+sha256="93cd47eb719c325107f2d3cf087d06299e944c3b48a40b55537302304dea1dd5"
+srcdir="freetype-2.15.0"
+needs="org.gnu.glibc net.zlib.zlib org.libpng.libpng"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf net.zlib.zlib org.libpng.libpng"
+
+build() {
+	./configure --prefix=/usr --disable-static --enable-freetype-config --with-zlib=yes --with-png=yes --with-bzip2=no \
+		--with-brotli=no --with-harfbuzz=no --with-librsvg=no
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

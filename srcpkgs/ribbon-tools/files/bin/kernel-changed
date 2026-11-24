@@ -1,0 +1,38 @@
+#!/bin/sh
+# /usr/lib/ribbon/kernel-changed install|remove [VERSION] - what Ribbon does when a kernel is installed or
+# removed, on any base. The base's own kernel hook mechanism calls it: on Void, the kernel packages run
+# /etc/kernel.d/post-install/* and post-remove/* (60-ribbon-limine, after 20-dracut has built the initramfs);
+# another base's hook (a kernel-install plugin, /etc/kernel/postinst.d) calls it the same way.
+#   1. the Limine menu is written again when Limine is the boot loader (GRUB and ZFSBootMenu find kernels
+#      themselves);
+#   2. after an install of a kernel that is not the running one, /run/ribbon/reboot-required: the bar and
+#      Settings say a restart finishes the update (as ribbon-update does for the kernels it installs). Not inside
+#      a chroot (an installer's target): the running system is not the one that changed.
+# It never fails: a kernel package must not be left half-configured.
+# Tests: RIBBON_ROOT (a fake root for /etc and /usr/bin), RIBBON_RUN (/run/ribbon), RIBBON_LIMINE (ribbon-limine),
+# RIBBON_RUNNING (uname -r), RIBBON_CHROOTED (1: a chroot, 0: not).
+R=${RIBBON_ROOT:-}
+RUN=${RIBBON_RUN:-/run/ribbon}
+LIMINE=${RIBBON_LIMINE:-/usr/bin/ribbon-limine}
+what=${1:-} version=${2:-}
+case "$what" in
+	install|remove) ;;
+	*) echo "usage: kernel-changed install|remove [VERSION]" >&2; exit 0 ;;
+esac
+
+if [ -r "$R/etc/default/ribbon-limine" ] &&
+	! grep -Eq '^BOOTLOADER="?(grub|zfsbootmenu)' "$R/etc/default/ribbon-boot" 2>/dev/null; then
+	"$LIMINE" update ||
+		echo "kernel-changed: boot menu not updated; run: sudo ribbon boot update" >&2
+fi
+
+chrooted() {
+	case "${RIBBON_CHROOTED:-}" in 1) return 0 ;; 0) return 1 ;; esac
+	[ -r /proc/1/root ] || return 1
+	[ "$(stat -Lc %d:%i / 2>/dev/null)" != "$(stat -Lc %d:%i /proc/1/root/. 2>/dev/null)" ]
+}
+if [ "$what" = install ] && [ "$version" != "${RIBBON_RUNNING:-$(uname -r)}" ] && ! chrooted; then
+	mkdir -p "$RUN" 2>/dev/null && : > "$RUN/reboot-required" ||
+		echo "kernel-changed: could not write $RUN/reboot-required" >&2
+fi
+exit 0

@@ -1,0 +1,11 @@
+#%PAM-1.0
+# Ribbon's password stack, included by every service. An account with no password cannot log in (no nullok);
+# a new password is hashed with yescrypt, as /etc/login.defs and the installer write it.
+auth      required  pam_env.so
+auth      required  pam_unix.so     try_first_pass
+account   required  pam_unix.so
+account   required  pam_time.so
+password  required  pam_unix.so     try_first_pass yescrypt shadow
+session   required  pam_limits.so
+session   required  pam_unix.so
+session   optional  pam_umask.so

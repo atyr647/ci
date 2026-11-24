@@ -1,0 +1,31 @@
+# ca-certificates: the certificate authorities TLS clients (openssl, curl, the updater) trust to identify servers:
+# Mozilla's list as Debian packages it, made into one PEM bundle by files/certdata.tcl (Debian's own converter needs
+# the Python cryptography module). The bundle is the kit's, /usr/share/ca-certificates/ca-bundle.crt, so an update
+# reaches every system; /etc/ssl/certs/ca-certificates.crt and /etc/ssl/cert.pem (where openssl looks, its OPENSSLDIR
+# being /etc/ssl) are /etc defaults that link to it. Debian's update-ca-certificates (local additions) is not taken.
+name=ca-certificates
+kit=org.debian.ca-certificates
+version=20250419
+revision=1
+summary="The certificate authorities TLS trusts"
+license="MPL-2.0"
+source="https://deb.debian.org/debian/pool/main/c/ca-certificates/ca-certificates_20250419.tar.xz"
+sha256="33b44ef78653ecd3f0f2f13e5bba6be466be2e7da72182f737912b81798ba5d2"
+srcdir="ca-certificates"
+needs=""
+build_needs="org.gnu.bash org.gnu.coreutils org.gnu.findutils org.gnu.tar org.tukaani.xz org.tcl-lang.tcl org.openssl.openssl org.gnu.grep"
+
+build() {
+	tclsh "$RECIPE/files/certdata.tcl" mozilla/certdata.txt mozilla/blacklist.txt ca-bundle.crt
+	# every one of them must read as a certificate
+	n=$(grep -c -- '-----BEGIN CERTIFICATE-----' ca-bundle.crt)
+	m=$(openssl crl2pkcs7 -nocrl -certfile ca-bundle.crt | openssl pkcs7 -print_certs -noout | grep -c '^subject=')
+	[ "$n" = "$m" ] || { echo "ca-certificates: $n in the bundle, openssl reads $m" >&2; exit 1; }
+}
+
+stage() {
+	install -Dm644 ca-bundle.crt "$DESTDIR/usr/share/ca-certificates/ca-bundle.crt"
+	mkdir -p "$DESTDIR/etc/ssl/certs"
+	ln -s ../../../usr/share/ca-certificates/ca-bundle.crt "$DESTDIR/etc/ssl/certs/ca-certificates.crt"
+	ln -s certs/ca-certificates.crt "$DESTDIR/etc/ssl/cert.pem"
+}

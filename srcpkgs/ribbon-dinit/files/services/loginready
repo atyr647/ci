@@ -1,0 +1,6 @@
+# Reached once the system is ready for people to log in.
+type = internal
+depends-on: system
+depends-on: dbus
+waits-for: elogind
+waits-for: turnstiled

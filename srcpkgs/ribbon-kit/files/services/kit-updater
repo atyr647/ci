@@ -1,0 +1,9 @@
+# kit's background index refresh and update check, one per user (docs/KIT-CLI.md, "Automatic"):
+# shortly after login once the network is up, then every 6 hours (Settings: 1 hour to 7 days);
+# skips metered connections and battery below 20 %; off while the index is pinned.
+# Its settings: ~/.config/kit/updates.conf (Settings, or kit-updater --set KEY=VALUE).
+type = process
+command = /usr/lib/ribbon/kit/kit-updater
+smooth-recovery = true
+restart-delay = 60
+waits-for: dbus

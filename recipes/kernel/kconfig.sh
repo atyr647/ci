@@ -1,0 +1,1 @@
+../../srcpkgs/ribbon-kernel/files/kconfig.sh

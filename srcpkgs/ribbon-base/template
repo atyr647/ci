@@ -1,0 +1,53 @@
+# Template file for 'ribbon-base'
+pkgname=ribbon-base
+version=0.1.0
+revision=1
+# Void's base-system minus runit-void, plus Ribbon's init, kernel series,
+# encryption/snapshot tooling and the system half of the Ribbon tools.
+# Boot loader: Limine is the default and always installed (it is small).
+# GRUB (grub-x86_64-efi grub-btrfs) and ZFSBootMenu are installed by the
+# installer only when chosen, so they are not dependencies here.
+# / is btrfs, ZFS or bcachefs; e2fsprogs, xfsprogs and f2fs-tools stay for
+# ext4, XFS and F2FS data and game drives (fsck at boot, repairs).
+# The firewall is nftables with Ribbon's ruleset (nftables.conf: inbound
+# denied except replies, loopback and the ICMP that IPv4 and IPv6 need;
+# outbound open), installed as /etc/nftables.conf by postinstall.
+# This package is the Void base (xbps, base-files, eudev, Void's firmware
+# names): the base-specific layer. Ribbon's tools reach the package manager
+# only through ribbon-tools' lib/pkg.sh, and the xbps.d files below are the
+# xbps backend's (make install puts them down only where xbps is the base's
+# package manager: build/install/manifests/ribbon-base.manifest).
+depends="
+ base-files ncurses coreutils findutils diffutils libgcc dash bash grep gzip
+ file sed gawk less util-linux which tar man-pages mdocml shadow
+ e2fsprogs btrfs-progs xfsprogs f2fs-tools dosfstools exfatprogs ntfs-3g
+ procps-ng tzdata pciutils usbutils iana-etc kbd iproute2 iputils iw
+ wpa_supplicant xbps nvi sudo wifi-firmware traceroute ethtool kmod eudev
+ removed-packages glibc-locales bash-completion
+ ribbon-dinit ribbon-kernel ribbon-tools
+ dracut cryptsetup lvm2 limine efibootmgr snapper
+ NetworkManager chrony cronie nftables apparmor
+ linux-firmware-amd linux-firmware-intel linux-firmware-network sof-firmware
+ fwupd smartmontools"
+short_desc="Ribbon OS base system"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/ribbon"
+conf_files="
+ /etc/xbps.d/00-repository-main.conf
+ /etc/default/ribbon-boot
+ /etc/default/ribbon-grub
+ /etc/ribbon/ribbon.conf"
+
+do_install() {
+	# the xbps backend's repository and package policy
+	vinstall "${FILESDIR}/xbps-ribbon.conf" 644 usr/share/xbps.d 10-ribbon.conf
+	vinstall "${FILESDIR}/xbps-repository-main.conf" 644 etc/xbps.d 00-repository-main.conf
+	vinstall "${FILESDIR}/ribbon.conf" 644 etc/ribbon
+	vinstall "${FILESDIR}/ribbon-boot" 644 etc/default
+	vinstall "${FILESDIR}/ribbon-grub" 644 etc/default
+	vinstall "${FILESDIR}/sudoers" 440 etc/sudoers.d 10-ribbon
+	vinstall "${FILESDIR}/dracut.conf" 644 usr/lib/dracut/dracut.conf.d 10-ribbon.conf
+	vinstall "${FILESDIR}/nftables.conf" 644 usr/share/ribbon
+	vinstall "${FILESDIR}/LICENSE" 644 usr/share/licenses/${pkgname}
+}

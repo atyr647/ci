@@ -1,0 +1,8 @@
+# eudev has no readiness notification; --daemon returns once the control
+# socket is up, so a scripted service gives correct ordering.
+type = scripted
+command = /usr/bin/udevd --daemon
+stop-command = /usr/bin/udevadm control --exit
+restart = false
+log-type = buffer
+depends-on: early-kmods

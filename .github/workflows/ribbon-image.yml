@@ -1,0 +1,136 @@
+name: ribbon-image
+# Ribbon OS: the test suite, packages, ISO, and a boot test of the ISO in QEMU. Runs on every export
+# (build/ci/export.sh in the Ribbon repository replaces this branch). Results (summary, the checks' failures and
+# log tail, serial log, screenshots) are pushed to the branch ribbon-results, so that they can be read without
+# downloading artifacts. While the image is being brought up (Ribbon's docs/DECISIONS-DELEGATED.md 6) the image job
+# does not wait for the checks; both report on every run.
+on:
+  push:
+    branches: [ ribbon-image ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+
+concurrency:
+  group: ribbon-image
+  cancel-in-progress: true
+
+jobs:
+  # tests/run.sh with every tool its steps look for (build/ci/check-tools.txt) and a Mk4tcl built from the checked
+  # Metakit tarball (KITFMT_MK4TCL), so that kit end to end and mkkitfs run (build/ci/check.sh)
+  check:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install what the checks need
+        run: sudo sh build/ci/check.sh deps
+      - name: Run the checks
+        run: sh build/ci/check.sh run out/check-results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ribbon-check-results
+          path: out/check-results
+          retention-days: 3
+
+  image:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 150
+    container:
+      image: ghcr.io/void-linux/void-glibc-full:latest
+      options: --privileged
+    steps:
+      - name: Prepare the Void container
+        run: |
+          xbps-install -Syu xbps
+          xbps-install -Syu
+          xbps-install -y git bash python3 curl xz zstd squashfs-tools xorriso mtools dosfstools e2fsprogs tar patch
+      - uses: actions/checkout@v4
+      - name: Fetch Ribbon's kernel
+        # the release build/ci/kernel.yml published for this kernel's inputs (kernel.sh key). With none yet the
+        # image goes on with Void's linux6.18 only (one notice line, nothing fetched; build-packages.sh then skips
+        # ribbon-kernel), so the boot and recovery tests still run; kernel.yml runs this workflow again once it
+        # has published, and that image has Ribbon's kernel as the default entry
+        env:
+          RIBBON_CI_REPO: ${{ github.repository }}
+        run: mkdir -p out/repo && sh build/ci/kernel.sh fetch out/repo
+      - name: Build packages
+        run: |
+          git config --global --add safe.directory "$PWD"
+          # xbps-src's default chroot (user namespaces) is refused on the runner: use xbps-uchroot
+          useradd -m -G xbuilder builder && chown -R builder: .
+          ls -la /usr/bin/xbps-uchroot
+          mkdir -p out/logs
+          chown builder: out out/logs
+          su builder -c 'RIBBON_XBPS_CHROOT_CMD=uchroot build/build-packages.sh' 2>&1 | tee out/logs/packages.log
+        shell: bash
+      - name: Packages built
+        run: ls -la out/repo/ && test -e out/repo/x86_64-repodata
+      - name: Build ISO
+        run: |
+          RIBBON_OFFLINE_DRIVERS=${RIBBON_OFFLINE_DRIVERS:-no} build/build-iso.sh 2>&1 | tee out/logs/iso.log
+          ls -la out/iso/
+        shell: bash
+      - name: Keep the logs' tails
+        if: always()
+        run: |
+          mkdir -p out/results
+          for f in out/logs/*.log; do [ -f "$f" ] && tail -n 400 "$f" > "out/results/$(basename "$f" .log)-tail.log"; done
+          ls -la out/iso > out/results/iso-files.txt 2>&1 || true
+          ls -la out/repo > out/results/repo-files.txt 2>&1 || true
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ribbon-build-results
+          path: out/results
+          retention-days: 3
+      - uses: actions/upload-artifact@v4
+        with:
+          name: ribbon-iso
+          path: out/iso/*
+          retention-days: 3
+          compression-level: 0
+
+  boot:
+    needs: [check, image]
+    if: always()
+    runs-on: ubuntu-24.04
+    timeout-minutes: 40
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/download-artifact@v4
+        with: { name: ribbon-build-results, path: results }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: ribbon-iso, path: iso }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: ribbon-check-results, path: results }
+        continue-on-error: true
+      - name: Boot the ISO in QEMU
+        run: |
+          mkdir -p results
+          # the checks' RESULT lines first (check-summary.txt), then the image's and the boot's
+          { cat results/check-summary.txt 2>/dev/null || echo "RESULT check: no result (the check job did not finish)"; } > results/summary.txt
+          if ls iso/*.iso >/dev/null 2>&1; then
+            sudo apt-get update -qq && sudo apt-get install -y -qq qemu-system-x86 ovmf xorriso netpbm socat >/dev/null
+            sudo chmod 666 /dev/kvm 2>/dev/null || true
+            sh build/ci/boot-test.sh iso/*.iso results || echo "boot-test: FAILED" >> results/summary.txt
+          else
+            echo "RESULT image: no ISO was built (see packages-tail.log, iso-tail.log)" >> results/summary.txt
+          fi
+          cat results/summary.txt
+      - name: Publish the results branch
+        if: always()
+        run: |
+          cd results
+          { echo "run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"; echo "revision: $(cat ../RIBBON_REVISION 2>/dev/null)"; } >> summary.txt
+          git init -q -b ribbon-results
+          git add -A
+          git -c user.name="Ribbon CI" -c user.email="noreply@anthropic.com" commit -q -m "Ribbon image run $GITHUB_RUN_NUMBER"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY" ribbon-results:ribbon-results
+      - name: Verdict
+        run: |
+          grep -q "^RESULT check: ok" results/summary.txt && grep -q "^RESULT boot: ok" results/summary.txt

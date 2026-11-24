@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=Console
+Comment=text login
+Exec=/bin/sh -l
+Type=Application

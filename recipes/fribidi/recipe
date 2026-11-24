@@ -1,0 +1,22 @@
+# fribidi: the Unicode bidirectional algorithm (pango's right-to-left text). The library only: without its program,
+# documentation and tests.
+name=fribidi
+kit=org.fribidi.fribidi
+version=1.0.18
+revision=1
+summary="The Unicode bidirectional algorithm"
+license="LGPL-2.1-or-later"
+source="https://github.com/fribidi/fribidi/releases/download/v1.0.18/fribidi-1.0.18.tar.xz"
+sha256="1de5e8073d035388b71d0b2d452b1da1f8caeea8a7702997b401fe1b6250727f"
+srcdir="fribidi-1.0.18"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --sbindir=bin --sysconfdir=/etc --localstatedir=/var \
+		--buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Dbin=false -Ddocs=false -Dtests=false -Ddeprecated=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

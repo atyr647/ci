@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Properties
+Comment=An app's kit, a file or a folder in detail
+Exec=ribbon-properties %f
+Icon=document-properties
+Terminal=false
+NoDisplay=true
+Categories=System;Utility;Core;
+StartupWMClass=RibbonProperties

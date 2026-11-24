@@ -1,0 +1,19 @@
+# libxft: draws anti-aliased text in X with fontconfig and freetype; Tk's text goes through it.
+name=libxft
+kit=org.x.libxft
+version=2.3.9
+revision=1
+summary="Anti-aliased text for X"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libXft-2.3.9.tar.xz"
+sha256="60a25b78945ed6932635b3bb1899a517d31df7456e69867ffba27f89ff3976f5"
+srcdir="libXft-2.3.9"
+needs="org.gnu.glibc org.x.libx11 org.x.libxrender org.freedesktop.fontconfig org.freetype.freetype"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.x.xorgproto org.x.libx11 org.x.libxrender org.freedesktop.fontconfig org.freetype.freetype"
+
+build() {
+	./configure --prefix=/usr --disable-static
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

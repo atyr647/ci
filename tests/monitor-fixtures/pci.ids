@@ -1,0 +1,8 @@
+# a cut of hwdata pci.ids for the tests
+1002  Advanced Micro Devices, Inc. [AMD/ATI]
+	744c  Navi 31 [Radeon RX 7900 XT/7900 XTX/7900 GRE/7900M]
+		1002 0e3b  RX 7900 GRE [XFX]
+8086  Intel Corporation
+	56a0  DG2 [Arc A770]
+	7d55  Meteor Lake-P [Intel Arc Graphics]
+	a780  Raptor Lake-S GT1

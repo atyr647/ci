@@ -1,0 +1,19 @@
+# diffutils.
+name=diffutils
+kit=org.gnu.diffutils
+version=3.12
+revision=1
+summary="diff, cmp, diff3 and sdiff"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/diffutils/diffutils-3.12.tar.xz"
+sha256="7c8b7f9fc8609141fdea9cece85249d308624391ff61dedaf528fcb337727dfd"
+srcdir="diffutils-3.12"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr --sbindir=/usr/bin
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

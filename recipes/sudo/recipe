@@ -1,0 +1,31 @@
+# sudo: a command as another user (root) for those the policy allows, after their own password (through PAM:
+# files/sudo). /etc/sudoers is upstream's default, which allows nobody but root and reads /etc/sudoers.d: Ribbon's
+# own rule for the wheel group is ribbon-base's file there. Without the log server, its client, LDAP, SSSD, SELinux,
+# audit, OpenSSL, zlib, Python, mail and translations (each named off).
+name=sudo
+kit=ws.sudo.sudo
+version=1.9.17p2
+revision=1
+summary="Run a command as another user"
+license="ISC"
+source="https://www.sudo.ws/dist/sudo-1.9.17p2.tar.gz"
+sha256="4a38a1ab3adb1199257edc2a7c4a2bd714665eb605b04368843b06dada2cfcfb"
+srcdir="sudo-1.9.17p2"
+needs="org.gnu.glibc io.github.linux-pam.linux-pam"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf io.github.linux-pam.linux-pam"
+
+build() {
+	./configure --prefix=/usr --bindir=/usr/bin --sbindir=/usr/bin --libexecdir=/usr/lib --sysconfdir=/etc \
+		--with-rundir=/run/sudo --with-vardir=/var/db/sudo --with-pam --with-env-editor --with-secure-path \
+		--without-sendmail --without-ldap --without-sssd --without-selinux --without-apparmor --without-linux-audit \
+		--disable-log-server --disable-log-client --disable-openssl --disable-gcrypt --disable-python \
+		--enable-zlib=no --disable-nls --enable-tmpfiles.d=no --disable-static
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	install -Dm644 "$RECIPE/files/sudo" "$DESTDIR/etc/pam.d/sudo"
+	# what sudo keeps at run time (its timestamps) is not the kit's
+	rm -rf "$DESTDIR/run" "$DESTDIR/var" "$DESTDIR/etc/sudoers.dist"
+}

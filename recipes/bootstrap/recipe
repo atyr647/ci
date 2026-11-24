@@ -1,0 +1,188 @@
+# bootstrap: the stand-in system the base set is first built in (docs/RECIPES.md, "The bootstrap"). It is the one recipe
+# that is built against the host, and nothing of it ships: build/kits/bootstrap.sh lays the base set's own kits over it
+# as they are built (stage 1), then builds the set again in a root of those kits alone (stage 2), and again (stage 3).
+#
+# The method is Linux From Scratch's (12.4, chapters 5 and 6, the same versions): a cross toolchain in tools/ that
+# does not look at the host's libraries, the C library built with it into the new root, then the tools every build
+# needs, cross-compiled so that they run on that C library and nothing else. What comes out is a merged /usr that is
+# a whole small system: a compiler for C and C++, the binary tools, the C library, a shell and the usual tools.
+# The host needs: gcc and g++, make, bison, gawk, m4, makeinfo, patch, xz, python3.
+name=bootstrap
+kit=org.ribbon.bootstrap
+version=1
+revision=1
+summary="The stand-in system the base set is first built in (never installed)"
+license="GPL-3.0-or-later AND LGPL-2.1-or-later AND GPL-2.0-only"
+source="https://ftp.gnu.org/gnu/binutils/binutils-2.45.tar.xz
+https://ftp.gnu.org/gnu/gcc/gcc-15.2.0/gcc-15.2.0.tar.xz
+https://ftp.gnu.org/gnu/glibc/glibc-2.42.tar.xz
+https://ftp.gnu.org/gnu/gmp/gmp-6.3.0.tar.xz
+https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.xz
+https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz
+https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.tar.xz
+https://cdn.kernel.org/pub/linux/kernel/v6.x/patch-6.18.64.xz
+https://ftp.gnu.org/gnu/m4/m4-1.4.20.tar.xz
+https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz
+https://ftp.gnu.org/gnu/coreutils/coreutils-9.7.tar.xz
+https://ftp.gnu.org/gnu/diffutils/diffutils-3.12.tar.xz
+https://ftp.gnu.org/gnu/findutils/findutils-4.10.0.tar.xz
+https://ftp.gnu.org/gnu/gawk/gawk-5.3.2.tar.xz
+https://ftp.gnu.org/gnu/grep/grep-3.12.tar.xz
+https://ftp.gnu.org/gnu/gzip/gzip-1.14.tar.xz
+https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz
+https://ftp.gnu.org/gnu/patch/patch-2.8.tar.xz
+https://ftp.gnu.org/gnu/sed/sed-4.9.tar.xz
+https://ftp.gnu.org/gnu/tar/tar-1.35.tar.xz
+https://github.com/tukaani-project/xz/releases/download/v5.8.1/xz-5.8.1.tar.xz"
+sha256="c50c0e7f9cb188980e2cc97e4537626b1672441815587f1eab69d2a1bfbef5d2
+438fd996826b0c82485a29da03a72d71d6e3541a83ec702df4271f6fe025d24e
+d1775e32e4628e64ef930f435b67bb63af7599acb6be2b335b9f19f16509f17f
+a3c2b80201b89e68616f4ad30bc66aee4927c3ce50e33929ca819d5c43538898
+b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01
+ab642492f5cf882b74aa0cb730cd410a81edcdbec895183ce930e706c1c759b8
+9106a4605da9e31ff17659d958782b815f9591ab308d03b0ee21aad6c7dced4b
+4841e26f8f6c7b22c6c4d63899ff27ebdc50f61fab720cba7242d5adc3257dd4
+e236ea3a1ccf5f6c270b1c4bb60726f371fa49459a8eaaebc90b216b328daf2b
+0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba
+e8bb26ad0293f9b5a1fc43fb42ba970e312c66ce92c1b0b16713d7500db251bf
+7c8b7f9fc8609141fdea9cece85249d308624391ff61dedaf528fcb337727dfd
+1387e0b67ff247d2abde998f90dfbf70c1491391a59ddfecb8ae698789f0a4f5
+f8c3486509de705192138b00ef2c00bbbdd0e84c30d5c07d23fc73a9dc4cc9cc
+2649b27c0e90e632eadcd757be06c6e9a4f48d941de51e7c0f83ff76408a07b9
+01a7b881bd220bfdf615f97b8718f80bdfd3f6add385b993dcf6efd14e8c0ac6
+dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3
+f87cee69eec2b4fcbf60a396b030ad6aa3415f192aa5f7ee84cad5e11f7f5ae3
+6e226b732e1cd739464ad6862bd1a1aba42d7982922da7a53519631d24975181
+4d62ff37342ec7aed748535323930c7cf94acf71c3591882b26a7ea50f3edc16
+0b54f79df85912504de0b14aec7971e3f964491af1812d83447005807513cd9e"
+
+S=/run/build/src
+NEW=/run/build/new
+TGT=x86_64-ribbon-linux-gnu
+
+# cross NAME [CONFIGURE-ARGUMENT...]: one of the usual tools, cross-compiled into the new root
+cross() {
+	_n=$1; shift
+	echo "==== $_n"
+	cd "$S/$_n"
+	_guess=build-aux/config.guess; [ -f "$_guess" ] || _guess=support/config.guess; [ -f "$_guess" ] || _guess=config.guess
+	./configure --prefix=/usr --sbindir=/usr/bin --host="$TGT" --build="$(sh "$_guess")" --disable-nls "$@"
+	make -j"$JOBS"
+	make DESTDIR="$NEW" install
+}
+
+build() {
+	umask 022
+	# the new root: a merged /usr
+	mkdir -p "$NEW/usr/bin" "$NEW/usr/lib" "$NEW/tools" "$NEW/etc" "$NEW/var"
+	ln -s usr/bin "$NEW/bin"; ln -s usr/bin "$NEW/sbin"; ln -s usr/lib "$NEW/lib"; ln -s usr/lib "$NEW/lib64"
+	PATH=$NEW/tools/bin:$PATH
+	CONFIG_SITE=$NEW/usr/share/config.site
+	FORCE_UNSAFE_CONFIGURE=1
+	export PATH CONFIG_SITE FORCE_UNSAFE_CONFIGURE
+
+	echo "==== binutils, first pass (the cross linker and assembler)"
+	mkdir "$S/binutils-2.45/build1"; cd "$S/binutils-2.45/build1"
+	../configure --prefix="$NEW/tools" --with-sysroot="$NEW" --target="$TGT" --disable-nls --enable-gprofng=no \
+		--disable-werror --enable-new-dtags --enable-default-hash-style=gnu --enable-deterministic-archives
+	make -j"$JOBS"
+	# into tools/ itself: the builder's DESTDIR is for stage()
+	make DESTDIR= install
+
+	echo "==== gcc, first pass (the cross compiler, no C library yet)"
+	cd "$S/gcc-15.2.0"
+	mv ../gmp-6.3.0 gmp; mv ../mpfr-4.2.2 mpfr; mv ../mpc-1.3.1 mpc
+	# 64-bit libraries go to lib, not lib64
+	sed -e '/m64=/s/lib64/lib/' -i gcc/config/i386/t-linux64
+	mkdir build1; cd build1
+	../configure --target="$TGT" --prefix="$NEW/tools" --with-glibc-version=2.42 --with-sysroot="$NEW" --with-newlib \
+		--without-headers --enable-default-pie --enable-default-ssp --disable-nls --disable-shared --disable-multilib \
+		--disable-threads --disable-libatomic --disable-libgomp --disable-libquadmath --disable-libssp --disable-libvtv \
+		--disable-libstdcxx --enable-languages=c,c++
+	make -j"$JOBS"
+	make DESTDIR= install
+	cd ..
+	cat gcc/limitx.h gcc/glimits.h gcc/limity.h > "$(dirname "$("$TGT-gcc" -print-libgcc-file-name)")/include/limits.h"
+
+	echo "==== the kernel's headers"
+	cd "$S/linux-6.18"
+	xz -dc ../patch-6.18.64.xz | patch -s -p1
+	make mrproper
+	make -j"$JOBS" headers
+	find usr/include -type f ! -name '*.h' -delete
+	cp -r usr/include "$NEW/usr"
+
+	echo "==== glibc"
+	mkdir "$S/glibc-2.42/build"; cd "$S/glibc-2.42/build"
+	echo "rootsbindir=/usr/bin" > configparms
+	echo "sbindir=/usr/bin" >> configparms
+	../configure --prefix=/usr --host="$TGT" --build="$(../scripts/config.guess)" --disable-nscd \
+		libc_cv_slibdir=/usr/lib libc_cv_rtlddir=/usr/lib --enable-kernel=5.4
+	make -j"$JOBS"
+	make DESTDIR="$NEW" install
+	sed '/RTLDLIST=/s@/usr@@g' -i "$NEW/usr/bin/ldd"
+	# the cross compiler makes a program that names the new C library's loader
+	echo 'int main(){}' | "$TGT-gcc" -x c - -v -Wl,--verbose -o /run/build/try > /run/build/try.log 2>&1
+	readelf -l /run/build/try | grep -q 'interpreter: /lib64/ld-linux-x86-64.so.2' || { echo "the cross compiler's programs do not name /lib64/ld-linux-x86-64.so.2" >&2; exit 1; }
+	grep -q "open $NEW/usr/lib/libc.so.6 succeeded" /run/build/try.log || { echo "the cross linker does not take the new C library" >&2; exit 1; }
+
+	echo "==== libstdc++ (for the cross compiler)"
+	mkdir "$S/gcc-15.2.0/buildxx"; cd "$S/gcc-15.2.0/buildxx"
+	../libstdc++-v3/configure --host="$TGT" --build="$(../config.guess)" --prefix=/usr --disable-multilib --disable-nls \
+		--disable-libstdcxx-pch --with-gxx-include-dir="/tools/$TGT/include/c++/15.2.0"
+	make -j"$JOBS"
+	make DESTDIR="$NEW" install
+	rm -f "$NEW"/usr/lib/libstdc++.la "$NEW"/usr/lib/libstdc++exp.la "$NEW"/usr/lib/libstdc++fs.la "$NEW"/usr/lib/libsupc++.la
+
+	cross m4-1.4.20
+	cross bash-5.3 --without-bash-malloc
+	ln -s bash "$NEW/usr/bin/sh"
+	cross coreutils-9.7 --enable-install-program=hostname --enable-no-install-program=kill,uptime
+	cross diffutils-3.12 gl_cv_func_strcasecmp_works=y
+	cross findutils-4.10.0 --localstatedir=/var/lib/locate
+	sed -i 's/extras//' "$S/gawk-5.3.2/Makefile.in"
+	cross gawk-5.3.2
+	cross grep-3.12
+	cross gzip-1.14
+	cross make-4.4.1 --without-guile
+	cross patch-2.8
+	cross sed-4.9
+	cross tar-1.35
+	cross xz-5.8.1 --disable-static --disable-doc
+
+	echo "==== binutils, second pass (the new root's own)"
+	cd "$S/binutils-2.45"
+	# libtool must not link the host's libraries into a cross-built ld
+	grep -n '\$add_dir' ltmain.sh | grep -q '^6031:' || { echo "binutils' ltmain.sh is not the one the edit was written for" >&2; exit 1; }
+	sed '6031s/$add_dir//' -i ltmain.sh
+	mkdir build2; cd build2
+	../configure --prefix=/usr --sbindir=/usr/bin --build="$(../config.guess)" --host="$TGT" --disable-nls --enable-shared \
+		--enable-gprofng=no --disable-werror --enable-64-bit-bfd --enable-new-dtags --enable-default-hash-style=gnu \
+		--enable-deterministic-archives
+	make -j"$JOBS"
+	make DESTDIR="$NEW" install
+	for l in bfd ctf ctf-nobfd opcodes sframe; do rm -f "$NEW/usr/lib/lib$l.a" "$NEW/usr/lib/lib$l.la"; done
+
+	echo "==== gcc, second pass (the new root's own compiler)"
+	cd "$S/gcc-15.2.0"
+	sed '/thread_header =/s/@.*@/gthr-posix.h/' -i libgcc/Makefile.in libstdc++-v3/include/Makefile.in
+	mkdir build2; cd build2
+	../configure --build="$(../config.guess)" --host="$TGT" --target="$TGT" LDFLAGS_FOR_TARGET="-L$PWD/$TGT/libgcc" \
+		--prefix=/usr --with-build-sysroot="$NEW" --enable-default-pie --enable-default-ssp --disable-nls \
+		--disable-multilib --disable-libatomic --disable-libgomp --disable-libquadmath --disable-libsanitizer \
+		--disable-libssp --disable-libvtv --enable-languages=c,c++
+	make -j"$JOBS"
+	make DESTDIR="$NEW" install
+	ln -s gcc "$NEW/usr/bin/cc"
+}
+
+stage() {
+	# the cross toolchain (tools/) made the root and stays behind; so do the manuals
+	rm -rf "$NEW/usr/share/info" "$NEW/usr/share/man" "$NEW/usr/share/doc"
+	find "$NEW/usr" -name '*.la' -delete
+	# one directory for programs, one for libraries
+	if [ -d "$NEW/usr/sbin" ]; then mv "$NEW"/usr/sbin/* "$NEW/usr/bin/"; rmdir "$NEW/usr/sbin"; fi
+	if [ -d "$NEW/usr/lib64" ]; then cp -a "$NEW"/usr/lib64/. "$NEW/usr/lib/"; rm -rf "$NEW/usr/lib64"; fi
+	mkdir -p "$DESTDIR"
+	mv "$NEW/usr" "$DESTDIR/usr"
+}

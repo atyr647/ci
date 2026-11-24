@@ -1,0 +1,6 @@
+# zram + swap file/partition, as chosen in the installer (ribbon-swap).
+type = scripted
+command = /usr/lib/ribbon/boot.sh swap
+restart = false
+log-type = buffer
+depends-on: early-filesystems

@@ -1,0 +1,13 @@
+// The login screen's theme (org.ribbon.login-theme, pkexec
+// /usr/lib/ribbon/ribbon-login-theme): an admin (in wheel) sitting at the
+// machine, in the active session, picks it without a password, so the
+// login screen can follow their colour scheme quietly. Everyone else, and
+// admins over ssh or in a session in the background, are asked for an
+// admin's password (the action's default). Nothing more.
+polkit.addRule(function(action, subject) {
+	if (action.id != "org.ribbon.login-theme")
+		return polkit.Result.NOT_HANDLED;
+	if (subject.local && subject.active && subject.isInGroup("wheel"))
+		return polkit.Result.YES;
+	return polkit.Result.NOT_HANDLED;
+});

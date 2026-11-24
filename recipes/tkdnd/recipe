@@ -1,0 +1,26 @@
+# tkdnd: native drag and drop (XDND) for Tk; Files and the shell use it. Built with its TEA configure (the source
+# also carries a cmake build; there is no cmake kit).
+# The source is GitHub's archive of the tag. Where that download is refused, the same bytes come from a clone of the
+# public repository: git archive --format=tar --prefix=tkdnd-tkdnd-release-test-v2.9.5/ tkdnd-release-test-v2.9.5 |
+# gzip -n -6 (checked: the sha256 below is that file's too).
+name=tkdnd
+kit=io.github.petasis.tkdnd
+version=2.9.5
+revision=1
+summary="Tk extension for native drag and drop (XDND)"
+license="BSD-3-Clause"
+source="https://github.com/petasis/tkdnd/archive/refs/tags/tkdnd-release-test-v2.9.5.tar.gz"
+sha256="7ab2d1d7c0f57a5dc7f6d5542895b44762a31a01621c9d7f80f3bbd67c7bcc39"
+srcdir="tkdnd-tkdnd-release-test-v2.9.5"
+needs="org.tcl-lang.tk org.x.libxcursor"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.tcl-lang.tcl org.tcl-lang.tk org.x.xorgproto org.x.libx11 org.x.libxcursor org.x.libxrender org.x.libxfixes"
+
+build() {
+	./configure --prefix=/usr --exec-prefix=/usr --libdir=/usr/lib --with-tcl=/usr/lib --with-tk=/usr/lib
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	install -Dm644 license.terms "$DESTDIR/usr/share/licenses/tkdnd/license.terms"
+}

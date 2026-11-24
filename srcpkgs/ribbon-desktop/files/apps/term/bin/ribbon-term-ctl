@@ -1,0 +1,13 @@
+#!/bin/sh
+# ribbon-term-ctl - tabs of Ribbon Terminal, through the shell (shell/mod-term.tcl).
+#   ribbon-term-ctl new [CMD...]   a new tab in the terminal you are in (a first terminal if none is open), running CMD
+#   ribbon-term-ctl prefs          the preferences tab;  ribbon-term-ctl restart   restart the idle tabs (new settings)
+#   ribbon-term-ctl group          a new terminal window (its own strip)
+#   ribbon-term-ctl next | prev    the next or previous tab
+#   ribbon-term-ctl tab N          tab number N
+#   ribbon-term-ctl close          close the current tab
+#   ribbon-term-ctl snap left|right|max|restore
+#   ribbon-term-ctl sendto N       the terminal (strip and tabs) to workspace N
+#   ribbon-term-ctl activity-app APP_ID   mark that tab (foot's [desktop-notifications] command)
+# foot's pipe-* keys call this, e.g. in foot.ini: pipe-visible=[ribbon-term-ctl new] Control+Shift+t
+exec ribbon-shell-ctl term "$@"

@@ -1,0 +1,4 @@
+#!/bin/sh
+# Replay "add" events for devices that appeared before udevd started.
+udevadm trigger --action=add --type=subsystems
+exec udevadm trigger --action=add --type=devices

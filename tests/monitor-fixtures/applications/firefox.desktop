@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Firefox
+Exec=firefox %u
+[Desktop Action new]
+Name=Other
+Exec=other

@@ -1,0 +1,324 @@
+#!/bin/sh
+# kitkey -- kit signing keys and the root-signed trusted-keys list (docs/KIT-TRUST.md).
+# A packager and CI tool; it is not a verb of `kit`.
+# The next line restarts with tclsh \
+exec tclsh "$0" "$@"
+#
+#   kitkey gen [-root] [-nopass] [-dir DIR] NAME
+#         a minisign key pair: DIR/NAME.pub and DIR/NAME.key.  -root: an offline root key, which
+#         must have a password (-nopass is refused unless NAME starts with "test-")
+#   kitkey init -repository ID -root PUB [-root PUB ...] [-threshold N] LIST
+#         a new, unsigned key list (serial 0) whose roots are these keys
+#   kitkey add -role app|system|index[,...] [-from WHEN] [-until WHEN | -for DUR] [-name NAME] LIST PUB...
+#         list an online key with its roles and validity (default: from now, for 180d)
+#   kitkey rotate [-for DUR] [-overlap DUR] [-name NAME] LIST OLDKEYID NEWPUB
+#         a new key with the old key's roles; the old one stays valid for -overlap (default 14d)
+#   kitkey revoke [-reason TEXT] [-at WHEN] LIST KEYID...
+#         never trust these keys again (they stay listed as revoked)
+#   kitkey remove LIST KEYID...       drop retired keys from the list (not revoked: just gone)
+#   kitkey root [-add PUB ...] [-drop KEYID ...] [-threshold N] LIST
+#         change the root keys; the next version must then be signed by the old and the new roots
+#   kitkey sign -key SECKEY [-key SECKEY ...] [-expires DUR] [-prev PUBLISHED] LIST
+#         the root ceremony: serial + 1, issued now, expires in DUR (default 365d), LIST.minisig.
+#         -prev: the list clients have now; its roots may sign too (rotating the roots), and
+#         kitkey says whether the result is already a valid update of it
+#   kitkey cosign -key SECKEY [-prev PUBLISHED] LIST
+#         add another root's signature to LIST.minisig (same text)
+#   kitkey show LIST                  what the list says
+#   kitkey check [-prev OLDLIST] [-now WHEN] LIST
+#         LIST is signed by its threshold of its roots, not expired, and (with -prev) is a valid
+#         update of OLDLIST: what every client will check
+#   kitkey update -anchor LIST -state DIR [-now WHEN] NEWLIST
+#         a client's step: take NEWLIST if it chains from the anchor and the lists in DIR
+#
+# WHEN: 7d 12h 2w 1y (from now), YYYY-MM-DD, or @seconds.  DUR: 7d 12h 2w 1y.
+# Editing a list removes its stale LIST.minisig; sign it again afterwards.
+# Exit codes: 0 done, 1 an error, 2 bad usage, 4 a check failed.
+
+set here [file dirname [file normalize [info script]]]
+source [file join $here kittrust.tcl]
+source [file join $here cli.tcl]
+namespace import ::kittrust::cli::*
+
+set usage "kitkey gen|init|add|rotate|revoke|remove|root|sign|cosign|show|check|update ... (see the top of kitkey)"
+if {![llength $argv]} { die 2 "usage: $usage" }
+set verb [lindex $argv 0]
+set argv [lrange $argv 1 end]
+
+proc readList {path} {
+    if {![file isfile $path]} { die 1 "no key list $path" }
+    return [::kittrust parsekeys [::kittrust::Slurp $path]]
+}
+proc writeList {path d {sig ""}} {
+    set text [::kittrust formatkeys $d]
+    ::kittrust parsekeys $text
+    if {$sig eq ""} { file delete -force $path.minisig } else { ::kittrust::Spit $path.minisig $sig }
+    ::kittrust::Spit $path $text
+    return $text
+}
+proc findKey {d id} {
+    set id [string toupper $id]
+    foreach part {keys roots revoked} { if {[dict exists $d $part $id]} { return [list $part $id] } }
+    die 2 "no key $id in the list"
+}
+proc dur {s} {
+    if {![regexp {^[0-9]+[mhdwy]$} $s]} { die 2 "not a duration: $s (7d, 12h, 2w, 1y)" }
+    return [expr {[::kittrust::When $s 0]}]
+}
+proc one {pos n what} {
+    if {[llength $pos] != $n} { die 2 "usage: kitkey $what" }
+}
+
+guard {
+switch -- $verb {
+    gen {
+        lassign [getopts {-root flag -nopass flag -dir one} $argv "kitkey gen \[-root\] \[-nopass\] \[-dir DIR\] NAME"] o pos
+        one $pos 1 "gen \[-root\] \[-nopass\] \[-dir DIR\] NAME"
+        set name [lindex $pos 0]
+        if {![regexp {^[A-Za-z0-9][A-Za-z0-9._-]*$} $name]} { die 2 "a key name is letters, digits, . _ -" }
+        if {[dict get $o -root] && [dict get $o -nopass] && ![string match test-* $name]} {
+            die 2 "a root key must have a password; -nopass is for test keys only (named test-...)"
+        }
+        set d [expr {[dict get $o -dir] eq "" ? "." : [dict get $o -dir]}]
+        file mkdir $d
+        set pub [file join $d $name.pub] ; set sec [file join $d $name.key]
+        if {[file exists $pub] || [file exists $sec]} { die 1 "$pub or $sec exists already" }
+        if {[auto_execok minisign] eq ""} { die 1 "kitkey gen needs minisign" }
+        set cmd [list minisign -G -p $pub -s $sec]
+        if {[dict get $o -nopass]} { lappend cmd -W }
+        if {[catch {exec {*}$cmd <@stdin >@stderr 2>@stderr} err]} { die 1 "minisign -G failed: $err" }
+        if {$::tcl_platform(platform) eq "unix"} { file attributes $sec -permissions 0600 }
+        set pk [pubkey $pub]
+        say "[::kitfmt::PubKeyId $pk]  $pk  $pub"
+        if {[dict get $o -root]} {
+            say "This is a root key: keep $sec offline (and a copy of it somewhere else offline)."
+            say "It signs only the key list (kitkey sign); never put it on a CI machine."
+        }
+    }
+    init {
+        lassign [getopts {-repository one -root many -threshold one} $argv "kitkey init -repository ID -root PUB ... \[-threshold N\] LIST"] o pos
+        one $pos 1 "init -repository ID -root PUB ... \[-threshold N\] LIST"
+        set path [lindex $pos 0]
+        if {[file exists $path]} { die 1 "$path exists already" }
+        if {![llength [dict get $o -root]]} { die 2 "init needs at least one -root" }
+        set roots [dict create]
+        foreach r [dict get $o -root] {
+            set pk [pubkey $r]
+            dict set roots [::kitfmt::PubKeyId $pk] [dict create pk $pk name [keyname $r ""]]
+        }
+        set th [expr {[dict get $o -threshold] eq "" ? 1 : [dict get $o -threshold]}]
+        set d [dict create repository [dict get $o -repository] serial 0 issued 0 expires 0 threshold $th \
+            roots $roots keys {} revoked {}]
+        writeList $path $d
+        say "$path: a new key list for [dict get $o -repository], [dict size $roots] root key(s), threshold $th; add keys, then kitkey sign"
+    }
+    add {
+        lassign [getopts {-role one -from one -until one -for one -name one} $argv "kitkey add -role ROLES \[-from WHEN\] \[-until WHEN | -for DUR\] \[-name NAME\] LIST PUB..."] o pos
+        if {[llength $pos] < 2} { die 2 "usage: kitkey add -role ROLES \[-from WHEN\] \[-until WHEN | -for DUR\] \[-name NAME\] LIST PUB..." }
+        if {[dict get $o -role] eq ""} { die 2 "add needs -role (app, system, index, or a comma list)" }
+        set path [lindex $pos 0]
+        set d [readList $path]
+        set now [clock seconds]
+        set from [expr {[dict get $o -from] eq "" ? $now : [::kittrust::When [dict get $o -from] $now]}]
+        if {[dict get $o -until] ne ""} {
+            set until [::kittrust::When [dict get $o -until] $now]
+        } else {
+            set until [expr {$from + [dur [expr {[dict get $o -for] eq "" ? "180d" : [dict get $o -for]}]]}]
+        }
+        foreach p [lrange $pos 1 end] {
+            set pk [pubkey $p]
+            set id [::kitfmt::PubKeyId $pk]
+            foreach part {keys roots revoked} {
+                if {[dict exists $d $part $id]} { die 1 "key $id is already in the list ($part)" }
+            }
+            dict set d keys $id [dict create pk $pk roles [lsort -unique [split [dict get $o -role] ,]] from $from until $until \
+                name [keyname $p [dict get $o -name]]]
+            say "added $id ([dict get $o -role]) valid [date $from] to [date $until]"
+        }
+        writeList $path $d
+    }
+    rotate {
+        lassign [getopts {-for one -overlap one -name one} $argv "kitkey rotate \[-for DUR\] \[-overlap DUR\] \[-name NAME\] LIST OLDKEYID NEWPUB"] o pos
+        one $pos 3 "rotate \[-for DUR\] \[-overlap DUR\] \[-name NAME\] LIST OLDKEYID NEWPUB"
+        lassign $pos path oldid newpub
+        set d [readList $path]
+        lassign [findKey $d $oldid] part oldid
+        if {$part ne "keys"} { die 2 "$oldid is a $part entry; rotate takes an online key (roots: kitkey root)" }
+        set now [clock seconds]
+        set old [dict get $d keys $oldid]
+        set pk [pubkey $newpub]
+        set id [::kitfmt::PubKeyId $pk]
+        if {[dict exists $d keys $id] || [dict exists $d roots $id] || [dict exists $d revoked $id]} { die 1 "key $id is already in the list" }
+        set for [dur [expr {[dict get $o -for] eq "" ? "180d" : [dict get $o -for]}]]
+        set overlap [dur [expr {[dict get $o -overlap] eq "" ? "14d" : [dict get $o -overlap]}]]
+        dict set d keys $id [dict create pk $pk roles [dict get $old roles] from $now until [expr {$now + $for}] \
+            name [keyname $newpub [dict get $o -name]]]
+        set end [expr {min([dict get $old until], $now + $overlap)}]
+        if {$end <= [dict get $old from]} { set end [expr {[dict get $old from] + 1}] }
+        dict set d keys $oldid until $end
+        writeList $path $d
+        say "$id takes over [join [dict get $old roles] ,] from $oldid, which stays valid until [date $end]"
+        say "next: kitkey sign (root), then kitseal the kits with the new key before [date $end]"
+    }
+    revoke {
+        lassign [getopts {-reason one -at one} $argv "kitkey revoke \[-reason TEXT\] \[-at WHEN\] LIST KEYID..."] o pos
+        if {[llength $pos] < 2} { die 2 "usage: kitkey revoke \[-reason TEXT\] \[-at WHEN\] LIST KEYID..." }
+        set path [lindex $pos 0]
+        set d [readList $path]
+        set at [expr {[dict get $o -at] eq "" ? [clock seconds] : [::kittrust::When [dict get $o -at]]}]
+        set why [expr {[dict get $o -reason] eq "" ? "revoked" : [dict get $o -reason]}]
+        foreach id [lrange $pos 1 end] {
+            lassign [findKey $d $id] part id
+            if {$part eq "revoked"} { warn "$id is revoked already" ; continue }
+            set pk [dict get $d $part $id pk]
+            dict unset d $part $id
+            if {$part eq "roots" && [dict size [dict get $d roots]] < [dict get $d threshold]} {
+                die 1 "revoking root $id leaves fewer roots than the threshold [dict get $d threshold]"
+            }
+            dict set d revoked $id [dict create pk $pk time $at reason $why]
+            say "revoked $id: $why"
+        }
+        writeList $path $d
+    }
+    remove {
+        lassign [getopts {} $argv "kitkey remove LIST KEYID..."] o pos
+        if {[llength $pos] < 2} { die 2 "usage: kitkey remove LIST KEYID..." }
+        set path [lindex $pos 0]
+        set d [readList $path]
+        foreach id [lrange $pos 1 end] {
+            lassign [findKey $d $id] part id
+            if {$part ne "keys"} { die 2 "$id is a $part entry; remove takes an online key" }
+            dict unset d keys $id
+            say "removed $id"
+        }
+        writeList $path $d
+    }
+    root {
+        lassign [getopts {-add many -drop many -threshold one} $argv "kitkey root \[-add PUB ...\] \[-drop KEYID ...\] \[-threshold N\] LIST"] o pos
+        one $pos 1 "root \[-add PUB ...\] \[-drop KEYID ...\] \[-threshold N\] LIST"
+        set path [lindex $pos 0]
+        set d [readList $path]
+        foreach p [dict get $o -add] {
+            set pk [pubkey $p] ; set id [::kitfmt::PubKeyId $pk]
+            if {[dict exists $d keys $id] || [dict exists $d roots $id] || [dict exists $d revoked $id]} { die 1 "key $id is already in the list" }
+            dict set d roots $id [dict create pk $pk name [keyname $p ""]]
+            say "root $id added"
+        }
+        foreach id [dict get $o -drop] {
+            lassign [findKey $d $id] part id
+            if {$part ne "roots"} { die 2 "$id is not a root key" }
+            dict unset d roots $id
+            say "root $id dropped"
+        }
+        if {[dict get $o -threshold] ne ""} { dict set d threshold [dict get $o -threshold] }
+        if {[dict get $d threshold] > [dict size [dict get $d roots]]} { die 2 "threshold [dict get $d threshold] with [dict size [dict get $d roots]] roots" }
+        writeList $path $d
+        say "the next version must be signed by the old roots (their threshold) and by these: kitkey sign -key OLD -key NEW"
+    }
+    sign {
+        lassign [getopts {-key many -expires one -prev one} $argv "kitkey sign -key SECKEY ... \[-expires DUR\] \[-prev PUBLISHED\] LIST"] o pos
+        one $pos 1 "sign -key SECKEY ... \[-expires DUR\] \[-prev PUBLISHED\] LIST"
+        if {![llength [dict get $o -key]]} { die 2 "sign needs -key (a root secret key)" }
+        set path [lindex $pos 0]
+        set d [readList $path]
+        set P "" ; set ptext ""
+        if {[dict get $o -prev] ne ""} {
+            set ptext [::kittrust::Slurp [dict get $o -prev]]
+            set P [::kittrust parsekeys $ptext]
+            if {[dict get $d serial] < [dict get $P serial]} { dict set d serial [dict get $P serial] }
+        }
+        set now [clock seconds]
+        dict incr d serial
+        dict set d issued $now
+        dict set d expires [expr {$now + [dur [expr {[dict get $o -expires] eq "" ? "365d" : [dict get $o -expires]}]]}]
+        set text [::kittrust formatkeys $d]
+        set sig ""
+        foreach k [dict get $o -key] {
+            append sig [::kittrust sign $text $k "ribbon-kit-keys [dict get $d repository] serial [dict get $d serial]"]
+        }
+        # every signature must be by a root of this list or of the published one: an online key
+        # never signs the list
+        set roots [::kittrust::RootPks $d]
+        if {$P ne ""} { set roots [dict merge [::kittrust::RootPks $P] $roots] }
+        set who [::kittrust::Signers $text $sig $roots]
+        if {[llength $who] != [llength [dict get $o -key]]} {
+            die 1 "a -key is not a root key of this list[expr {$P ne "" ? " or of [dict get $o -prev]" : " (rotating roots? give -prev PUBLISHED)"}]; nothing was signed"
+        }
+        writeList $path $d $sig
+        say "$path: serial [dict get $d serial], expires [date [dict get $d expires]], signed by [join $who {, }]"
+        set have [llength [lmap id $who { if {![dict exists $d roots $id]} continue ; set id }]]
+        if {$have < [dict get $d threshold]} { warn "it needs [expr {[dict get $d threshold] - $have}] more signature(s) by its roots: kitkey cosign" }
+        if {$P ne "" && [catch {::kittrust::Step $P $d $text $sig 1} err]} { warn "not yet a valid update of [dict get $o -prev]: $err" }
+    }
+    cosign {
+        lassign [getopts {-key one -prev one} $argv "kitkey cosign -key SECKEY \[-prev PUBLISHED\] LIST"] o pos
+        one $pos 1 "cosign -key SECKEY \[-prev PUBLISHED\] LIST"
+        set path [lindex $pos 0]
+        set text [::kittrust::Slurp $path]
+        set d [::kittrust parsekeys $text]
+        set sig "" ; catch {set sig [::kittrust::Slurp $path.minisig]}
+        set roots [::kittrust::RootPks $d]
+        if {[dict get $o -prev] ne ""} { set roots [dict merge [::kittrust::RootPks [readList [dict get $o -prev]]] $roots] }
+        set before [::kittrust::Signers $text $sig $roots]
+        if {$sig ne "" && [llength [::kittrust::SplitSigs $sig]] != [llength $before]} {
+            die 4 "$path.minisig holds signatures that are not valid root signatures of $path (changed since it was signed?)"
+        }
+        append sig [::kittrust sign $text [dict get $o -key] "ribbon-kit-keys [dict get $d repository] serial [dict get $d serial]"]
+        set who [::kittrust::Signers $text $sig $roots]
+        if {[llength $who] == [llength $before]} { die 1 "that key is not a root of this list, or signed already" }
+        ::kittrust::Spit $path.minisig $sig
+        say "$path: signed by [join $who {, }] ([llength $who] of threshold [dict get $d threshold])"
+    }
+    show {
+        lassign [getopts {} $argv "kitkey show LIST"] o pos
+        one $pos 1 "show LIST"
+        set d [readList [lindex $pos 0]]
+        say "repository [dict get $d repository], serial [dict get $d serial], issued [date [dict get $d issued]], expires [date [dict get $d expires]]"
+        say "root keys (threshold [dict get $d threshold]):"
+        dict for {id r} [dict get $d roots] { say "  $id  [dict get $r name]" }
+        say "online keys:"
+        set now [clock seconds]
+        dict for {id k} [dict get $d keys] {
+            set st [expr {$now < [dict get $k from] ? "not yet" : ($now >= [dict get $k until] ? "expired" : "valid")}]
+            say [format "  %s  %-14s %-8s %s to %s  %s" $id [join [dict get $k roles] ,] $st [date [dict get $k from]] [date [dict get $k until]] [dict get $k name]]
+        }
+        if {[dict size [dict get $d revoked]]} {
+            say "revoked:"
+            dict for {id r} [dict get $d revoked] { say "  $id  [date [dict get $r time]]  [dict get $r reason]" }
+        }
+    }
+    check {
+        lassign [getopts {-prev one -now one} $argv "kitkey check \[-prev OLDLIST\] \[-now WHEN\] LIST"] o pos
+        one $pos 1 "check \[-prev OLDLIST\] \[-now WHEN\] LIST"
+        now $o
+        set path [lindex $pos 0]
+        set text [::kittrust::Slurp $path]
+        set sig "" ; catch {set sig [::kittrust::Slurp $path.minisig]}
+        set d [::kittrust parsekeys $text]
+        set who [::kittrust::SelfSigned $d $text $sig]
+        if {[::kittrust::Now] >= [dict get $d expires]} { die 4 "$path expired on [date [dict get $d expires]]" }
+        if {[dict get $o -prev] ne ""} {
+            set pt [::kittrust::Slurp [dict get $o -prev]]
+            ::kittrust::Step [::kittrust parsekeys $pt] $d $text $sig 1
+            say "$path: a valid update of [dict get $o -prev]"
+        }
+        say "$path: ok, serial [dict get $d serial], signed by [join $who {, }], expires [date [dict get $d expires]]"
+    }
+    update {
+        lassign [getopts {-anchor one -state one -now one} $argv "kitkey update -anchor LIST -state DIR \[-now WHEN\] NEWLIST"] o pos
+        one $pos 1 "update -anchor LIST -state DIR \[-now WHEN\] NEWLIST"
+        if {[dict get $o -anchor] eq "" || [dict get $o -state] eq ""} { die 2 "update needs -anchor and -state" }
+        now $o
+        set s [::kittrust load -anchor [dict get $o -anchor] -state [dict get $o -state]]
+        set path [lindex $pos 0]
+        set text [::kittrust::Slurp $path]
+        set sig "" ; catch {set sig [::kittrust::Slurp $path.minisig]}
+        set r [::kittrust update $text $sig]
+        set d [::kittrust parsekeys $text]
+        if {$r eq "current"} { say "key list serial [dict get $d serial] is the one in use" } else {
+            say "key list updated: serial [dict get $s serial] -> [dict get $d serial]"
+        }
+    }
+    default { die 2 "unknown command $verb\nusage: $usage" }
+}
+}

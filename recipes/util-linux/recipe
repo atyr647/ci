@@ -1,0 +1,31 @@
+# util-linux: mount, losetup, blkid, lsblk, findmnt, fdisk, agetty, switch_root, flock and the rest, with libblkid,
+# libmount, libuuid, libfdisk and libsmartcols. Left to other kits: login, su and the account tools (shadow), kill
+# (it is this kit's; coreutils leaves it out). Without what would need kits that do not exist yet or come later, each
+# named off: PAM, udev (eudev is built on this kit's libblkid), systemd, SELinux, audit, libcap-ng (setpriv), sqlite
+# (lastlog2), readline, Python. Nothing is installed setuid: mounting by a person goes through udisks and polkit.
+name=util-linux
+kit=org.kernel.util-linux
+version=2.41.4
+revision=1
+summary="Essential system utilities and their libraries"
+license="GPL-2.0-or-later AND LGPL-2.1-or-later AND BSD-3-Clause"
+source="https://cdn.kernel.org/pub/linux/utils/util-linux/v2.41/util-linux-2.41.4.tar.xz"
+sha256="a8c213cc06048862602a42b2d299b340001f6d05c4407b549f3e03521df83688"
+srcdir="util-linux-2.41.4"
+needs="org.gnu.glibc org.gnu.ncurses io.github.besser82.libxcrypt net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.gnu.ncurses io.github.besser82.libxcrypt net.zlib.zlib"
+
+# its "usr sbin" programs (partx, rtcwake, rfkill ...) go where --sbindir does not reach
+umake() { make usrsbin_execdir=/usr/bin "$@"; }
+build() {
+	./configure --prefix=/usr --bindir=/usr/bin --sbindir=/usr/bin --libdir=/usr/lib --sysconfdir=/etc \
+		--localstatedir=/var --runstatedir=/run --disable-static --disable-nls --disable-chfn-chsh --disable-login \
+		--disable-nologin --disable-su --disable-runuser --disable-setpriv --disable-liblastlog2 --disable-pylibmount \
+		--disable-makeinstall-chown --disable-makeinstall-setuid --without-python --without-systemd \
+		--without-systemdsystemunitdir --without-udev --without-selinux --without-audit --without-cap-ng \
+		--without-readline --without-libmagic --without-utempter --without-user --without-econf --without-slang \
+		--without-smack --without-cryptsetup --with-ncursesw
+	umake -j"$JOBS"
+}
+
+stage() { umake DESTDIR="$DESTDIR" install; }

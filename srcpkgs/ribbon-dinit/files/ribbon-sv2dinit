@@ -1,0 +1,231 @@
+#!/bin/sh
+# ribbon-sv2dinit - generate dinit services from Void's runit services.
+#
+# Void packages ship runit services as /etc/sv/<name>/{run,finish,check,conf,
+# log/run,down}. Nearly all `run` scripts end by exec'ing the daemon in the
+# foreground, so instead of translating shell to dinit syntax we let dinit run
+# the unmodified script: after the final exec, dinit supervises the real daemon.
+#
+#   * `sv check|start X` lines in run scripts  -> depends-on = X
+#   * log/run                                   -> logfile in /var/log/dinit
+#   * run scripts that call `sv` at runtime get a small compatibility `sv`
+#     that answers from dinit (see /usr/lib/ribbon/sv2dinit/compat/sv)
+#   * hand-written services always win: anything already present in
+#     /etc/dinit.d, /usr/local/lib/dinit.d or /usr/lib/dinit.d is skipped
+#   * scripts that don't end in `exec <daemon>` are refused (logged), because
+#     dinit would supervise the shell instead of the daemon. Force them with
+#     /etc/ribbon/sv2dinit/force if you know they are fine.
+#
+# Output goes to /run/dinit.d (rebuilt every boot by /usr/lib/ribbon/init), so
+# it can never go stale after package updates. Outside of boot (after package
+# changes, when / is writable) the result is also saved to
+# /var/lib/ribbon/dinit.d, which dinit uses as a fallback if a later boot-time
+# conversion ever fails - so enabled services can't silently disappear.
+#
+# Usage: ribbon-sv2dinit [--boot] [--check] [--sv-dir DIR] [--out DIR] [--quiet]
+#   --check   don't write anything; print a report and exit 1 if any service
+#             would be refused (used by `ribbon doctor` and CI)
+
+SV_DIR=/etc/sv
+OUT=/run/dinit.d
+MODE='write'
+QUIET=
+PERSIST=/var/lib/ribbon/dinit.d
+HAND_DIRS="/etc/dinit.d /usr/local/lib/dinit.d /usr/lib/dinit.d"
+SHARE=/usr/share/ribbon/sv2dinit
+EXEC_WRAPPER=/usr/lib/ribbon/sv2dinit/sv-exec
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--boot) QUIET=1; PERSIST= ;;
+		--no-persist) PERSIST= ;;
+		--check) MODE=check ;;
+		--quiet) QUIET=1 ;;
+		--sv-dir) SV_DIR=$2; shift ;;
+		--out) OUT=$2; PERSIST=; shift ;;
+		--hand-dirs) HAND_DIRS=$2; shift ;;
+		--share) SHARE=$2; shift ;;
+		-h|--help) sed -n '2,26p' "$0" | sed 's/^# \{0,1\}//'; exit 0 ;;
+		*) echo "ribbon-sv2dinit: unknown option '$1'" >&2; exit 2 ;;
+	esac
+	shift
+done
+
+log() { [ -n "$QUIET" ] || printf '%s\n' "$*"; }
+warn() { printf 'ribbon-sv2dinit: %s\n' "$*" >&2; }
+
+# list_file FILE... -> names, one per line, comments stripped
+list_files() {
+	for _f; do
+		[ -r "$_f" ] && sed -e 's/#.*//' -e 's/[[:space:]]*$//' -e '/^[[:space:]]*$/d' "$_f"
+	done
+}
+
+in_list() { # name listfile...
+	_n=$1; shift
+	list_files "$@" | grep -qxF "$_n"
+}
+
+# map runit name -> dinit name ("dbus dbus", "udevd udevd", ...)
+map_name() {
+	_m=$(list_files "$SHARE/map" /etc/ribbon/sv2dinit/map |
+		awk -v n="$1" '$1 == n { print $2; exit }')
+	printf '%s' "${_m:-$1}"
+}
+
+hand_written() {
+	for _d in $HAND_DIRS; do
+		[ -e "$_d/$1" ] && return 0
+	done
+	return 1
+}
+
+# Print dependency names referenced by `sv [opts] check|start|up|status NAME...`
+sv_deps() {
+	awk '
+	{
+		sub(/#.*/, "")
+		n = split($0, t, /[ \t;|&()]+/)
+		for (i = 1; i <= n; i++) {
+			if (t[i] != "sv") continue
+			j = i + 1
+			while (j <= n && t[j] ~ /^-/) { if (t[j] == "-w") j++; j++ }
+			if (j > n) continue
+			if (t[j] !~ /^(check|start|up|u|status|s|once|o)$/) continue
+			for (k = j + 1; k <= n; k++) {
+				w = t[k]
+				if (w ~ /^[>2<]/ || w == "||" || w == "&&" || w == "exit" || w == "") break
+				sub(/.*\//, "", w)      # /var/service/dbus -> dbus
+				if (w ~ /^[A-Za-z0-9_.@-]+$/) print w
+			}
+		}
+	}' "$1" | sort -u
+}
+
+# 0 = script ends by exec-ing a program (safe), 1 = not
+execs_daemon() {
+	awk '
+	BEGIN { found = 0; bg = 0 }
+	{
+		line = $0
+		sub(/#.*/, "", line)
+		if (line ~ /[^&]&[ \t]*$/) bg = 1
+		if (line !~ /^[ \t]*exec[ \t]/) next
+		n = split(line, t, /[ \t]+/)
+		for (i = 1; i <= n; i++) {
+			if (t[i] == "" || t[i] == "exec") continue
+			if (t[i] ~ /^[0-9]*[<>]/ || t[i] ~ /^&/ || t[i] ~ /^\/dev\//) continue
+			found = 1
+			break
+		}
+	}
+	END { exit (found && !bg) ? 0 : 1 }' "$1"
+}
+
+generated=0 skipped=0 refused=0
+tmpdir=
+if [ "$MODE" = write ]; then
+	mkdir -p "$OUT" || exit 1
+	tmpdir=$(mktemp -d "$OUT/.sv2dinit.XXXXXX") || exit 1
+	trap 'rm -rf "$tmpdir"' EXIT INT TERM
+fi
+
+[ -d "$SV_DIR" ] || { log "no $SV_DIR; nothing to do"; exit 0; }
+
+for dir in "$SV_DIR"/*; do
+	[ -d "$dir" ] || continue
+	sv=${dir##*/}
+	name=$(map_name "$sv")
+
+	if [ ! -x "$dir/run" ]; then
+		skipped=$((skipped + 1)); continue
+	fi
+	if in_list "$sv" "$SHARE/skip" /etc/ribbon/sv2dinit/skip; then
+		log "skip      $sv (skip list)"; skipped=$((skipped + 1)); continue
+	fi
+	if hand_written "$name"; then
+		log "skip      $sv (hand-written dinit service '$name' exists)"
+		skipped=$((skipped + 1)); continue
+	fi
+	if ! execs_daemon "$dir/run" && ! in_list "$sv" "$SHARE/force" /etc/ribbon/sv2dinit/force; then
+		warn "refused   $sv: run script does not end in 'exec <daemon>' (or backgrounds it)"
+		refused=$((refused + 1)); continue
+	fi
+
+	deps=
+	for d in $(sv_deps "$dir/run"); do
+		dn=$(map_name "$d")
+		[ "$dn" = "$name" ] && continue
+		deps="$deps $dn"
+	done
+
+	if [ "$MODE" = check ]; then
+		log "ok        $sv -> $name${deps:+ (depends-on:$deps)}"
+		generated=$((generated + 1)); continue
+	fi
+
+	f="$tmpdir/$name"
+	{
+		echo "# Generated by ribbon-sv2dinit from $dir - do not edit."
+		echo "# To customise, copy this file to /etc/dinit.d/$name (it takes precedence)."
+		echo "type = process"
+		echo "command = $EXEC_WRAPPER $sv"
+		echo "working-dir = $dir"
+		echo "restart = true"
+		echo "smooth-recovery = true"
+		echo "restart-limit-count = 5"
+		echo "restart-limit-interval = 30"
+		echo "logfile = /var/log/dinit/$name.log"
+		echo "depends-on: system"
+		for dn in $deps; do
+			echo "depends-on: $dn"
+		done
+		# dinit's stop-command would replace signalling the daemon, so runit finish scripts (usually pid/socket cleanup)
+		# are not mapped to it: sv-exec runs ./run as its child and ./finish when it ends, as runsv does.
+		# A ./check is read by the compat sv: `sv check NAME` runs it.
+		[ -e "$dir/finish" ] && echo "# note: $dir/finish exists and is run by sv-exec when the daemon ends"
+		[ -e "$dir/check" ] && echo "# note: $dir/check exists and is run by the compat sv (sv check $sv)"
+		[ -e "$dir/down" ] && echo "# note: $dir/down exists (runit 'do not autostart'); dinit only starts enabled services anyway"
+	} > "$f"
+	generated=$((generated + 1))
+	log "generated $name${deps:+ (depends-on:$deps)}"
+done
+
+if [ "$MODE" = write ]; then
+	# Honour runit-style enabling: links in /var/service/ start the service too.
+	compat="$tmpdir/runit-compat.d"
+	mkdir -p "$compat"
+	for link in /var/service/* /etc/runit/runsvdir/default/*; do
+		[ -e "$link" ] || continue
+		n=$(map_name "${link##*/}")
+		if [ -e "$tmpdir/$n" ] || hand_written "$n"; then
+			: > "$compat/$n"
+		fi
+	done
+	{
+		echo "# Services enabled the runit way (links in /var/service)."
+		echo "type = internal"
+		echo "waits-for.d: $OUT/runit-compat.d"
+	} > "$tmpdir/runit-compat"
+
+	# Replace previous generation atomically-ish: remove our old files, move new in.
+	for old in "$OUT"/*; do
+		[ -f "$old" ] && head -n1 "$old" 2>/dev/null | grep -q '^# Generated by ribbon-sv2dinit' && rm -f "$old"
+	done
+	rm -rf "$OUT/runit-compat.d" "$OUT/runit-compat"
+	for new in "$tmpdir"/* "$tmpdir"/runit-compat.d; do
+		[ -e "$new" ] && mv "$new" "$OUT/"
+	done
+
+	if [ -n "$PERSIST" ] && mkdir -p "$PERSIST" 2>/dev/null && [ -w "$PERSIST" ]; then
+		for old in "$PERSIST"/*; do
+			[ -f "$old" ] && head -n1 "$old" 2>/dev/null | grep -q '^# Generated by ribbon-sv2dinit' && rm -f "$old"
+		done
+		for f in "$OUT"/*; do
+			[ -f "$f" ] && head -n1 "$f" 2>/dev/null | grep -q '^# Generated by ribbon-sv2dinit' && cp "$f" "$PERSIST/"
+		done
+	fi
+fi
+
+log "ribbon-sv2dinit: $generated ok, $skipped skipped, $refused refused"
+[ "$refused" -eq 0 ] || [ "$MODE" = write ]

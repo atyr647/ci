@@ -1,0 +1,110 @@
+name: ribbon-labwc020
+# Ribbon OS: what the ribbon-image workflow's runner cannot check. Exported with it (build/ci/export.sh, as
+# .github/workflows/labwc020-tests.yml) and run on the same push of the ribbon-image branch.
+#   labwc020   the test halves that need labwc 0.8 or later (Alt+Tab's native half and its timing, Settings →
+#              Keyboard and mouse against labwc, the terminal, the Game HUD surface, wlr-randr's JSON keys), against
+#              a root of prebuilt packages with labwc 0.20.x (build/ci/labwc020.sh); the runner's own labwc is 0.7.1
+#   installed  the ISO that the ribbon-image run of this commit builds, installed by ribbon-install onto a disk in
+#              QEMU and booted from it: postinstall's work, ribbon-swap, ribbon-reserve, ribbon-doctor and
+#              ribbon-update on the running system (build/ci/installed-test.sh)
+# Results are pushed to the branch ribbon-results-labwc020 (build/ci/labwc020.sh results fetches them), so that the
+# ribbon-image workflow's ribbon-results branch is left alone.
+on:
+  push:
+    branches: [ ribbon-image ]
+  workflow_dispatch:
+
+permissions:
+  contents: write
+  actions: read
+
+concurrency:
+  group: ribbon-labwc020
+  cancel-in-progress: true
+
+jobs:
+  labwc020:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 90
+    steps:
+      - uses: actions/checkout@v4
+      - name: Install what the host half needs
+        run: sudo sh build/ci/labwc020.sh deps
+      - name: Make the root (labwc 0.20 from prebuilt packages)
+        run: |
+          mkdir -p out/results
+          sudo sh build/ci/labwc020.sh root out/root > out/results/root-versions.txt
+          cat out/results/root-versions.txt
+          cp out/root.packages out/results/root-packages.txt
+      - name: Run the checks against the root
+        run: sudo sh build/ci/labwc020.sh run out/root out/results
+      - name: Hand the results over
+        if: always()
+        run: sudo chown -R "$(id -u):$(id -g)" out/results
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ribbon-labwc020-results
+          path: out/results
+          retention-days: 3
+
+  installed:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 300
+    steps:
+      - uses: actions/checkout@v4
+      - name: Make room for the disk image
+        run: |
+          sudo rm -rf /usr/share/dotnet /usr/local/lib/android /opt/ghc /opt/hostedtoolcache/CodeQL
+          df -h /
+      - name: Wait for this commit's ISO (the ribbon-image run's image job)
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: sh build/ci/installed-test.sh fetch-iso iso
+      - name: Install the ISO onto a disk and check the installed system
+        run: |
+          sudo apt-get update -qq && sudo apt-get install -y -qq qemu-system-x86 ovmf xorriso >/dev/null
+          sudo chmod 666 /dev/kvm 2>/dev/null || true
+          mkdir -p out/installed
+          sudo sh build/ci/installed-test.sh iso/*.iso out/installed
+      - name: Hand the results over
+        if: always()
+        run: |
+          mkdir -p out/installed
+          sudo chown -R "$(id -u):$(id -g)" out/installed
+          [ -s out/installed/installed-summary.txt ] || echo "RESULT installed-install: FAILED (no ISO, or the test did not run)" > out/installed/installed-summary.txt
+      - uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: ribbon-installed-results
+          path: out/installed
+          retention-days: 3
+
+  publish:
+    needs: [labwc020, installed]
+    if: always()
+    runs-on: ubuntu-24.04
+    steps:
+      - uses: actions/checkout@v4
+        with: { path: src }
+      - uses: actions/download-artifact@v4
+        with: { name: ribbon-labwc020-results, path: results/labwc020 }
+        continue-on-error: true
+      - uses: actions/download-artifact@v4
+        with: { name: ribbon-installed-results, path: results/installed }
+        continue-on-error: true
+      - name: Publish the results branch
+        run: |
+          mkdir -p results && cd results
+          { cat labwc020/labwc020-summary.txt 2>/dev/null || echo "RESULT labwc020: no result (the job did not finish)"
+            cat installed/installed-summary.txt 2>/dev/null || echo "RESULT installed: no result (the job did not finish)"
+            echo "run: $GITHUB_SERVER_URL/$GITHUB_REPOSITORY/actions/runs/$GITHUB_RUN_ID"
+            echo "revision: $(cat ../src/RIBBON_REVISION 2>/dev/null)"; } > summary.txt
+          cat summary.txt
+          git init -q -b ribbon-results-labwc020
+          git add -A
+          git -c user.name="Ribbon CI" -c user.email="noreply@anthropic.com" commit -q -m "Ribbon labwc 0.20 and installed-image run $GITHUB_RUN_NUMBER"
+          git push -q -f "https://x-access-token:${{ github.token }}@github.com/$GITHUB_REPOSITORY" ribbon-results-labwc020:ribbon-results-labwc020
+      - name: Verdict
+        run: |
+          ! grep -qE '^RESULT [a-z0-9-]*: (FAILED|no result)' results/summary.txt

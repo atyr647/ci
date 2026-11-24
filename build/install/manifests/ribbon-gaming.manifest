@@ -1,0 +1,13 @@
+# ribbon-gaming: srcpkgs/ribbon-gaming/template's do_install.
+file 644 usr/lib/sysctl.d @files/90-ribbon-gaming.conf
+file 644 etc/security/limits.d @files/90-ribbon-gaming-limits.conf
+file 644 usr/lib/modules-load.d @files/ntsync.conf
+file 644 usr/lib/udev/rules.d @files/99-ntsync.rules
+file 644 etc/ribbon/session.d @files/30-gaming.sh
+file 644 etc @files/gamemode.ini
+file 440 etc/sudoers.d @files/sudoers-gaming 20-ribbon-gaming
+bin @files/ribbon-gamemode-session
+bin @files/steamos-session-select
+bin @files/ribbon-gamescope
+file 644 usr/share/wayland-sessions @files/ribbon-gamemode.desktop
+file 644 usr/share/licenses/ribbon-gaming @repo/LICENSE

@@ -1,0 +1,5 @@
+#!/bin/sh
+# ribbon-welcome - the first-login welcome (Tcl/Tk, /usr/lib/ribbon/welcome):
+# HDR, a games drive, Flathub and a colour scheme. labwc's autostart runs it
+# while ~/.config/ribbon/welcome-pending exists.
+exec wish -encoding utf-8 /usr/lib/ribbon/welcome/main.tcl -name ribbon-welcome -- "$@"

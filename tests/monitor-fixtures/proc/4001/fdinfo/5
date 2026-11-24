@@ -1,0 +1,3 @@
+drm-driver:	iris
+drm-client-id:	9
+drm-memory-vram:	99 MiB

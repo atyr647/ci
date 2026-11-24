@@ -1,0 +1,3 @@
+# Ribbon live ISO: offer the installer. labwc runs this beside Ribbon's own autostart (--merge-config, /etc/xdg is in
+# ribbon-session's XDG_CONFIG_DIRS); postinstall's live-cleanup removes it from an installed system.
+[ -e /etc/ribbon/live ] && ribbon-installer-launch >/dev/null 2>&1 &

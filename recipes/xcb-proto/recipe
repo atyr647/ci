@@ -1,0 +1,19 @@
+# xcb-proto: the X protocol described in XML, and the Python module (xcbgen) that libxcb's build makes its C from.
+name=xcb-proto
+kit=org.x.xcb-proto
+version=1.17.0
+revision=1
+summary="The X protocol in XML, for XCB"
+license="MIT"
+source="https://www.x.org/releases/individual/proto/xcb-proto-1.17.0.tar.xz"
+sha256="2c1bacd2110f4799f74de6ebb714b94cf6f80fb112316b1219480fd22562148c"
+srcdir="xcb-proto-1.17.0"
+needs="org.python.python"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.python.python"
+
+build() {
+	./configure --prefix=/usr
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

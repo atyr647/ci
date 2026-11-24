@@ -1,0 +1,3 @@
+#!/bin/sh
+# System monitor (the Ledger window). Programs, not ribbon subcommands: see apps/monitor/main.tcl.
+exec wish -encoding utf-8 /usr/lib/ribbon/monitor/main.tcl -name ribbon-monitor -- "$@"

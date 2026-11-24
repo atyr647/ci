@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Run kit
+Comment=Start a kit, installed or a .kit file (kit run)
+Exec=kit run %f
+Icon=application-x-executable
+Terminal=false
+NoDisplay=true
+Categories=System;Utility;
+MimeType=application/x-ribbon-kit;

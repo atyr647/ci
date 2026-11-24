@@ -1,0 +1,324 @@
+#!/bin/bash
+# ribbon-reserve - keep disk space for the system, so a download that fills
+# the disk can't take the OS down with it.
+#
+# Two layers, both on by default:
+#   cap    your files (home, downloads, games, caches) can't use the last
+#          RESERVE_SIZE of the disk; only the system can. Each filesystem's
+#          own mechanism:
+#            btrfs     a quota limit on @home (simple quotas, kernel >= 6.7)
+#            zfs       a quota on the home dataset
+#            bcachefs  no per-user reservation: spare file and warnings only
+#          btrfs/zfs limits follow the disk: `watch` keeps the home limit
+#          at "what home uses now + what is free beyond the reserve".
+#   spare  RESERVE_SPARE of the reserve is held in a pre-allocated file (a
+#          refreservation on zfs). If the system itself still runs the disk
+#          down to its last GiB, `watch` deletes it at once, handing the room
+#          back so updates, logs and logins keep working, and says so in the
+#          tray. It is made again once there is room.
+#
+# Config (/etc/ribbon/ribbon.conf): RESERVE_SIZE=15G RESERVE_SPARE=2G
+# State for the desktop: /run/ribbon/reserve (key=value, rewritten by watch).
+set -u
+. "${RIBBON_LIB:-/usr/lib/ribbon}/common.sh"
+
+RESERVE_SIZE=${RESERVE_SIZE:-15G}
+RESERVE_SPARE=${RESERVE_SPARE:-2G}
+# RIBBON_ROOT (common.sh) points everything at a mounted system (tests).
+TOP=${RIBBON_ROOT:-}
+STATE_DIR=${RESERVE_STATE_DIR:-/run/ribbon}
+STATE=$STATE_DIR/reserve
+GiB=$((1024 * 1024 * 1024))
+LOW=$((5 * GiB))        # warn when your files have less than this left
+CRITICAL=$((1 * GiB))   # below this the system is nearly full: drop the spare
+
+usage() {
+	cat <<EOF
+Usage: ribbon-reserve <command>
+  status              how much space is left for your files and for the system
+  apply               set the reserve up on this system (run at boot; idempotent)
+  install             the parts needed before the first boot (installers)
+  watch               keep limits current and guard the spare file (the service)
+  release             delete the spare file now, giving its space to the system
+  cleanup [ITEM...]   free space: trash cache (yours), pkgcache snapshots (root)
+  cleanup-list        what cleanup could free, as "item bytes" lines
+EOF
+}
+
+bytes() { # 15G | 512M | bytes
+	case "$1" in
+		*G|*g) echo $(( ${1%[Gg]} * GiB )) ;;
+		*M|*m) echo $(( ${1%[Mm]} * 1024 * 1024 )) ;;
+		*) echo "$1" ;;
+	esac
+}
+
+R=$(bytes "$RESERVE_SIZE")
+S=$(bytes "$RESERVE_SPARE")
+[ "$S" -gt "$R" ] && S=$R
+
+fstype() { findmnt -no FSTYPE "$1" 2>/dev/null | head -n1; }
+source_of() { findmnt -no SOURCE "$1" 2>/dev/null | head -n1 | sed 's/\[.*\]$//'; }
+size_of() { local n; n=$(du -sb "$1" 2>/dev/null | cut -f1); echo "${n:-0}"; }
+
+# Is /home on the same filesystem (btrfs) or pool (zfs) as the system? Only
+# then does capping it protect the system.
+home_shared() {
+	case "$(fstype "$TOP/")" in
+		btrfs) [ "$(fstype "$TOP/home")" = btrfs ] && [ "$(source_of "$TOP/")" = "$(source_of "$TOP/home")" ] ;;
+		zfs) [ "$(fstype "$TOP/home")" = zfs ] && [ "$(source_of "$TOP/home" | cut -d/ -f1)" = "$(zfs_pool)" ] ;;
+		*) return 0 ;;
+	esac
+}
+
+# free bytes for root (statfs f_bfree)
+free_root() { stat -f -c '%f %S' "$1" | awk '{printf "%d\n", $1 * $2}'; }
+
+human() { awk -v b="$1" 'BEGIN { if (b >= 1073741824) printf "%.1f GB\n", b / 1073741824; else printf "%d MB\n", b / 1048576 }'; }
+
+# ---- the spare --------------------------------------------------------------
+
+spare_path() {
+	case "$(fstype "$TOP/")" in
+		btrfs) echo "$TOP/swap/ribbon-spare" ;;   # @swap: never snapshotted, NOCOW
+		*) echo "$TOP/var/lib/ribbon/spare" ;;
+	esac
+}
+
+zfs_pool() { source_of / | cut -d/ -f1; }
+
+spare_present() {
+	if [ "$(fstype "$TOP/")" = zfs ]; then
+		[ "$(zfs get -Hp -o value refreservation "$(zfs_pool)/ribbon-spare" 2>/dev/null)" = "$S" ]
+	else
+		[ -f "$(spare_path)" ]
+	fi
+}
+
+spare_make() {
+	[ "$S" -gt 0 ] || return 0
+	spare_present && return 0
+	if [ "$(fstype "$TOP/")" = zfs ]; then
+		local ds; ds="$(zfs_pool)/ribbon-spare"
+		zfs list -H "$ds" >/dev/null 2>&1 || zfs create -o mountpoint=none -o canmount=off "$ds"
+		zfs set refreservation="$S" "$ds"
+		return
+	fi
+	local f; f=$(spare_path)
+	# a spare in a snapshotted subvolume would be pinned by every snapshot: deleting it would free nothing
+	ensure_swap_subvol || return 1
+	mkdir -p "$(dirname "$f")"
+	rm -f "$f"
+	: > "$f"
+	chmod 600 "$f"
+	[ "$(fstype "$(dirname "$f")")" = btrfs ] && chattr +C "$f" 2>/dev/null
+	fallocate -l "$S" "$f" 2>/dev/null || { rm -f "$f"; return 1; }
+}
+
+spare_drop() {
+	if [ "$(fstype "$TOP/")" = zfs ]; then
+		zfs set refreservation=none "$(zfs_pool)/ribbon-spare" 2>/dev/null
+	else
+		rm -f "$(spare_path)"
+	fi
+}
+
+# ---- the cap ------------------------------------------------------------------
+
+# What the system holds back from your files right now: the reserve, minus
+# the part already sitting in the spare.
+held() { if spare_present; then echo $((R - S)); else echo "$R"; fi; }
+
+# Bytes your files may still grow by.
+allow() {
+	local f; f=$(( $(free_root "$TOP/") - $(held) ))
+	[ "$f" -lt 0 ] && f=0
+	echo "$f"
+}
+
+# The part that lives on disk (btrfs simple quotas). `install` runs it
+# before the first boot, `apply` again at every boot.
+btrfs_quota() { btrfs quota enable --simple "$TOP/" 2>/dev/null; }
+
+cap_apply() {
+	case "$(fstype "$TOP/")" in
+		btrfs)
+			home_shared || return 0
+			if ! btrfs qgroup show "$TOP/home" >/dev/null 2>&1; then
+				btrfs_quota || {
+					warn "this kernel has no btrfs simple quotas (6.7+); the reserve is the spare file only"
+					return 0
+				}
+			fi
+			cap_update
+			;;
+		zfs) home_shared && cap_update ;;
+		bcachefs) msg "bcachefs has no per-user reservation: the spare file and warnings protect the system" ;;
+	esac
+}
+
+# The moving limits (btrfs, zfs): home may use what it uses now plus
+# what is free beyond the reserve. Updated only when it moves by 256 MiB.
+LAST_LIMIT=0
+cap_update() {
+	local used limit
+	home_shared || return 0
+	case "$(fstype "$TOP/")" in
+		btrfs)
+			used=$(btrfs qgroup show --raw -re "$TOP/home" 2>/dev/null | awk -v id="0/$(btrfs inspect-internal rootid "$TOP/home")" '$1 == id { print $2 }')
+			[ -n "$used" ] || return 0
+			;;
+		zfs) used=$(zfs get -Hp -o value used "$(source_of "$TOP/home")") ;;
+		*) return 0 ;;
+	esac
+	limit=$(( used + $(allow) ))
+	local d=$(( limit - LAST_LIMIT )); [ "$d" -lt 0 ] && d=$(( -d ))
+	[ "$d" -lt $((256 * 1024 * 1024)) ] && return 0
+	case "$(fstype "$TOP/")" in
+		btrfs) btrfs qgroup limit "$limit" "$TOP/home" ;;
+		zfs) zfs set quota="$limit" "$(source_of "$TOP/home")" ;;
+	esac
+	LAST_LIMIT=$limit
+}
+
+# Space left for your files, as the cap sees it.
+user_free() { allow; }
+
+# ---- state for the desktop ------------------------------------------------------
+
+write_state() {
+	local uf sf state=ok spare=present
+	uf=$(user_free); sf=$(free_root "$TOP/")
+	spare_present || spare=released
+	if [ "$spare" = released ] || [ "$uf" -lt "$CRITICAL" ]; then state=critical
+	elif [ "$uf" -lt "$LOW" ]; then state=low; fi
+	mkdir -p "$STATE_DIR"
+	{
+		echo "state=$state"
+		echo "user_free=$uf"
+		echo "system_free=$sf"
+		echo "reserve=$R"
+		echo "spare=$spare"
+		# what cleanup could free on the system side (the desktop can't read these)
+		if [ "$state" != ok ]; then
+			local pc; pc=$(pkg_cache_dir)
+			echo "pkgcache=$([ -n "$pc" ] && size_of "$TOP$pc" || echo 0)"
+			echo "snapshots_old=$(snapshots_old)"
+		fi
+	} > "$STATE.tmp" && mv -f "$STATE.tmp" "$STATE"
+}
+
+snapshots_old() {
+	local n=0
+	case "$(ribbon-snapshot backend 2>/dev/null)" in
+		btrfs) n=$(snapper -c root --csvout --no-headers list --columns number 2>/dev/null | grep -cv '^0$') ;;
+		zfs) n=$(zfs list -H -t snapshot -o name "$(source_of "$TOP/")" 2>/dev/null | grep -c '@ribbon-') ;;
+		bcachefs) n=$(ls -1 /.snapshots 2>/dev/null | wc -l) ;;
+	esac
+	n=$(( n - 3 ))   # cleanup keeps the newest three
+	[ "$n" -lt 0 ] && n=0
+	echo "$n"
+}
+
+# ---- commands ---------------------------------------------------------------------
+
+cmd_apply() {
+	need_root
+	spare_make || warn "could not make the spare file"
+	cap_apply
+	write_state
+}
+
+# For the installers (postinstall, in the new system's chroot): what must be
+# in place before the first boot. The spare and the limits come from `apply`
+# at boot. Sized for the spare being there, as it will be by then.
+cmd_install() {
+	need_root
+	local fs hold=$(( R - S ))
+	fs=$(fstype "$TOP/")
+	case "$fs" in
+		btrfs)
+			if ! home_shared; then msg "btrfs: /home is a separate filesystem; nothing to cap"
+			elif btrfs_quota; then msg "btrfs: simple quotas enabled"
+			else warn "btrfs: simple quotas could not be enabled (kernel 6.7+); the reserve is the spare file only"; return 1; fi ;;
+		*) msg "$fs: nothing to set up before the first boot" ;;
+	esac
+}
+
+cmd_watch() {
+	need_root
+	cmd_apply
+	while :; do
+		local sf; sf=$(free_root "$TOP/")
+		if [ "$sf" -lt "$CRITICAL" ] && spare_present; then
+			spare_drop
+			echo "ribbon-reserve: the disk is nearly full; released the ${RESERVE_SPARE} spare" | logger -t ribbon-reserve 2>/dev/null
+		elif ! spare_present && [ "$sf" -gt $(( S + 4 * GiB )) ]; then
+			spare_make
+		fi
+		cap_update
+		write_state
+		sleep 30
+	done
+}
+
+cmd_status() {
+	local state=ok user_free system_free spare=present
+	if [ "$(id -u)" -ne 0 ] && [ -r "$STATE" ]; then
+		# the spare and the quotas are root's to read: use the watcher's view
+		. "$STATE"
+	else
+		user_free=$(user_free); system_free=$(free_root "$TOP/")
+		spare_present || spare=released
+	fi
+	echo "For your files:  $(human "$user_free") left"
+	echo "For the system:  $(human "$system_free") free, of which $(human "$R") is kept for it alone"
+	if [ "$spare" = present ]; then echo "Spare:           $(human "$S") held for emergencies"
+	else echo "Spare:           released (the disk ran low); it comes back when there is room"; fi
+}
+
+cmd_cleanup_list() {
+	local t="${XDG_DATA_HOME:-$HOME/.local/share}/Trash" c="${XDG_CACHE_HOME:-$HOME/.cache}" n=0 f
+	echo "trash $(size_of "$t")"
+	for f in "$c"/* "$c"/.[!.]*; do
+		[ -e "$f" ] || continue
+		case "${f##*/}" in ribbon|fontconfig) continue ;; esac
+		n=$(( n + $(size_of "$f") ))
+	done
+	echo "cache $n"
+}
+
+cmd_cleanup() {
+	local item
+	for item in "$@"; do
+		case "$item" in
+			trash)
+				local t="${XDG_DATA_HOME:-$HOME/.local/share}/Trash"
+				[ -d "$t" ] && find "$t/files" "$t/info" -mindepth 1 -delete 2>/dev/null
+				;;
+			cache)
+				local c="${XDG_CACHE_HOME:-$HOME/.cache}"
+				[ -d "$c" ] && find "$c" -mindepth 1 -maxdepth 1 ! -name ribbon ! -name fontconfig -exec rm -rf {} + 2>/dev/null
+				;;
+			pkgcache) need_root; pkg_clean_cache >/dev/null ;;
+			snapshots) need_root; ribbon-snapshot prune 3 ;;
+			*) die "unknown cleanup item '$item'" ;;
+		esac
+	done
+	[ "$(id -u)" -eq 0 ] && write_state
+	return 0
+}
+
+cmd=${1:-}
+[ $# -gt 0 ] && shift
+case "$cmd" in
+	status) cmd_status ;;
+	apply) cmd_apply ;;
+	install) cmd_install ;;
+	watch) cmd_watch ;;
+	release) need_root; spare_drop; write_state ;;
+	cleanup) cmd_cleanup "$@" ;;
+	cleanup-list) cmd_cleanup_list ;;
+	""|-h|--help|help) usage ;;
+	*) err "unknown command '$cmd'"; usage >&2; exit 2 ;;
+esac

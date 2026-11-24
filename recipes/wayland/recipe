@@ -1,0 +1,22 @@
+# wayland: the protocol's client and server libraries, wayland-scanner and the core protocol file. Without its
+# documentation, tests and the DTD check (libxml2).
+name=wayland
+kit=org.freedesktop.wayland
+version=1.26.0
+revision=1
+summary="The Wayland protocol libraries and scanner"
+license="MIT"
+source="https://gitlab.freedesktop.org/wayland/wayland/-/releases/1.26.0/downloads/wayland-1.26.0.tar.xz"
+sha256="64176eaa46e4969903e286f8e5ef8331affc17fdf03ac9b58381d2b23162b7a3"
+srcdir="wayland-1.26.0"
+needs="org.gnu.glibc org.sourceware.libffi io.github.libexpat.expat"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python org.sourceware.libffi io.github.libexpat.expat"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --sbindir=bin --sysconfdir=/etc --localstatedir=/var \
+		--buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Dlibraries=true -Dscanner=true -Ddocumentation=false -Dtests=false -Ddtd_validation=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

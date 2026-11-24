@@ -1,0 +1,19 @@
+# libxfixes: the X Fixes extension (cursor images, regions); libxcursor uses it.
+name=libxfixes
+kit=org.x.libxfixes
+version=6.0.2
+revision=1
+summary="The X Fixes extension"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libXfixes-6.0.2.tar.xz"
+sha256="39f115d72d9c5f8111e4684164d3d68cc1fd21f9b27ff2401b08fddfc0f409ba"
+srcdir="libXfixes-6.0.2"
+needs="org.gnu.glibc org.x.libx11"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.x.xorgproto org.x.libx11"
+
+build() {
+	./configure --prefix=/usr --disable-static
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

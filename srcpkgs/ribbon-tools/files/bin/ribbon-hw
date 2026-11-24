@@ -1,0 +1,114 @@
+#!/bin/bash
+# ribbon-hw - detect the machine and apply hardware-specific setup.
+# Run by both installers; safe to re-run any time (sudo ribbon-hw setup).
+#
+#   all machines   power-profiles-daemon (GameMode switches it to performance),
+#                  Thunderbolt authorisation (bolt), firmware updates (fwupd)
+#   laptops        lid/power-key behaviour, battery in panel and conky,
+#                  auto-rotation on convertibles, thermald on Intel,
+#                  NVIDIA runtime power management (dGPU sleeps when idle)
+#   Broadcom Wi-Fi chips that need it: the wl driver (offline-capable)
+set -u
+. "${RIBBON_LIB:-/usr/lib/ribbon}/common.sh"
+
+# Broadcom BCM43xx chips only supported by the proprietary wl driver.
+WL_IDS="14e4:4311 14e4:4312 14e4:4313 14e4:4315 14e4:4328 14e4:4329 14e4:432a 14e4:432b 14e4:432c 14e4:432d 14e4:4353 14e4:4357 14e4:4358 14e4:4359 14e4:4365 14e4:43a0 14e4:43b1"
+
+is_laptop() {
+	# SMBIOS chassis types: 8 portable, 9 laptop, 10 notebook, 11 hand held,
+	# 14 sub notebook, 30 tablet, 31 convertible, 32 detachable
+	local t; t=$(cat /sys/class/dmi/id/chassis_type 2>/dev/null)
+	case "$t" in 8|9|10|11|14|30|31|32) return 0 ;; esac
+	ls /sys/class/power_supply/BAT* >/dev/null 2>&1
+}
+
+is_convertible() {
+	case "$(cat /sys/class/dmi/id/chassis_type 2>/dev/null)" in 30|31|32) return 0 ;; esac
+	return 1
+}
+
+cpu_vendor() {
+	case "$(grep -m1 vendor_id /proc/cpuinfo 2>/dev/null)" in
+		*GenuineIntel*) echo intel ;; *AuthenticAMD*) echo amd ;; *) echo other ;;
+	esac
+}
+
+needs_wl() {
+	local id
+	for id in $WL_IDS; do
+		lspci -n -d "$id" 2>/dev/null | grep -q . && return 0
+	done
+	return 1
+}
+
+# Enable a dinit service only if it exists (a missing one would stop boot).
+enable_svc() {
+	local s
+	mkdir -p /etc/dinit.d/boot.d
+	for s; do
+		if svc_exists "$s"; then
+			ln -sfn "../$s" "/etc/dinit.d/boot.d/$s"
+		else
+			warn "service '$s' not installed; not enabling it"
+		fi
+	done
+}
+
+# Package ids (pkg.sh): online, or from the install media.
+install_pkgs() {
+	pkg_query "$@" && return 0
+	pkg_install "$@"
+}
+
+cmd_detect() {
+	is_laptop && echo "chassis:   laptop$(is_convertible && echo ' (convertible)')" || echo "chassis:   desktop"
+	echo "cpu:       $(cpu_vendor)"
+	for b in /sys/class/power_supply/BAT*; do [ -e "$b" ] && echo "battery:   ${b##*/}"; done
+	needs_wl && echo "wifi:      Broadcom chip needing the wl driver (broadcom-wl)"
+	ribbon-gpu detect | sed 's/^/gpu:       /'
+}
+
+setup_laptop() {
+	mkdir -p /etc/elogind/logind.conf.d
+	cat > /etc/elogind/logind.conf.d/10-ribbon-laptop.conf <<'EOF'
+# Written by ribbon-hw. Docked or on an external monitor: closing the lid
+# does nothing; otherwise it suspends (the screen locks first).
+[Login]
+HandleLidSwitch=suspend
+HandleLidSwitchExternalPower=suspend
+HandleLidSwitchDocked=ignore
+HandlePowerKey=poweroff
+HandleSuspendKey=suspend
+EOF
+	[ "$(cpu_vendor)" = intel ] && { install_pkgs thermald && enable_svc thermald; }
+	is_convertible && enable_svc iio-sensor-proxy
+
+	# NVIDIA dGPU in a laptop: let it power down when idle (Turing and newer).
+	if [ -e /etc/modprobe.d/ribbon-nvidia.conf ] && ! grep -q DynamicPowerManagement /etc/modprobe.d/ribbon-nvidia.conf; then
+		echo 'options nvidia NVreg_DynamicPowerManagement=0x02' >> /etc/modprobe.d/ribbon-nvidia.conf
+	fi
+	mkdir -p /etc/ribbon
+	: > /etc/ribbon/laptop
+	ok "laptop setup done"
+}
+
+cmd_setup() {
+	need_root
+	enable_svc power-profiles-daemon bolt
+	if needs_wl; then
+		msg "Installing the Broadcom wl Wi-Fi driver"
+		install_pkgs broadcom-wl || {
+			warn "the wl driver could not be installed; it will be installed at the first boot with internet"
+			"${RIBBON_PENDING:-/usr/lib/ribbon/pending}" add pkg broadcom-wl
+		}
+	fi
+	if is_laptop; then setup_laptop; else rm -f /etc/ribbon/laptop /etc/elogind/logind.conf.d/10-ribbon-laptop.conf; fi
+	ok "hardware setup done"
+}
+
+case "${1:-}" in
+	detect) cmd_detect ;;
+	setup) cmd_setup ;;
+	is-laptop) is_laptop ;;
+	*) echo "Usage: ribbon-hw detect | setup | is-laptop"; exit 2 ;;
+esac

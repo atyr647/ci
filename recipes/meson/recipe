@@ -1,0 +1,23 @@
+# meson: the build system HarfBuzz builds with (it has no other). Its Python package goes where python3 looks, and
+# meson is a three-line script that runs it (what its setup.py would install; the base set's Python has no pip).
+name=meson
+kit=com.mesonbuild.meson
+version=1.12.0
+revision=1
+summary="The Meson build system"
+license="Apache-2.0"
+source="https://github.com/mesonbuild/meson/releases/download/1.12.0/meson-1.12.0.tar.gz"
+sha256="88afe0c20e52030218924ac37d0c81c59b4b5f3ae3752c8c6d7470c7d365886c"
+srcdir="meson-1.12.0"
+needs="org.python.python io.github.michaelforney.samurai"
+build_needs="org.gnu.bash org.gnu.coreutils org.gnu.findutils org.gnu.sed org.python.python"
+
+stage() {
+	site=$(python3 -c 'import sysconfig; print(sysconfig.get_paths()["purelib"])')
+	mkdir -p "$DESTDIR$site" "$DESTDIR/usr/bin"
+	cp -R mesonbuild "$DESTDIR$site/"
+	find "$DESTDIR$site" -name __pycache__ -prune -exec rm -rf {} +
+	printf '#!/usr/bin/python3\nimport sys\nfrom mesonbuild.mesonmain import main\nsys.exit(main())\n' > "$DESTDIR/usr/bin/meson"
+	chmod 755 "$DESTDIR/usr/bin/meson"
+	install -Dm644 man/meson.1 "$DESTDIR/usr/share/man/man1/meson.1"
+}

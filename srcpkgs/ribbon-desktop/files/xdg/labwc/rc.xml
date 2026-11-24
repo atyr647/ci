@@ -1,0 +1,170 @@
+<?xml version="1.0"?>
+<!--
+  Ribbon OS defaults for labwc. Don't edit this file: labwc runs with
+  merge-config, so put only the settings you want to change in
+  ~/.config/labwc/rc.xml and they override these. `ribbon reset labwc`
+  removes your overrides again.
+-->
+<labwc_config>
+  <core>
+    <decoration>server</decoration>
+    <gap>8</gap>
+    <!-- VRR and low-latency tearing only for fullscreen games -->
+    <adaptiveSync>fullscreen</adaptiveSync>
+    <allowTearing>fullscreen</allowTearing>
+    <!-- HDR is switched by `ribbon hdr on|off` (per user) -->
+    <hdr>no</hdr>
+    <reuseOutputMode>yes</reuseOutputMode>
+  </core>
+
+  <!-- No <margin> here: the Ribbon shell's bars (top) and dock (bottom) are
+       on the main display only, so the shell writes the margin for that
+       output (output="NAME") into its own layer, ~/.local/state/ribbon/
+       xdg-display/labwc/rc.xml (shell/mod-margin.tcl). Margins from every
+       layer add up: one here would apply to every output as well. -->
+
+  <theme>
+    <name>Ribbon</name>
+    <!-- the palettes' icon theme (ICON_THEME): there is no "Ribbon" icon theme -->
+    <icon>Papirus-Dark</icon>
+    <cornerRadius>12</cornerRadius>
+    <!-- maximized windows have no title bar: the Ribbon shell's strip is
+         their title bar (title in the field, controls at its right end) -->
+    <maximizedDecoration>none</maximizedDecoration>
+    <dropShadows>yes</dropShadows>
+    <titlebar>
+      <layout>icon:iconify,max,close</layout>
+      <showTitle>yes</showTitle>
+    </titlebar>
+    <font place="ActiveWindow"><name>Inter SemiBold</name><size>10</size></font>
+    <font place="InactiveWindow"><name>Inter SemiBold</name><size>10</size></font>
+    <font place="MenuItem"><name>Inter</name><size>10</size></font>
+    <font place="OnScreenDisplay"><name>Inter</name><size>10</size></font>
+  </theme>
+
+
+  <snapping>
+    <range inner="12" outer="12" />
+    <overlay enabled="yes" />
+    <topMaximize>yes</topMaximize>
+  </snapping>
+
+  <placement><policy>cascade</policy></placement>
+
+  <focus>
+    <followMouse>no</followMouse>
+    <raiseOnFocus>no</raiseOnFocus>
+  </focus>
+
+  <keyboard>
+    <!-- key repeat (what xfsettingsd's keyboard channel set): after 500 ms, 20 a second -->
+    <repeatDelay>500</repeatDelay>
+    <repeatRate>20</repeatRate>
+    <default />
+    <keybind key="A-Tab"><action name="Execute" command="ribbon-shell-ctl switcher next" /></keybind>
+    <keybind key="A-S-Tab"><action name="Execute" command="ribbon-shell-ctl switcher prev" /></keybind>
+    <keybind key="A-grave"><action name="Execute" command="ribbon-shell-ctl switcher app" /></keybind>
+    <!-- Super opens the field in the left bar (apps, files, web) -->
+    <keybind key="Super_L" onRelease="yes">
+      <action name="Execute" command="ribbon-shell-ctl open" />
+    </keybind>
+    <keybind key="C-A-Left"><action name="GoToDesktop" to="left" wrap="yes" /></keybind>
+    <keybind key="C-A-Right"><action name="GoToDesktop" to="right" wrap="yes" /></keybind>
+    <keybind key="W-t"><action name="Execute" command="ribbon-theme pick" /></keybind>
+    <keybind key="W-Return"><action name="Execute" command="ribbon-terminal" /></keybind>
+    <keybind key="W-e"><action name="Execute" command="ribbon-files" /></keybind>
+    <keybind key="W-r"><action name="Execute" command="ribbon-shell-ctl open app" /></keybind>
+    <keybind key="W-n"><action name="Execute" command="ribbon-shell-ctl notify-history" /></keybind>
+    <!-- Notes' quick capture (Notes-R4-A5-Capture) -->
+    <keybind key="W-S-n"><action name="Execute" command="ribbon-notes --capture" /></keybind>
+    <keybind key="W-l"><action name="Execute" command="ribbon-lock" /></keybind>
+    <keybind key="W-q"><action name="Close" /></keybind>
+    <keybind key="W-f"><action name="ToggleFullscreen" /></keybind>
+    <keybind key="W-c"><action name="Execute" command="ribbon-conky" /></keybind>
+    <keybind key="W-F12"><action name="Execute" command="ribbon-hud cycle" /></keybind>
+    <keybind key="W-Escape"><action name="Execute" command="ribbon-hud quick" /></keybind>
+    <keybind key="W-S-h"><action name="Execute" command="sh -c 'ribbon-hdr status | head -n1 | grep -q &quot;HDR: on&quot; &amp;&amp; ribbon-hdr off || ribbon-hdr on'" /></keybind>
+    <!-- the whole screen, or a part chosen with slurp: Pictures/Screenshots, the clipboard and a notification -->
+    <keybind key="Print"><action name="Execute" command="ribbon-screenshot" /></keybind>
+    <keybind key="S-Print"><action name="Execute" command="ribbon-screenshot region" /></keybind>
+    <!-- volume and brightness: changed by the shell, which shows the level (shell/mod-osd.tcl, boards OSD-1 to 3) -->
+    <keybind key="XF86AudioRaiseVolume"><action name="Execute" command="ribbon-osd volume +5" /></keybind>
+    <keybind key="XF86AudioLowerVolume"><action name="Execute" command="ribbon-osd volume -5" /></keybind>
+    <keybind key="XF86AudioMute"><action name="Execute" command="ribbon-osd volume mute" /></keybind>
+    <keybind key="XF86AudioMicMute"><action name="Execute" command="wpctl set-mute @DEFAULT_AUDIO_SOURCE@ toggle" /></keybind>
+    <!-- media keys: the player that playerctl finds (MPRIS) -->
+    <keybind key="XF86AudioPlay"><action name="Execute" command="playerctl play-pause" /></keybind>
+    <keybind key="XF86AudioPause"><action name="Execute" command="playerctl pause" /></keybind>
+    <keybind key="XF86AudioStop"><action name="Execute" command="playerctl stop" /></keybind>
+    <keybind key="XF86AudioNext"><action name="Execute" command="playerctl next" /></keybind>
+    <keybind key="XF86AudioPrev"><action name="Execute" command="playerctl previous" /></keybind>
+    <keybind key="XF86MonBrightnessUp"><action name="Execute" command="ribbon-osd brightness +5" /></keybind>
+    <keybind key="XF86MonBrightnessDown"><action name="Execute" command="ribbon-osd brightness -5" /></keybind>
+    <keybind key="XF86PowerOff"><action name="Execute" command="ribbon-shell-ctl power-menu" /></keybind>
+    <keybind key="W-1"><action name="GoToDesktop" to="1" /></keybind>
+    <keybind key="W-2"><action name="GoToDesktop" to="2" /></keybind>
+    <keybind key="W-3"><action name="GoToDesktop" to="3" /></keybind>
+    <!-- a terminal's tabs and its strip snap together (ribbon-term-ctl); other windows as usual -->
+    <keybind key="W-Left"><action name="If"><query identifier="ribbon-term-*" /><then><action name="Execute" command="ribbon-term-ctl snap left" /></then><else><action name="SnapToEdge" direction="left" /></else></action></keybind>
+    <keybind key="W-Right"><action name="If"><query identifier="ribbon-term-*" /><then><action name="Execute" command="ribbon-term-ctl snap right" /></then><else><action name="SnapToEdge" direction="right" /></else></action></keybind>
+    <keybind key="W-Up"><action name="If"><query identifier="ribbon-term-*" /><then><action name="Execute" command="ribbon-term-ctl snap max" /></then><else><action name="SnapToEdge" direction="up" /></else></action></keybind>
+    <keybind key="W-Down"><action name="If"><query identifier="ribbon-term-*" /><then><action name="Execute" command="ribbon-term-ctl snap restore" /></then><else><action name="SnapToEdge" direction="down" /></else></action></keybind>
+    <keybind key="W-S-1"><action name="If"><query identifier="ribbon-term-*" /><then><action name="Execute" command="ribbon-term-ctl sendto 1" /></then><else><action name="SendToDesktop" to="1" /></else></action></keybind>
+    <keybind key="W-S-2"><action name="If"><query identifier="ribbon-term-*" /><then><action name="Execute" command="ribbon-term-ctl sendto 2" /></then><else><action name="SendToDesktop" to="2" /></else></action></keybind>
+    <keybind key="W-S-3"><action name="If"><query identifier="ribbon-term-*" /><then><action name="Execute" command="ribbon-term-ctl sendto 3" /></then><else><action name="SendToDesktop" to="3" /></else></action></keybind>
+  </keyboard>
+  <!-- the strip is a terminal's move handle: Alt+drag would move one tab away from it -->
+  <mouse>
+    <default />
+    <context name="Frame">
+      <mousebind button="A-Left" action="Drag"><action name="If"><query identifier="ribbon-term-*" /><then><action name="None" /></then><else><action name="Move" /></else></action></mousebind>
+      <mousebind button="A-Right" action="Drag"><action name="If"><query identifier="ribbon-term-*" /><then><action name="None" /></then><else><action name="Resize" /></else></action></mousebind>
+    </context>
+  </mouse>
+
+  <!-- Ribbon's default: three workspaces, shown as 1 2 3 in the right bar -->
+  <desktops popupTime="500">
+    <initial>1</initial>
+    <names>
+      <name>1</name>
+      <name>2</name>
+      <name>3</name>
+    </names>
+  </desktops>
+
+  <windowRules>
+    <!-- Games and launchers: no gaps/decoration fuss, never steal focus mid-game -->
+    <windowRule identifier="gamescope*" serverDecoration="no" />
+    <windowRule identifier="steam_app_*" serverDecoration="no" />
+    <!-- The Ribbon shell (Tcl/Tk) draws its bars in an unmanaged window;
+         while you type in its field, a 1 x 1 window takes the keyboard.
+         Keep that one out of sight, the task list and Alt-Tab. -->
+    <windowRule identifier="RibbonShellInput" serverDecoration="no">
+      <skipTaskbar>yes</skipTaskbar>
+      <skipWindowSwitcher>yes</skipWindowSwitcher>
+      <fixedPosition>yes</fixedPosition>
+      <action name="ToggleAlwaysOnBottom" />
+    </windowRule>
+    <!-- The Ribbon installer (Tcl/Tk) draws its own rounded window -->
+    <windowRule identifier="RibbonInstaller" serverDecoration="no" />
+    <!-- Ribbon's own apps (Settings, Appearance, Properties, Text editor, System monitor, Notes,
+         Image Viewer) take the compositor's title bar when floating: no rule here -->
+    <!-- Notes' quick capture is a panel, not a window (Notes-R4-A5-Capture): it draws its own frame
+         and close button, places itself in the middle, and stays over the window it was opened from -->
+    <windowRule identifier="RibbonNotesCapture" serverDecoration="no" skipTaskbar="yes" skipWindowSwitcher="yes">
+      <action name="ToggleAlwaysOnTop" />
+    </windowRule>
+    <!-- the Appearance app's background sheet: over the desktop it previews -->
+    <windowRule identifier="RibbonAppearanceSheet" serverDecoration="no" skipTaskbar="yes" skipWindowSwitcher="yes" fixedPosition="yes">
+      <action name="ToggleAlwaysOnTop" />
+    </windowRule>
+  </windowRules>
+
+  <libinput>
+    <device category="touchpad">
+      <tap>yes</tap>
+      <naturalScroll>yes</naturalScroll>
+      <disableWhileTyping>yes</disableWhileTyping>
+    </device>
+  </libinput>
+</labwc_config>

@@ -1,0 +1,76 @@
+#!/bin/sh
+# kitseal -- sign kits, or re-sign them, in place; check kits against the trusted key list
+# (docs/KIT-TRUST.md).  A packager and CI tool; it is not a verb of `kit`.
+# The next line restarts with tclsh \
+exec tclsh "$0" "$@"
+#
+#   kitseal -key SECKEY [-keys LIST [-state DIR]] [-comment TEXT] [-now WHEN] KIT...
+#         sign each kit's seal with this key: the statement stays, the signature is replaced in
+#         the same 4 KiB block, so the store never moves (KIT-FORMAT.md section 7.1).  With -keys,
+#         a key that may not sign the kit (role, expiry, revocation) is refused before anything is
+#         written.  Used after `kitpack` without -sign, and to move kits to a rotated key.
+#   kitseal -check -keys LIST [-state DIR] [-mode install|installed] [-now WHEN] [-mk4tcl DIR] KIT...
+#         the seal's signature through the key list; with Mk4tcl also the root and every chunk
+#         (kitfmt open + verify).  Without Mk4tcl only the seal is checked, and it says so.
+#
+# Exit codes: 0 done, 1 an error, 2 bad usage, 4 a check failed.
+
+set here [file dirname [file normalize [info script]]]
+source [file join $here kittrust.tcl]
+source [file join $here cli.tcl]
+namespace import ::kittrust::cli::*
+
+set u {kitseal -key SECKEY [-keys LIST] [-comment TEXT] KIT...  |  kitseal -check -keys LIST [-state DIR] [-mode M] [-mk4tcl DIR] KIT...}
+lassign [getopts {-key one -keys one -state one -comment one -now one -check flag -mode one -mk4tcl one} $argv $u] o pos
+if {![llength $pos]} { die 2 "usage: $u" }
+now $o
+if {[dict get $o -mode] ne ""} { guard { ::kittrust configure -mode [dict get $o -mode] } }
+if {[dict get $o -keys] ne ""} {
+    guard { ::kittrust load -anchor [dict get $o -keys] -state [dict get $o -state] }
+}
+
+# a policy check of a new signature before it is written ("" = fine)
+proc accept {stmt sig} {
+    set c [::kittrust check $stmt $sig]
+    if {[dict get $c state] eq "valid"} { return "" }
+    return [dict get $c detail]
+}
+
+if {![dict get $o -check]} {
+    if {[dict get $o -key] eq ""} { die 2 "usage: $u" }
+    if {[dict get $o -keys] eq ""} { warn "no -keys: whether this key may sign these kits is not checked" }
+    set failed 0
+    foreach kit $pos {
+        if {[catch {
+            set sig [::kittrust reseal $kit [dict get $o -key] [dict get $o -comment] \
+                [expr {[dict get $o -keys] ne "" ? "accept" : ""}]]
+            set fr [::kitfmt::Frame $kit]
+            set st [dict get $fr st]
+            say "$kit: [dict get $st kind] [dict get $st name] [dict get $st version] signed by [::kittrust::SigKeyId $sig]"
+        } err]} { puts stderr "kitseal: $err" ; set failed 1 }
+    }
+    exit [expr {$failed ? 4 : 0}]
+}
+
+if {[dict get $o -keys] eq ""} { die 2 "-check needs -keys LIST" }
+set full [mk4 [dict get $o -mk4tcl] 0]
+if {$full} { trustKitfmt }
+set failed 0
+foreach kit $pos {
+    if {[catch {
+        set fr [::kitfmt::Frame $kit]
+        set st [dict get $fr st]
+        set c [::kittrust check [dict get $fr statement] [dict get $fr signature]]
+        if {[dict get $c state] ne "valid"} { error "signature [dict get $c state]: [dict get $c detail]" }
+        set what "seal only (no Mk4tcl: the content was not checked)"
+        if {$full} {
+            set h [::kitfmt open $kit -signed 1]
+            set v [::kitfmt verify $h]
+            ::kitfmt close $h
+            if {![dict get $v ok]} { error "content: [join [lmap b [dict get $v bad] { join $b { } }] {; }]" }
+            set what "root and every chunk ok"
+        }
+        say "ok    $kit: [dict get $st kind] [dict get $st name] [dict get $st version], [dict get $c detail]; $what"
+    } err]} { say "FAIL  $kit: $err" ; set failed 1 }
+}
+exit [expr {$failed ? 4 : 0}]

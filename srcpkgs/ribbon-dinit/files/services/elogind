@@ -1,0 +1,7 @@
+# Seats, sessions, power keys, suspend. Must start after dbus.
+type = process
+command = /usr/libexec/elogind/elogind.wrapper
+smooth-recovery = true
+logfile = /var/log/dinit/elogind.log
+depends-on: system
+depends-on: dbus

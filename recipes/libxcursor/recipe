@@ -1,0 +1,19 @@
+# libxcursor: loads cursor themes for X; tkdnd draws its drag cursors with it.
+name=libxcursor
+kit=org.x.libxcursor
+version=1.2.3
+revision=1
+summary="X cursor themes"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libXcursor-1.2.3.tar.xz"
+sha256="fde9402dd4cfe79da71e2d96bb980afc5e6ff4f8a7d74c159e1966afb2b2c2c0"
+srcdir="libXcursor-1.2.3"
+needs="org.gnu.glibc org.x.libx11 org.x.libxrender org.x.libxfixes"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.x.xorgproto org.x.libx11 org.x.libxrender org.x.libxfixes"
+
+build() {
+	./configure --prefix=/usr --disable-static
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

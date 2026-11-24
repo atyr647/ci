@@ -1,0 +1,6 @@
+# compose.fixture - the Compose table native/test/run.sh gives ribbon-polkit-keys (XCOMPOSEFILE), so the dead-key
+# check does not depend on the machine's locale tables. The last line is in no real table: getting a snowman
+# proves this file is the one in use.
+<dead_acute> <e>		: "é"	eacute
+<dead_grave> <a>		: "à"	agrave
+<dead_diaeresis> <q>	: "☃"	U2603

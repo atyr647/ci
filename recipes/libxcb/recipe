@@ -1,0 +1,20 @@
+# libxcb: the X protocol's C binding, and its extensions' libraries. Without libXdmcp (XDMCP's authorisation, for
+# logging in to a remote display manager, which Ribbon does not do).
+name=libxcb
+kit=org.x.libxcb
+version=1.17.0
+revision=1
+summary="The X protocol C binding"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libxcb-1.17.0.tar.xz"
+sha256="599ebf9996710fea71622e6e184f3a8ad5b43d0e5fa8c4e407123c88a59a6d55"
+srcdir="libxcb-1.17.0"
+needs="org.gnu.glibc org.x.libxau"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.python.python org.x.xcb-proto org.x.xorgproto org.x.libxau"
+
+build() {
+	./configure --prefix=/usr --disable-static --docdir=/usr/share/doc/libxcb --without-doxygen --disable-devel-docs
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

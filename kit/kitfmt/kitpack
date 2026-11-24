@@ -1,0 +1,437 @@
+#!/bin/sh
+# kitpack -- write a Ribbon kit (docs/KIT-FORMAT.md, format 1.0): the reference writer, and what
+# `kit pack DIR` runs (docs/KIT-CLI.md).
+# The next line restarts with tclsh \
+exec tclsh "$0" "$@"
+#
+#   kitpack ?options? srcdir ?out.kit?          (default out.kit: <name>-<version>.kit here)
+#
+#   -manifest file   the manifest (required): a Tcl list of key value pairs, see below
+#   -image file      embed this erofs/squashfs image (a system kit's payload), 4 KiB aligned
+#   -fs erofs|squashfs   the image's filesystem (default: read from its superblock)
+#   -verity auto|yes|no  dm-verity root of the image with veritysetup (default auto: when installed)
+#   -salt hex        the verity salt (default: derived from the kit's name and version)
+#   -header file     bytes to put in front of the kit (a starkit header: a script or a runtime)
+#   -sign seckey     sign the seal with minisign and this secret key (an unencrypted key, minisign -G -W)
+#   -chunk bytes     chunk size, a power of two from 4096 to 1048576 (default 131072)
+#   -level n         deflate level, 1-12 (default 12; above 9 needs libdeflate: kithelper or libdeflate-gzip)
+#   -deflate auto|helper|tool|tcl   who writes the deflate chunks (auto: the first that can do -level)
+#   -classic glob    store matching files (path inside the kit) in the classic mk4vfs form; repeatable
+#   -raw glob        store matching files uncompressed; repeatable
+#   -date seconds    the date of every entry (default: $SOURCE_DATE_EPOCH, else each file's mtime)
+#   -mk4tcl dir      a directory to add to auto_path to find Mk4tcl
+#   -q               quiet
+#
+# Test only (tests/mkgolden.tcl makes the damaged golden kits with these; never use them otherwise):
+#   -x-format major.minor   write this format marker and statement
+#   -x-requires list        write these feature names into the marker
+#   -x-rename old=new       store the entry `old` (a path in srcdir) under the name `new`
+#
+# The manifest file:
+#   name org.example.hello  version 1.0.0  kind app  summary {Hello}  license MIT
+#   needs    {{org.ribbon.runtime.tcl >=8.6}}
+#   provides {{hello-api 1}}
+#   perms    {network no  home none  display wayland}
+#   entries  {{hello bin/hello {} app}}            ;# name path args type
+#   effects  {{desktop share/applications/hello.desktop}}
+#   data 3                                          ;# optional: the version of the app's data format
+# Every other key becomes a manifest field.  The file is read as data, never evaluated.
+
+set here [file dirname [file normalize [info script]]]
+# names in a kit are UTF-8, and so are file names on Linux by convention, whatever the locale says
+if {$tcl_platform(platform) eq "unix"} { encoding system utf-8 }
+
+proc usage {{msg ""}} {
+    if {$msg ne ""} { puts stderr "kitpack: $msg" }
+    puts stderr "usage: kitpack ?options? srcdir ?out.kit?   (see the comment at the top of kitpack)"
+    exit 2
+}
+
+array set opt {-manifest "" -image "" -fs "" -verity auto -salt "" -header "" -sign "" -chunk 131072
+               -level 12 -deflate auto -classic {} -raw {} -date "" -mk4tcl "" -q 0
+               -x-format 1.0 -x-requires "" -x-rename ""}
+set args {}
+for {set i 0} {$i < [llength $argv]} {incr i} {
+    set a [lindex $argv $i]
+    if {$a eq "-q"} { set opt(-q) 1 ; continue }
+    if {[string index $a 0] eq "-" && [info exists opt($a)]} {
+        incr i
+        if {$i >= [llength $argv]} { usage "$a needs a value" }
+        if {$a eq "-classic" || $a eq "-raw"} { lappend opt($a) [lindex $argv $i] } else { set opt($a) [lindex $argv $i] }
+        continue
+    }
+    if {[string index $a 0] eq "-"} { usage "unknown option $a" }
+    lappend args $a
+}
+if {[llength $args] < 1 || [llength $args] > 2} { usage }
+lassign $args srcdir out
+if {$opt(-manifest) eq ""} { usage "-manifest is required" }
+if {$opt(-mk4tcl) ne ""} { lappend auto_path $opt(-mk4tcl) }
+if {[info exists env(KITFMT_MK4TCL)]} { lappend auto_path $env(KITFMT_MK4TCL) }
+package require Mk4tcl
+source [file join $here kitfmt.tcl]
+
+proc say {msg} { if {!$::opt(-q)} { puts $msg } }
+proc die {msg} { puts stderr "kitpack: $msg" ; exit 1 }
+proc slurp {path} { set ch [open $path rb] ; set d [read $ch] ; close $ch ; return $d }
+
+set CH $opt(-chunk)
+if {![string is integer -strict $CH] || $CH < 4096 || $CH > 1048576 || ($CH & ($CH - 1))} { die "-chunk must be a power of two from 4096 to 1048576" }
+set LEVEL $opt(-level)
+if {![string is integer -strict $LEVEL] || $LEVEL < 1 || $LEVEL > 12} { die "-level must be 1 to 12" }
+if {$opt(-date) eq "" && [info exists env(SOURCE_DATE_EPOCH)]} { set opt(-date) $env(SOURCE_DATE_EPOCH) }
+
+# ---- the manifest ------------------------------------------------------------------------
+set mtext [slurp $opt(-manifest)]
+if {[catch {llength $mtext} n] || $n % 2} { die "the manifest is not a list of key value pairs" }
+set fields {} ; array set mlists {needs {} provides {} perms {} entries {} effects {}}
+foreach {k v} $mtext {
+    if {[info exists mlists($k)]} { set mlists($k) $v } else { lappend fields $k $v }
+}
+set M [dict create]
+foreach {k v} $fields { dict set M $k $v }
+foreach k {name version kind} { if {![dict exists $M $k]} { die "the manifest has no $k" } }
+if {[dict exists $M data] && ![regexp {^(0|[1-9][0-9]{0,8})$} [dict get $M data]]} { die "data must be a whole number: 0, or no leading zero, at most 9 digits" }
+if {$out eq ""} { set out [dict get $M name]-[dict get $M version].kit }
+if {[llength $mlists(perms)] % 2} { die "perms must be name value pairs" }
+set widths {needs 2 provides 2 entries 4 effects 2}
+foreach {k w} $widths { foreach r $mlists($k) { if {[llength $r] != $w} { die "every $k row has $w fields: $r" } } }
+
+# ---- deflate ---------------------------------------------------------------------------
+set deflater ""
+set helperZ ""
+proc pickDeflater {} {
+    global opt LEVEL deflater helperZ
+    set want $opt(-deflate)
+    if {$want eq "auto" || $want eq "helper"} {
+        set exe [::kitfmt::HelperPath]
+        if {$exe ne "" && ![catch {exec $exe version} v] && [string match "* zlib*" $v]} {
+            set helperZ [open |[list $exe zlib $LEVEL] r+]
+            fconfigure $helperZ -translation binary -buffering full
+            set deflater helper ; return
+        }
+        if {$want eq "helper"} { die "-deflate helper: no kithelper with zlib support (build helper/ with libdeflate)" }
+    }
+    if {$want eq "auto" || $want eq "tool"} {
+        if {[auto_execok libdeflate-gzip] ne ""} { set deflater tool ; return }
+        if {$want eq "tool"} { die "-deflate tool: libdeflate-gzip is not installed" }
+    }
+    if {$LEVEL > 9} {
+        if {$want eq "tcl"} { die "Tcl's zlib stops at level 9: use -level 9 with -deflate tcl" }
+        puts stderr "kitpack: no libdeflate here (no kithelper with zlib, no libdeflate-gzip): writing level 9 with Tcl's zlib"
+        set LEVEL 9
+    }
+    set deflater tcl
+}
+
+# one complete zlib stream (RFC 1950) of $data
+proc zcompress {data} {
+    global deflater helperZ LEVEL
+    switch -- $deflater {
+        helper {
+            puts -nonewline $helperZ [binary format I [string length $data]]
+            puts -nonewline $helperZ $data
+            flush $helperZ
+            binary scan [read $helperZ 4] I n
+            return [read $helperZ [expr {$n & 0xffffffff}]]
+        }
+        tool {
+            # libdeflate-gzip writes gzip (RFC 1952): take its deflate data and wrap it as zlib
+            set tmp [::kitfmt::TempDir]
+            set f [file join $tmp c]
+            set ch [open $f {WRONLY CREAT EXCL}] ; fconfigure $ch -translation binary ; puts -nonewline $ch $data ; close $ch
+            set p [open |[list libdeflate-gzip -$LEVEL -c -- $f] rb]
+            set gz [read $p] ; close $p
+            file delete -force $tmp
+            binary scan $gz cucucucu id1 id2 cm flg
+            if {$id1 != 0x1f || $id2 != 0x8b || $cm != 8} { die "libdeflate-gzip wrote something that is not gzip" }
+            set pos 10
+            if {$flg & 4} { binary scan $gz @${pos}su xl ; incr pos [expr {2 + $xl}] }
+            if {$flg & 8} { set pos [expr {[string first \x00 $gz $pos] + 1}] }
+            if {$flg & 16} { set pos [expr {[string first \x00 $gz $pos] + 1}] }
+            if {$flg & 2} { incr pos 2 }
+            set raw [string range $gz $pos end-8]
+            return "\x78\xda$raw[binary format I [zlib adler32 $data]]"
+        }
+        tcl { return [zlib compress $data $LEVEL] }
+    }
+}
+
+# ---- the source tree --------------------------------------------------------------------
+if {![file isdirectory $srcdir]} { die "$srcdir is not a directory" }
+set srcdir [file normalize $srcdir]
+proc matchAny {globs path} { foreach g $globs { if {[string match $g $path]} { return 1 } } ; return 0 }
+proc entryDate {path} {
+    global opt
+    if {$opt(-date) ne ""} { return $opt(-date) }
+    file lstat $path s ; return $s(mtime)
+}
+# depth-first, names sorted by their UTF-8 bytes: the directory rows come out in a fixed order
+set DIRS {} ;# {relpath parentIndex mode}
+set FILES {} ;# {dirIndex name relpath type mode date ...}
+proc scanDir {abs rel parent} {
+    global DIRS FILES
+    set names {}
+    foreach n [glob -nocomplain -tails -directory $abs * .*] {
+        if {$n ne "." && $n ne ".."} { lappend names [encoding convertto utf-8 $n] }
+    }
+    set subdirs {}
+    foreach nb [lsort $names] {
+        set n [encoding convertfrom utf-8 $nb]
+        set p $abs/$n
+        set r [expr {$rel eq "" ? $n : "$rel/$n"}]
+        set xr [split $::opt(-x-rename) =]
+        if {[llength $xr] == 2 && [lindex $xr 0] eq $r} { set n [lindex $xr 1] }
+        file lstat $p s
+        switch -- $s(type) {
+            directory { lappend subdirs $n $p $r [expr {$s(mode) & 0x1ff}] }
+            file { lappend FILES [list $parent $n $r file [expr {$s(mode) & 0x1ff}] [entryDate $p] $p] }
+            link { lappend FILES [list $parent $n $r link 511 [entryDate $p] [file readlink $p]] }
+            default { puts stderr "kitpack: skipping $r ($s(type))" }
+        }
+    }
+    foreach {n p r m} $subdirs {
+        lappend DIRS [list $n $parent $m]
+        scanDir $p $r [llength $DIRS]
+    }
+}
+file stat $srcdir rs
+set ROOTMODE [expr {$rs(mode) & 0x1ff}]
+scanDir $srcdir "" 0
+
+# compress everything once (the store may be written more than once, to align the image)
+pickDeflater
+set CODED {} ;# per FILES entry: {codec csize chunks hashes contents hash}
+set plainTotal 0 ; set storedTotal 0
+foreach f $FILES {
+    lassign $f parent name rel type mode date src
+    if {$type eq "link"} { lappend CODED {} ; continue }
+    set data [slurp $src]
+    set n [string length $data]
+    incr plainTotal $n
+    if {[matchAny $opt(-classic) $rel]} {
+        if {$n > 16777216} { die "$rel: a classic file is limited to 16 MiB" }
+        set z [zlib compress $data 9]
+        if {[string length $z] >= $n} { set z $data }
+        lappend CODED [list classic 0 {} {} $z [::kitfmt::Hash $z]]
+        incr storedTotal [string length $z]
+        continue
+    }
+    set chunks {}
+    for {set off 0} {$off < $n} {incr off $CH} { lappend chunks [string range $data $off [expr {$off + $CH - 1}]] }
+    set codec deflate
+    if {[matchAny $opt(-raw) $rel] || $n == 0} {
+        set codec raw
+    } else {
+        set zs {}
+        set zt 0
+        foreach c $chunks { set z [zcompress $c] ; lappend zs $z ; incr zt [string length $z] }
+        # incompressible: not worth inflating on every read
+        if {$zt >= $n * 0.97} { set codec raw } else { set chunks $zs }
+    }
+    set hs [::kitfmt::HashMany $chunks]
+    foreach c $chunks { incr storedTotal [string length $c] }
+    lappend CODED [list $codec $CH $chunks $hs "" ""]
+}
+if {$helperZ ne ""} { catch {close $helperZ} }
+
+# ---- the image -----------------------------------------------------------------------------
+set IMG ""
+if {$opt(-image) ne ""} {
+    set IMG [slurp $opt(-image)]
+    set fs $opt(-fs)
+    if {$fs eq ""} {
+        binary scan [string range $IMG 1024 1027] iu erofsMagic
+        binary scan [string range $IMG 0 3] a4 sqMagic
+        if {[info exists erofsMagic] && $erofsMagic == 0xE0F5E1E2} { set fs erofs } elseif {$sqMagic eq "hsqs"} { set fs squashfs } else { die "-image: neither erofs nor squashfs (give -fs)" }
+    }
+    if {[lsearch -exact {erofs squashfs} $fs] < 0} { die "-fs must be erofs or squashfs" }
+    set ilen [string length $IMG]
+    if {$ilen % 4096} {
+        # dm-verity works on 4 KiB blocks: pad the image (both filesystems ignore what follows them)
+        append IMG [string repeat \x00 [expr {4096 - $ilen % 4096}]]
+        set ilen [string length $IMG]
+    }
+    set SEG 1048576
+    set segs {}
+    for {set off 0} {$off < $ilen} {incr off $SEG} { lappend segs [string range $IMG $off [expr {$off + $SEG - 1}]] }
+    set SEGH [::kitfmt::HashMany $segs]
+    unset segs
+    set salt $opt(-salt)
+    if {$salt eq ""} { set salt [::kitfmt::Hash "kitpack verity salt\n[dict get $M name]\n[dict get $M version]\n"] }
+    if {![regexp {^([0-9a-f]{2}){1,128}$} $salt]} { die "-salt must be hex" }
+    set VERITY ""
+    if {$opt(-verity) ne "no"} {
+        set vs [auto_execok veritysetup]
+        if {$vs eq ""} {
+            if {$opt(-verity) eq "yes"} { die "-verity yes: veritysetup is not installed" }
+            puts stderr "kitpack: veritysetup is not installed: the image gets no verity root"
+            set salt ""
+        } else {
+            set tmp [::kitfmt::TempDir]
+            set ch [open $tmp/img {WRONLY CREAT EXCL}] ; fconfigure $ch -translation binary ; puts -nonewline $ch $IMG ; close $ch
+            set res [exec {*}$vs format --no-superblock --hash=sha256 --data-block-size=4096 --hash-block-size=4096 --format=1 --salt=$salt $tmp/img $tmp/tree]
+            file delete -force $tmp
+            if {![regexp -line {^Root hash:\s+([0-9a-f]{64})\s*$} $res -> VERITY]} { die "veritysetup gave no root hash:\n$res" }
+        }
+    } else { set salt "" }
+    # where the pad starts the writer leaves a locator, to find the memo in the file it wrote
+    set LOCATOR [binary format H32 [string range [::kitfmt::Hash "kitpack locator\n[join $SEGH ,]\n"] 0 31]]
+}
+
+# ---- writing the store ------------------------------------------------------------------------
+set HEADER [expr {$opt(-header) eq "" ? "" : [slurp $opt(-header)]}]
+set SEALSIZE 4096
+
+proc writeStore {path pad} {
+    global M mlists DIRS FILES CODED ROOTMODE IMG fs ilen SEG SEGH VERITY salt LOCATOR here
+    file delete -force $path
+    mk::file open w $path
+    mk::view layout w.kit {format:S major:I minor:I requires:S writer:S}
+    mk::view layout w.manifest {key:S value:S}
+    mk::view layout w.needs {name:S range:S}
+    mk::view layout w.provides {name:S version:S}
+    mk::view layout w.perms {name:S value:S}
+    mk::view layout w.entries {name:S path:S args:S type:S}
+    mk::view layout w.effects {type:S value:S}
+    mk::view layout w.dirs {name:S parent:I mode:I {files {name:S size:I date:I contents:B mode:I link:S fsize:L codec:S csize:I hash:S {chunks {z:B hash:S}}}}}
+    mk::view layout w.image {fs:S len:L pad:I seg:I verity:S salt:S {segs {hash:S}} data:B}
+    lassign [split $::opt(-x-format) .] major minor
+    mk::row append w.kit format ribbon-kit major $major minor $minor requires $::opt(-x-requires) writer "kitpack $::kitfmt::version"
+    dict for {k v} $M { mk::row append w.manifest key $k value $v }
+    foreach r $mlists(needs) { mk::row append w.needs name [lindex $r 0] range [lindex $r 1] }
+    foreach r $mlists(provides) { mk::row append w.provides name [lindex $r 0] version [lindex $r 1] }
+    foreach {k v} $mlists(perms) { mk::row append w.perms name $k value $v }
+    foreach r $mlists(entries) { mk::row append w.entries name [lindex $r 0] path [lindex $r 1] args [lindex $r 2] type [lindex $r 3] }
+    foreach r $mlists(effects) { mk::row append w.effects type [lindex $r 0] value [lindex $r 1] }
+    mk::row append w.dirs name <root> parent -1 mode $ROOTMODE
+    foreach d $DIRS { mk::row append w.dirs name [lindex $d 0] parent [lindex $d 1] mode [lindex $d 2] }
+    set pending 0
+    foreach f $FILES c $CODED {
+        lassign $f parent name rel type mode date src
+        if {$type eq "link"} {
+            mk::row append w.dirs!$parent.files name $name size 0 date $date mode $mode link $src fsize 0 codec "" csize 0 hash ""
+            continue
+        }
+        lassign $c codec csize chunks hashes contents hash
+        set n [file size $src]
+        set row [mk::row append w.dirs!$parent.files name $name size [expr {$n > 0x7fffffff ? -1 : $n}] date $date \
+            mode $mode link "" fsize $n codec $codec csize $csize hash $hash]
+        if {$codec eq "classic"} {
+            mk::set $row contents $contents
+            incr pending [string length $contents]
+        } else {
+            foreach z $chunks hx $hashes {
+                mk::row append $row.chunks z $z hash $hx
+                incr pending [string length $z]
+                # values stay inline in their column until a commit, and a column holds at most 2 GiB
+                if {$pending > 268435456} { mk::file commit w ; set pending 0 }
+            }
+        }
+    }
+    if {$IMG ne ""} {
+        mk::file commit w
+        set padding [string range "$LOCATOR[string repeat \x00 $pad]" 0 [expr {$pad - 1}]]
+        set r [mk::row append w.image fs $fs len $ilen pad $pad seg $SEG verity $VERITY salt $salt]
+        foreach hx $SEGH { mk::row append $r.segs hash $hx }
+        mk::set $r data "$padding$IMG"
+    }
+    mk::file commit w
+    mk::file close w
+}
+
+# the offset of $needle in a file, searched in 1 MiB steps; -1 if absent
+proc findInFile {path needle {from 0}} {
+    set ch [open $path rb]
+    seek $ch $from
+    set pos $from ; set carry ""
+    set k [string length $needle]
+    while {1} {
+        set blk [read $ch 1048576]
+        if {$blk eq ""} { close $ch ; return -1 }
+        set hay $carry$blk
+        set at [string first $needle $hay]
+        if {$at >= 0} { close $ch ; return [expr {$pos - [string length $carry] + $at}] }
+        set carry [string range $hay end-[expr {$k - 2}] end]
+        incr pos [string length $blk]
+    }
+}
+
+file mkdir [file dirname [file normalize $out]]
+set store [file normalize $out].store.tmp
+set IMGOFF ""
+if {$IMG eq ""} {
+    writeStore $store 0
+} else {
+    # The allocator decides where the memo goes, the writer only chooses its pad: write, find the memo,
+    # adjust the pad so the image (after the pad) lands on a 4096 boundary of the final file, and repeat.
+    set pad 16
+    for {set try 1} {$try <= 8} {incr try} {
+        writeStore $store $pad
+        set at -1
+        while {1} {
+            set at [findInFile $store $LOCATOR [expr {$at + 1}]]
+            if {$at < 0} { die "could not find the image memo in the store just written" }
+            set ch [open $store rb] ; seek $ch [expr {$at + $pad}] ; set probe [read $ch 4096] ; close $ch
+            if {$probe eq [string range $IMG 0 4095]} break
+        }
+        set off [expr {[string length $HEADER] + $SEALSIZE + $at + $pad}]
+        if {$off % 4096 == 0} { set IMGOFF $off ; break }
+        set pad [expr {16 + (($pad - 16) + 4096 - $off % 4096) % 4096}]
+    }
+    if {$IMGOFF eq ""} { die "the image did not settle on a 4096 boundary in 8 tries" }
+    say "image at offset $IMGOFF (pad $pad, $try tries)"
+}
+
+# ---- the root, the statement, the signature, the seal ----------------------------------------------
+mk::file open r $store -readonly
+set ::kitfmt::H(r,path) $store
+set XTEST [expr {$opt(-x-format) ne "1.0" || $opt(-x-requires) ne "" || $opt(-x-rename) ne ""}]
+if {$XTEST} {
+    set ::kitfmt::formatMajor [lindex [split $opt(-x-format) .] 0]
+    foreach f $opt(-x-requires) { lappend ::kitfmt::knownFeatures $f }
+}
+if {[catch {::kitfmt::Load r} err]} {
+    if {!$XTEST} { mk::file close r ; die "the store just written is not a valid kit: $err" }
+    set ::kitfmt::H(r,root) [string repeat 0 64]
+}
+set ROOT $::kitfmt::H(r,root)
+mk::file close r
+array unset ::kitfmt::H r,*
+
+set stmt "ribbon-kit-seal 1\nformat $opt(-x-format)\nkind [dict get $M kind]\nname [dict get $M name]\nversion [dict get $M version]\n"
+append stmt "root $ROOT\nheader [string length $HEADER] [::kitfmt::Hash $HEADER]\n"
+if {$IMG ne ""} {
+    append stmt "image $fs $IMGOFF $ilen [expr {$VERITY eq "" ? "-" : $VERITY}] [expr {$salt eq "" ? "-" : $salt}]\n"
+}
+set SIG ""
+if {$opt(-sign) ne ""} {
+    if {[auto_execok minisign] eq ""} { die "-sign needs minisign" }
+    set tmp [::kitfmt::TempDir]
+    set ch [open $tmp/stmt {WRONLY CREAT EXCL}] ; fconfigure $ch -translation binary ; puts -nonewline $ch $stmt ; close $ch
+    if {[catch {exec minisign -S -s $opt(-sign) -m $tmp/stmt -x $tmp/sig -c "ribbon kit seal" -t "[dict get $M name] [dict get $M version]" < /dev/null} err]} {
+        file delete -force $tmp ; die "minisign failed: $err"
+    }
+    set SIG [slurp $tmp/sig]
+    file delete -force $tmp
+}
+set body $stmt$SIG
+if {[string length $body] + 32 > $SEALSIZE} { die "the statement and signature do not fit the seal" }
+set seal $body[string repeat \x00 [expr {$SEALSIZE - 32 - [string length $body]}]]
+append seal KITSEAL\x1a [binary format IIIIII 1 $SEALSIZE [string length $stmt] [string length $SIG] [zlib crc32 $body] 0]
+
+set tmpout [file normalize $out].tmp
+set o [open $tmpout {WRONLY CREAT TRUNC}]
+fconfigure $o -translation binary
+puts -nonewline $o $HEADER$seal
+set in [open $store rb]
+fcopy $in $o
+close $in
+close $o
+file delete $store
+if {$opt(-header) ne "" && $::tcl_platform(platform) eq "unix"} { file attributes $tmpout -permissions 493 }
+file rename -force $tmpout $out
+
+say [format "%s: %s %s %s, %d entries, %d -> %d bytes stored (%s deflate, level %d, chunks %d), root %s%s" \
+    $out [dict get $M kind] [dict get $M name] [dict get $M version] [expr {[llength $FILES] + [llength $DIRS]}] \
+    $plainTotal $storedTotal $deflater $LEVEL $CH [string range $ROOT 0 15] [expr {$SIG eq "" ? ", unsigned" : ", signed"}]]

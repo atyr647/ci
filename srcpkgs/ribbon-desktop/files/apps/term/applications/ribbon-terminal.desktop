@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Terminal
+GenericName=Terminal Emulator
+Comment=Run commands, with tabs
+Exec=ribbon-terminal
+Icon=utilities-terminal
+Terminal=false
+Categories=System;TerminalEmulator;Utility;Core;
+StartupWMClass=ribbon-terminal
+Keywords=shell;prompt;command;console;tabs;

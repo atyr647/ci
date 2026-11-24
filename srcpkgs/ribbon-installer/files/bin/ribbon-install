@@ -1,0 +1,915 @@
+#!/bin/bash
+# ribbon-install - guided/scriptable installer for every filesystem Ribbon
+# supports for / (all three have snapshots), and the engine behind the
+# Tcl/Tk installer:
+#
+#   btrfs     (default) bootable snapshots, LUKS2 (Argon2id) encryption
+#   zfs       boot environments via ZFSBootMenu, native ZFS encryption
+#   bcachefs  experimental: native encryption, snapshots
+#
+# Existing ext4, XFS and F2FS partitions can still be mounted (manual
+# partitioning, --games-drive), never as /.
+#
+# Boot loader: Limine (default; also boots legacy BIOS machines) or GRUB
+# (finds other systems itself); ZFS always uses ZFSBootMenu.
+#
+# It copies the live system and then runs the shared post-install steps
+# (/usr/lib/ribbon/postinstall). The Tcl/Tk installer runs it as
+#   ribbon-install --answers FILE --secrets-stdin --progress
+# (docs/INSTALLER-PROTOCOL.md; the Tcl half is /usr/lib/ribbon/installer-backend).
+#
+# Example:
+#   sudo ribbon-install --disk /dev/nvme0n1 --fs zfs --encrypt --user alex \
+#        --swap zram --gpu auto --games-drive /dev/sda1:library
+set -Eeuo pipefail
+
+BIN_DIR=$(cd "$(dirname "$0")" && pwd)
+BACKEND=${RIBBON_INSTALLER_BACKEND:-/usr/lib/ribbon/installer-backend}
+[ -e "$BIN_DIR/../backend/run.tcl" ] && BACKEND=$(cd "$BIN_DIR/../backend" && pwd)
+PROBE=$BIN_DIR/ribbon-install-probe
+SELF=$BIN_DIR/$(basename "$0")
+TCLSH=tclsh
+# The package manager's seam (pkg.sh): ribbon-tools' copy, or the one beside
+# this script in the source tree.
+PKG_SH=${RIBBON_LIB:-/usr/lib/ribbon}/pkg.sh
+[ -e "$BIN_DIR/../../../ribbon-tools/files/lib/pkg.sh" ] && PKG_SH=$BIN_DIR/../../../ribbon-tools/files/lib/pkg.sh
+
+# The Tcl/Tk installer's way in: answers file, protocol output (run.tcl
+# checks the answers and runs this script again with the options below).
+for a in "$@"; do
+	if [ "$a" = --answers ]; then RIBBON_INSTALL_ENGINE=$SELF exec "$TCLSH" "$BACKEND/run.tcl" "$@"; fi
+done
+# --progress on the command line: protocol lines, also via run.tcl.
+if [ -z "${RIBBON_ENGINE:-}" ]; then
+	for a in "$@"; do
+		if [ "$a" = --progress ]; then RIBBON_ENGINE=1 exec "$TCLSH" "$BACKEND/run.tcl" --wrap -- bash "$SELF" "$@"; fi
+	done
+fi
+
+# Test hooks: install from/to elsewhere, stop after a stage (prepare: disk
+# partitioned, formatted and mounted; copy: system copied, fstab written),
+# run the new system's commands with a stand-in for chroot (called as
+# "CMD TARGET /usr/bin/env -i ... command args"; the live system's /dev,
+# /proc, /sys and /run are then not bound into the target).
+TARGET=${RIBBON_INSTALL_TARGET:-/mnt/ribbon}
+SRC=${RIBBON_INSTALL_SRC:-}
+# Where the live system's own files are (when RIBBON_INSTALL_SRC does not say): dracut's overlayfs puts its read-only
+# layer at /run/rootfsbase; a live system booted without the overlay (a device-mapper snapshot: what Void's dracut-ng 112
+# did with mklive's rd.overlayfs=1, which it does not read) has its untouched base as /dev/mapper/live-base, mounted
+# read-only for the copy. RIBBON_LIVE_LAYER and RIBBON_LIVE_BASE stand in for them in tests.
+LIVE_LAYER=${RIBBON_LIVE_LAYER:-/run/rootfsbase}
+LIVE_BASE=${RIBBON_LIVE_BASE:-/dev/mapper/live-base}
+SRC_MNT=
+STOP_AFTER=${RIBBON_INSTALL_STOP_AFTER:-}
+CHROOT=${RIBBON_INSTALL_CHROOT:-chroot}
+
+DISK='' FS=btrfs ENCRYPT=no SWAP=zram GPU=auto HOSTNAME_=ribbon USER_='' TZ_=UTC BOOTLOADER=''
+LOCALE_=en_US.UTF-8 KEYMAP_=us XKB_='' APPS="" FLATPAKS="" YES=no GAMES=()
+MODE=erase AL_PART='' AL_KEEP='' AL_BOOT=auto ESP='' MANUAL='' DRIVERS='' DRIVER_SVCS='' LATER_APPS='' LATER_FLATPAKS=''
+FULLNAME='' PICTURE='' AUTOLOGIN=no SECRETS=no PROGRESS=no WINDOWS_ESP=''
+
+# Progress events for run.tcl (lines starting with RS + "RIBBON ").
+ev() { [ "$PROGRESS" = yes ] && printf '\036RIBBON %s\n' "$*"; return 0; }
+die() { echo "ribbon-install: error: $*" >&2; ev ERROR "$*"; exit 1; }
+msg() { if [ "$PROGRESS" = yes ]; then printf '==> %s\n' "$*"; else printf '\033[1m==> %s\033[0m\n' "$*"; fi; }
+step() { local n=$1; shift; ev STEP "$n" "$*"; msg "$*"; }   # the six protocol steps
+sub() { ev SUB "$@"; }                                        # percent within the step, text
+trap 'ev FAIL "$BASH_COMMAND"' ERR
+
+usage() {
+	sed -n '2,21p' "$0" | sed 's/^# \{0,1\}//'
+	cat <<EOF
+Options:
+  --disk DEV            disk to install to (erase: ALL DATA ON IT IS ERASED)
+  --mode MODE           erase (default) | alongside | manual
+  --alongside-part PART --alongside-keep BYTES
+                        alongside: shrink this Windows partition to BYTES and
+                        install in the space freed
+  --alongside-boot esp|new
+                        alongside: Ribbon's kernels on Windows' EFI partition
+                        (it needs 300 MiB free), or on a new 1 GiB boot
+                        partition in the space freed, with only the boot
+                        loader on the EFI partition (default: esp if it has room)
+  --esp PART            alongside: the EFI partition to use (default: the disk's)
+  --manual FILE         manual: the partition plan (lines written by the Tcl/Tk
+                        installer: dev|new|del disk start size format fs mount encrypt)
+  --fs TYPE             btrfs | zfs | bcachefs   (default btrfs)
+  --encrypt             encrypt the system (asks for a passphrase)
+  --bootloader NAME     limine | grub | zfsbootmenu  (default limine; zfs: zfsbootmenu)
+  --swap MODE           zram | gaming | hibernate | none | custom:BYTES (default zram)
+  --gpu DRIVER...       auto | nvidia | nvidia580 | nvidia470 | nouveau | amd | intel | none
+                        (several, quoted: --gpu "nvidia intel")
+  --drivers "PKG ..."   other driver packages (offline from the ISO, else at first boot)
+  --driver-services "SVC ..."  services those drivers need
+  --hostname NAME       (default ribbon)
+  --user NAME           your login name (asked if missing)
+  --fullname "NAME"     your full name
+  --autologin           log in automatically
+  --picture FILE        your account picture (PNG or GIF)
+  --timezone ZONE       e.g. Europe/London                          (default UTC)
+  --locale LOCALE       e.g. en_GB.UTF-8                            (default en_US.UTF-8)
+  --keymap MAP          console keymap                              (default us)
+  --xkb LAYOUT          desktop keyboard layout, e.g. gb or us(intl)
+  --games-drive DEV[:NAME]   mount an existing partition at /mnt/games/NAME (repeatable)
+  --apps "PKG ..."      extra packages to install now
+  --flatpaks "ID ..."   Flathub apps to install now (e.g. com.discordapp.Discord)
+  --later-apps "PKG ..." / --later-flatpaks "ID ..."
+                        installed at the first start with internet
+  --windows-esp GUID    add a Windows entry to Limine for Windows on another disk
+  --secrets-stdin       read {password ... passphrase ...} (a Tcl dict) from stdin
+  --progress            print protocol lines (STEP/PROGRESS/LOG/DONE/ERROR)
+  --yes                 don't ask for confirmation
+EOF
+}
+
+while [ $# -gt 0 ]; do
+	case "$1" in
+		--disk) DISK=$2; shift ;;
+		--mode) MODE=$2; shift ;;
+		--alongside-part) AL_PART=$2; shift ;;
+		--alongside-keep) AL_KEEP=$2; shift ;;
+		--alongside-boot) AL_BOOT=$2; shift ;;
+		--esp) ESP=$2; shift ;;
+		--manual) MANUAL=$2; shift ;;
+		--fs) FS=$2; shift ;;
+		--encrypt) ENCRYPT=yes ;;
+		--bootloader) BOOTLOADER=$2; shift ;;
+		--swap) SWAP=$2; shift ;;
+		--gpu) GPU=$2; shift ;;
+		--drivers) DRIVERS=$2; shift ;;
+		--driver-services) DRIVER_SVCS=$2; shift ;;
+		--hostname) HOSTNAME_=$2; shift ;;
+		--user) USER_=$2; shift ;;
+		--fullname) FULLNAME=$2; shift ;;
+		--autologin) AUTOLOGIN=yes ;;
+		--picture) PICTURE=$2; shift ;;
+		--timezone) TZ_=$2; shift ;;
+		--locale) LOCALE_=$2; shift ;;
+		--keymap) KEYMAP_=$2; shift ;;
+		--xkb) XKB_=$2; shift ;;
+		--games-drive) GAMES+=("$2"); shift ;;
+		--apps) APPS=$2; shift ;;
+		--flatpaks) FLATPAKS=$2; shift ;;
+		--later-apps) LATER_APPS=$2; shift ;;
+		--later-flatpaks) LATER_FLATPAKS=$2; shift ;;
+		--windows-esp) WINDOWS_ESP=$2; shift ;;
+		--secrets-stdin) SECRETS=yes ;;
+		--progress) PROGRESS=yes ;;
+		--yes) YES=yes ;;
+		-h|--help) usage; exit 0 ;;
+		*) die "unknown option $1 (see --help)" ;;
+	esac
+	shift
+done
+
+# ---------------------------------------------------------------- checks
+[ "$(id -u)" -eq 0 ] || die "run as root (sudo ribbon-install ...)"
+if [ -z "$SRC" ]; then
+	if [ -d "$LIVE_LAYER/usr" ]; then SRC=$LIVE_LAYER
+	elif [ -b "$LIVE_BASE" ]; then
+		SRC_MNT=$(mktemp -d "${TMPDIR:-/tmp}/ribbon-install-src.XXXXXX")
+		trap 'umount "$SRC_MNT" 2>/dev/null; rmdir "$SRC_MNT" 2>/dev/null' EXIT
+		mount -o ro "$LIVE_BASE" "$SRC_MNT" || die "the live system's base ($LIVE_BASE) does not mount"
+		SRC=$SRC_MNT
+	fi
+fi
+[ -n "$SRC" ] && [ -d "$SRC/usr" ] || die "no live system to copy (neither $LIVE_LAYER nor $LIVE_BASE) - run this from the Ribbon live ISO"
+case "$FS" in
+	btrfs|zfs|bcachefs) ;;
+	ext4|xfs|f2fs) die "--fs $FS can't hold the system: it has no snapshots (btrfs, zfs or bcachefs)" ;;
+	*) die "unsupported --fs $FS" ;;
+esac
+SWAP_SIZE=
+case "$SWAP" in
+	zram|gaming|hibernate|none) ;;
+	custom:*) SWAP_SIZE=${SWAP#custom:}; SWAP=custom
+		[[ "$SWAP_SIZE" =~ ^[0-9]+$ ]] && [ "$SWAP_SIZE" -ge 268435456 ] || die "bad --swap custom size '$SWAP_SIZE' (bytes, at least 256 MiB)" ;;
+	*) die "bad --swap $SWAP" ;;
+esac
+case "$BOOTLOADER" in ''|limine|grub|zfsbootmenu) ;; *) die "bad --bootloader $BOOTLOADER" ;; esac
+case "$MODE" in
+	erase) ;;
+	alongside)
+		[ -n "$AL_PART" ] && [[ "$AL_KEEP" =~ ^[0-9]+$ ]] || die "--mode alongside needs --alongside-part PART and --alongside-keep BYTES"
+		case "$AL_BOOT" in auto|esp|new) ;; *) die "bad --alongside-boot $AL_BOOT (esp or new)" ;; esac
+		[ "$FS" != zfs ] || die "ZFS needs a whole disk (--mode erase)" ;;
+	manual)
+		[ -r "$MANUAL" ] || die "--mode manual needs --manual FILE"
+		[ "$FS" != zfs ] || die "ZFS needs a whole disk (--mode erase)" ;;
+	*) die "bad --mode $MODE (erase, alongside or manual)" ;;
+esac
+UEFI=${RIBBON_UEFI:-}
+[ -n "$UEFI" ] || { UEFI=yes; [ -d /sys/firmware/efi ] || UEFI=no; }
+
+# Boot loader: ZFS boots through ZFSBootMenu; grub-mkconfig can't probe
+# bcachefs. Otherwise Limine unless GRUB is asked for.
+case "$FS" in
+	zfs)
+		[ -z "$BOOTLOADER" ] || [ "$BOOTLOADER" = zfsbootmenu ] || echo "ribbon-install: ZFS boots with ZFSBootMenu; ignoring --bootloader $BOOTLOADER" >&2
+		BOOTLOADER=zfsbootmenu ;;
+	bcachefs)
+		[ -z "$BOOTLOADER" ] || [ "$BOOTLOADER" = limine ] || die "bcachefs needs --bootloader limine"
+		BOOTLOADER=limine ;;
+	*)
+		[ "$BOOTLOADER" = zfsbootmenu ] && die "ZFSBootMenu needs --fs zfs"
+		if [ -z "$BOOTLOADER" ] && [ "$YES" != yes ] && [ -t 0 ]; then
+			echo "Boot loader:  limine  fast and simple; lists kernels and btrfs snapshots (default)"
+			echo "              grub    finds other systems itself"
+			read -r -p "Boot loader [limine]: " BOOTLOADER
+		fi
+		BOOTLOADER=${BOOTLOADER:-limine}
+		case "$BOOTLOADER" in limine|grub) ;; *) die "bad boot loader '$BOOTLOADER' (limine or grub)" ;; esac ;;
+esac
+# Legacy BIOS works with Limine only (from the same FAT /boot partition).
+[ "$UEFI" = yes ] || [ "$BOOTLOADER" = limine ] || die "this machine booted without UEFI; only --bootloader limine supports legacy BIOS"
+[ "$UEFI" = yes ] || [ "$MODE" = erase ] || die "this machine booted without UEFI; only --mode erase works there"
+
+if [ -z "$DISK" ] && [ "$MODE" != manual ]; then
+	[ -t 0 ] || die "no --disk given"
+	lsblk -d -o NAME,SIZE,MODEL,TRAN -e 7,11
+	read -r -p "Disk to install to (e.g. /dev/nvme0n1): " DISK
+fi
+[ -z "$DISK" ] || [ -b "$DISK" ] || die "$DISK is not a disk"
+if [ -z "$USER_" ]; then
+	[ -t 0 ] || die "no --user given"
+	read -r -p "Your user name: " USER_
+fi
+[[ "$USER_" =~ ^[a-z_][a-z0-9_-]{0,31}$ ]] || die "invalid user name '$USER_'"
+[[ "$HOSTNAME_" =~ ^[A-Za-z0-9]([A-Za-z0-9-]{0,61}[A-Za-z0-9])?$ ]] || die "invalid host name '$HOSTNAME_'"
+case "$FULLNAME" in *:*|*,*|*=*) die "the full name can't contain : , or =" ;; esac
+
+part() { case "$1" in *[0-9]) echo "${1}p$2" ;; *) echo "${1}$2" ;; esac; }
+partnum() { cat "/sys/class/block/$(basename "$(readlink -f "$1")")/partition" 2>/dev/null || echo "${1##*[!0-9]}"; }
+parent_disk() { echo "/dev/$(lsblk -dno PKNAME "$1" | head -n1)"; }
+ESP_NEW=yes
+ESP_NEED=$((300 * 1048576)) BOOT_SIZE=$((1024 * 1048576))   # backend/common.tcl: esp_need, boot_size
+BOOTPART='' XBOOTLDR=''
+case "$MODE" in
+	erase) ESP=$(part "$DISK" 1); ROOTPART=$(part "$DISK" 2) ;;
+	alongside)
+		[ -b "$AL_PART" ] || die "$AL_PART is not a partition"
+		[ "$(parent_disk "$AL_PART")" = "$(readlink -f "$DISK")" ] || [ "$(parent_disk "$AL_PART")" = "$DISK" ] || die "$AL_PART is not on $DISK"
+		if [ -z "$ESP" ]; then
+			ESP=$(sfdisk --dump "$DISK" | awk -F'[ :,=]+' 'tolower($0) ~ /type=c12a7328-f81f-11d2-ba4b-00a0c93ec93b/ {print $1; exit}')
+		fi
+		if [ -z "$ESP" ]; then
+			# No EFI partition on this disk: the new boot partition is one.
+			[ "$AL_BOOT" != esp ] || die "no EFI system partition found on $DISK"
+			AL_BOOT=new
+		else
+			[ -b "$ESP" ] || die "$ESP is not a partition"
+		fi
+		if [ "$AL_BOOT" = auto ]; then
+			AL_BOOT=new
+			t=$(mktemp -d)
+			if mount -o ro "$ESP" "$t" 2>/dev/null; then
+				[ "$(df -B1 --output=avail "$t" | tail -n1)" -ge "$ESP_NEED" ] && AL_BOOT=esp
+				umount "$t"
+			fi
+			rmdir "$t"
+		fi
+		ESP_NEW=no ROOTPART='(made in the space Windows frees)' ;;
+	manual) ESP='(from the plan)' ROOTPART='(from the plan)' ;;
+esac
+
+ask_pass() { # prompt -> stdout
+	local a b
+	while :; do
+		read -r -s -p "$1: " a; echo >&2
+		read -r -s -p "Repeat: " b; echo >&2
+		[ -n "$a" ] && [ "$a" = "$b" ] && { printf '%s' "$a"; return; }
+		echo "Passphrases are empty or don't match, try again." >&2
+	done
+}
+
+USERPASS='' DISKPASS=''
+if [ "$SECRETS" = yes ]; then
+	# The protocol's secrets dict; secrets.tcl hands back NUL-separated values
+	# through a pipe (nothing touches the disk).
+	{ IFS= read -r -d '' USERPASS && IFS= read -r -d '' DISKPASS; } < <("$TCLSH" "$BACKEND/secrets.tcl") ||
+		die "could not read the secrets from stdin"
+	[ -n "$USERPASS" ] || die "no password in the secrets"
+	[ "$ENCRYPT" = no ] || [ -n "$DISKPASS" ] || die "encryption is on but the secrets have no passphrase"
+else
+	[ -t 0 ] || die "no terminal to ask for the password; use --secrets-stdin"
+	USERPASS=$(ask_pass "Password for $USER_")
+	[ "$ENCRYPT" = yes ] && DISKPASS=$(ask_pass "Disk encryption passphrase")
+fi
+
+echo
+case "$MODE" in
+	erase) echo "  Disk:        $DISK  (ESP $ESP, system $ROOTPART)" ;;
+	alongside)
+		if [ "$AL_BOOT" = esp ]; then
+			echo "  Disk:        $DISK  next to Windows ($AL_PART keeps $((AL_KEEP / 1048576)) MiB; ESP $ESP is shared)"
+		else
+			echo "  Disk:        $DISK  next to Windows ($AL_PART keeps $((AL_KEEP / 1048576)) MiB; a new $((BOOT_SIZE / 1048576)) MiB boot partition${ESP:+; ESP $ESP gets the boot loader})"
+		fi ;;
+	manual) echo "  Partitions:  from $MANUAL"; sed 's/^/                /' "$MANUAL" ;;
+esac
+echo "  Filesystem:  $FS   encryption: $ENCRYPT   swap: $SWAP${SWAP_SIZE:+ ($((SWAP_SIZE / 1048576)) MiB)}   GPU: $GPU"
+echo "  Boot loader: $BOOTLOADER$( [ "$UEFI" = yes ] || echo " (legacy BIOS)")"
+echo "  User:        $USER_ @ $HOSTNAME_   ($LOCALE_, $TZ_, keymap $KEYMAP_${XKB_:+, layout $XKB_})"
+[ ${#GAMES[@]} -gt 0 ] && echo "  Game drives: ${GAMES[*]}"
+[ -n "$DRIVERS" ] && echo "  Drivers:     $DRIVERS"
+[ "$FS" = bcachefs ] && echo "  NOTE: bcachefs is experimental and out-of-tree since Linux 6.18 (DKMS)."
+if [ "$YES" != yes ]; then
+	case "$MODE" in
+		erase) read -r -p "ALL DATA ON $DISK WILL BE ERASED. Type the disk name to continue: " c
+			[ "$c" = "$DISK" ] || die "aborted" ;;
+		*) read -r -p "Partitions will be changed as shown. Type yes to continue: " c
+			[ "$c" = yes ] || die "aborted" ;;
+	esac
+fi
+
+MAPPERS=()
+cleanup() {
+	set +e
+	for m in var/lib/ribbon/offline-repo sys/firmware/efi/efivars sys proc dev/pts dev run; do umount -l "$TARGET/$m" 2>/dev/null; done
+	umount -R "$TARGET" 2>/dev/null
+	[ "$FS" = zfs ] && zpool export zroot 2>/dev/null
+	for m in "${MAPPERS[@]}"; do [ -e "/dev/mapper/$m" ] && cryptsetup close "$m" 2>/dev/null; done
+	[ -n "$SRC_MNT" ] && { umount "$SRC_MNT" 2>/dev/null; rmdir "$SRC_MNT" 2>/dev/null; }
+}
+trap cleanup EXIT
+
+stop_here() { # stage
+	[ "$STOP_AFTER" = "$1" ] || return 0
+	msg "Stopping after the $1 stage (RIBBON_INSTALL_STOP_AFTER)"
+	ev DONE
+	exit 0
+}
+
+# ------------------------------------------------------ disk helpers
+# Let the kernel and udev see a changed partition table.
+reread() {
+	partprobe "$1" 2>/dev/null || partx -u "$1" 2>/dev/null || :
+	udevadm settle 2>/dev/null || :
+}
+wait_dev() {
+	local d i
+	for d; do
+		for i in $(seq 50); do [ -b "$d" ] && break; sleep 0.2; done
+		[ -b "$d" ] || die "$d did not appear"
+	done
+}
+# The partition of DISK that starts at sector START.
+part_at() {
+	sfdisk --dump "$1" | awk -v s="$2" -F'[ :,=]+' '{for (i = 1; i < NF; i++) if ($i == "start" && $(i+1) == s) {print $1; exit}}'
+}
+uuid() { blkid -s UUID -o value "$1"; }
+FSTAB=()
+fstab_add() { FSTAB+=("$*"); }
+
+luks() { # device mapper-name; sets LUKS_DEV=/dev/mapper/name
+	printf '%s' "$DISKPASS" | cryptsetup luksFormat --type luks2 --pbkdf argon2id --batch-mode --key-file - "$1"
+	printf '%s' "$DISKPASS" | cryptsetup open --key-file - "$1" "$2"
+	MAPPERS+=("$2")
+	LUKS_DEV=/dev/mapper/$2
+}
+
+# The root filesystem on DEV (ROOTPART for ZFS), mounted at $TARGET with
+# Ribbon's layout; adds its fstab lines. $1: yes if /home is separate.
+make_root() {
+	local sep_home=${1:-no} o
+	mkdir -p "$TARGET"
+	BOOTDIR=boot
+	case "$FS" in
+		btrfs)
+			msg "Creating btrfs with subvolumes"
+			mkfs.btrfs -f -L ribbon "$DEV" >/dev/null
+			mount "$DEV" "$TARGET"
+			local subs="@ @snapshots @log @cache @tmp @swap"
+			[ "$sep_home" = yes ] || subs="$subs @home"
+			for s in $subs; do btrfs subvolume create "$TARGET/$s" >/dev/null; done
+			umount "$TARGET"
+			o=noatime,compress=zstd:1
+			mount -o "$o,subvol=@" "$DEV" "$TARGET"
+			mkdir -p "$TARGET"/{home,.snapshots,var/log,var/cache,var/tmp,swap}
+			[ "$sep_home" = yes ] || mount -o "$o,subvol=@home" "$DEV" "$TARGET/home"
+			mount -o "$o,subvol=@snapshots" "$DEV" "$TARGET/.snapshots"
+			mount -o "$o,subvol=@log" "$DEV" "$TARGET/var/log"
+			mount -o "$o,subvol=@cache" "$DEV" "$TARGET/var/cache"
+			mount -o "$o,subvol=@tmp" "$DEV" "$TARGET/var/tmp"
+			mount -o "noatime,subvol=@swap" "$DEV" "$TARGET/swap"
+			local u; u=$(uuid "$DEV")
+			fstab_add "UUID=$u / btrfs $o,subvol=@ 0 0"
+			[ "$sep_home" = yes ] || fstab_add "UUID=$u /home btrfs $o,subvol=@home 0 0"
+			fstab_add "UUID=$u /.snapshots btrfs $o,subvol=@snapshots 0 0"
+			fstab_add "UUID=$u /var/log btrfs $o,subvol=@log 0 0"
+			fstab_add "UUID=$u /var/cache btrfs $o,subvol=@cache 0 0"
+			fstab_add "UUID=$u /var/tmp btrfs $o,subvol=@tmp 0 0"
+			fstab_add "UUID=$u /swap btrfs noatime,subvol=@swap 0 0"
+			;;
+		bcachefs)
+			msg "Creating bcachefs (experimental)"
+			modprobe bcachefs || die "bcachefs kernel module not available on this live ISO"
+			if [ "$ENCRYPT" = yes ]; then
+				printf '%s\n%s\n' "$DISKPASS" "$DISKPASS" | bcachefs format --encrypted --compression=zstd -L ribbon "$DEV" >/dev/null
+				printf '%s\n' "$DISKPASS" | bcachefs unlock -k session "$DEV"
+			else
+				bcachefs format --compression=zstd -L ribbon "$DEV" >/dev/null
+			fi
+			mount -t bcachefs "$DEV" "$TARGET"
+			fstab_add "UUID=$(uuid "$DEV") / bcachefs noatime 0 0"
+			;;
+		zfs)
+			msg "Creating ZFS pool 'zroot'"
+			modprobe zfs || die "ZFS kernel module not available on this live ISO"
+			zgenhostid -f
+			local zopts=(-O compression=zstd -O acltype=posixacl -O xattr=sa -O relatime=on -O dnodesize=auto)
+			if [ "$ENCRYPT" = yes ]; then
+				mkdir -p /etc/zfs
+				( umask 077; printf '%s' "$DISKPASS" > /etc/zfs/zroot.key ); chmod 000 /etc/zfs/zroot.key
+				zopts+=(-O encryption=aes-256-gcm -O keyformat=passphrase -O keylocation=file:///etc/zfs/zroot.key)
+			fi
+			zpool create -f -o ashift=12 -o autotrim=on -o compatibility=openzfs-2.2-linux \
+				"${zopts[@]}" -m none zroot "$ROOTPART"
+			zfs create -o mountpoint=none zroot/ROOT
+			zfs create -o mountpoint=/ -o canmount=noauto zroot/ROOT/ribbon
+			zfs create -o mountpoint=/home zroot/home
+			zpool set bootfs=zroot/ROOT/ribbon zroot
+			zpool export zroot
+			zpool import -N -R "$TARGET" zroot
+			[ "$ENCRYPT" = yes ] && zfs load-key -L file:///etc/zfs/zroot.key zroot
+			zfs mount zroot/ROOT/ribbon
+			zfs mount -a
+			fstab_add "# zroot datasets are mounted by ZFS itself"
+			BOOTDIR=boot/efi
+			;;
+		*) die "$FS can't hold the system (btrfs, zfs or bcachefs)" ;;
+	esac
+}
+
+mount_fat() { # FAT partition, mountpoint below $TARGET
+	mkdir -p "$TARGET/$2"
+	mount "$1" "$TARGET/$2"
+	fstab_add "UUID=$(uuid "$1") /$2 vfat defaults,umask=0077 0 2"
+}
+mount_esp() { mount_fat "$ESP" "$1"; }
+
+# Encrypt ROOTPART (LUKS2) unless the filesystem encrypts itself; sets DEV.
+encrypt_root() {
+	DEV=$ROOTPART
+	[ "$ENCRYPT" = yes ] || return 0
+	step 2 "Encrypting"
+	if [ "$FS" != zfs ] && [ "$FS" != bcachefs ]; then
+		msg "Encrypting $ROOTPART (LUKS2, Argon2id)"
+		sub 10 "Encrypting $ROOTPART"
+		luks "$ROOTPART" ribbon-root
+		DEV=$LUKS_DEV
+	fi
+}
+
+root_type() { [ "$FS" = zfs ] && echo BF00 || echo 8300; }
+
+# --------------------------------------------------------- erase: whole disk
+prepare_erase() {
+	step 1 "Preparing the disk"
+	msg "Partitioning $DISK"
+	sub 10 "Partitioning $DISK"
+	wipefs -af "$DISK" >/dev/null
+	sgdisk --zap-all "$DISK" >/dev/null
+	local rt; rt=$(root_type)
+	if [ "$UEFI" = yes ]; then
+		sgdisk -n1:1MiB:+2GiB -t1:EF00 -c1:RIBBON_EFI -n2:0:0 -t2:"$rt" -c2:ribbon "$DISK" >/dev/null
+	else
+		# Limine's BIOS stage 2 goes in a small BIOS boot partition (3) in front.
+		sgdisk -n3:1MiB:+1MiB -t3:EF02 -c3:BIOSBOOT -n1:2MiB:+2GiB -t1:EF00 -c1:RIBBON_EFI \
+			-n2:0:0 -t2:"$rt" -c2:ribbon "$DISK" >/dev/null
+	fi
+	reread "$DISK"
+	wait_dev "$ESP" "$ROOTPART"
+	mkfs.vfat -F32 -n RIBBON_EFI "$ESP" >/dev/null
+	encrypt_root
+	sub 50 "Creating the $FS filesystem"
+	make_root no
+	mount_esp "$BOOTDIR"
+}
+
+# ------------------------------------------------- alongside: shrink Windows
+prepare_alongside() {
+	step 1 "Preparing the disk"
+	local ss num start size keep_s new_end next rstart rend rt
+	ss=$(blockdev --getss "$DISK")
+	num=$(partnum "$AL_PART")
+	[ "$(blkid -p -s TYPE -o value "$AL_PART" 2>/dev/null)" = ntfs ] || die "$AL_PART is not an NTFS partition"
+	# Safe right now? (Windows may have been started since the probe.)
+	if [ -x "$PROBE" ] || command -v ribbon-install-probe >/dev/null; then
+		local p=$PROBE out why safe
+		[ -x "$p" ] || p=ribbon-install-probe
+		sub 2 "Checking that Windows can be resized"
+		out=$("$p" --windows-ready "$AL_PART") || :
+		safe=$(printf '%s' "$out" | "$TCLSH" <(echo 'catch {puts [dict get [read stdin] safe]}'))
+		if [ "$safe" != 1 ]; then
+			why=$(printf '%s' "$out" | "$TCLSH" <(echo 'catch {puts [dict get [read stdin] why]}'))
+			die "Windows can't be resized safely now: ${why:-$out}"
+		fi
+	fi
+	read -r start size < <(sfdisk --dump "$DISK" | awk -v d="$AL_PART" -F'[ :,=]+' '$1 == d {for (i = 1; i < NF; i++) {if ($i == "start") s = $(i+1); if ($i == "size") z = $(i+1)}; print s, z}')
+	[ -n "$start" ] || die "can't find $AL_PART in the partition table of $DISK"
+	keep_s=$((AL_KEEP / ss))
+	[ "$keep_s" -le "$size" ] || die "Windows can't keep more than its partition size"
+	if [ "$keep_s" -lt "$size" ]; then
+		msg "Shrinking Windows ($AL_PART) to $((AL_KEEP / 1000000000)) GB"
+		sub 5 "Checking the Windows filesystem"
+		ntfsresize --no-action --size "$AL_KEEP" "$AL_PART" </dev/null || die "ntfsresize refused to shrink $AL_PART (see Details); nothing was changed"
+		sub 15 "Shrinking Windows"
+		ntfsresize --size "$AL_KEEP" "$AL_PART" </dev/null || die "ntfsresize failed on $AL_PART"
+		sub 60 "Shrinking the Windows partition"
+		echo "$start,$keep_s" | sfdisk --no-reread --no-tell-kernel -N "$num" "$DISK" >/dev/null
+		reread "$DISK"
+	fi
+	# Ribbon's partition: from the end of Windows to the next partition (a
+	# recovery partition often follows) or the end of the disk.
+	new_end=$((start + keep_s))
+	next=$(sfdisk --dump "$DISK" | awk -v e="$new_end" -F'[ :,=]+' '{for (i = 1; i < NF; i++) if ($i == "start" && $(i+1) >= e) print $(i+1)}' | sort -n | head -n1)
+	if [ -z "$next" ]; then next=$(( $(sfdisk --dump "$DISK" | sed -n 's/^last-lba: //p') + 1 )); fi
+	local a=$((1048576 / ss)) bstart=''
+	rstart=$(( (new_end + a - 1) / a * a ))
+	rend=$(( next / a * a - 1 ))
+	# Windows' EFI partition too full for the kernels: a boot partition of
+	# Ribbon's own first. It is XBOOTLDR (FAT32, at /boot; Limine and GRUB
+	# read it, firmware and Windows leave it alone) and the EFI partition,
+	# at /boot/efi, only gets the boot loader. A disk without an EFI
+	# partition gets one instead.
+	if [ "$AL_BOOT" = new ]; then
+		bstart=$rstart
+		rstart=$((bstart + BOOT_SIZE / ss))
+	fi
+	[ $(( (rend - rstart + 1) * ss )) -ge $((8 * 1073741824)) ] || die "not enough room next to Windows for Ribbon"
+	rt=$(root_type)
+	if [ -n "$bstart" ]; then
+		local bt=EA00 bl=RIBBON_BOOT
+		[ -n "$ESP" ] || bt=EF00 bl=RIBBON_EFI
+		msg "Creating Ribbon's boot partition ($((BOOT_SIZE / 1048576)) MiB)"
+		sub 70 "Creating Ribbon's boot partition"
+		sgdisk -n "0:$bstart:$((rstart - 1))" -t 0:"$bt" -c 0:"$bl" "$DISK" >/dev/null
+	fi
+	msg "Creating Ribbon's partition ($(( (rend - rstart + 1) * ss / 1000000000 )) GB)"
+	sub 75 "Creating Ribbon's partition"
+	sgdisk -n "0:$rstart:$rend" -t 0:"$rt" -c 0:ribbon "$DISK" >/dev/null
+	reread "$DISK"
+	ROOTPART=$(part_at "$DISK" "$rstart")
+	[ -n "$ROOTPART" ] || die "the new partition was not found on $DISK"
+	if [ -n "$bstart" ]; then
+		BOOTPART=$(part_at "$DISK" "$bstart")
+		[ -n "$BOOTPART" ] || die "the new boot partition was not found on $DISK"
+		wait_dev "$BOOTPART"
+		mkfs.vfat -F32 -n "$bl" "$BOOTPART" >/dev/null
+		if [ -n "$ESP" ]; then
+			XBOOTLDR=$(blkid -p -s PART_ENTRY_UUID -o value "$BOOTPART" | tr 'A-F' 'a-f')
+		else
+			ESP=$BOOTPART
+		fi
+	fi
+	wait_dev "$ROOTPART" "$ESP"
+	encrypt_root
+	sub 85 "Creating the $FS filesystem"
+	make_root no
+	if [ -n "$XBOOTLDR" ]; then
+		mount_fat "$BOOTPART" boot
+		mount_esp boot/efi
+	else
+		mount_esp "$BOOTDIR"
+	fi
+	if [ "$AL_BOOT" = esp ]; then
+		local free; free=$(df -B1 --output=avail "$TARGET/$BOOTDIR" | tail -n1)
+		[ "$free" -ge "$ESP_NEED" ] || die "the EFI partition $ESP has only $((free / 1048576)) MiB free; Ribbon's kernels need $((ESP_NEED / 1048576)) MiB"
+	fi
+}
+
+# ----------------------------------------------- manual: the partition plan
+# Plan lines (tab-separated): dev|new|del disk start size format fs mount encrypt
+# ("del" lines name the partition to delete in the disk column's place).
+prepare_manual() {
+	step 1 "Preparing the disk"
+	local kind d start size fmt fs mnt enc ss dev i=0 n
+	local -a P_DEV=() P_FMT=() P_FS=() P_MNT=() P_ENC=()
+	local sep_home=no
+	# deletions first: their space is where new partitions may go
+	while IFS=$'\t' read -r kind dev d start size fmt fs mnt enc; do
+		[ "$kind" = del ] || continue
+		msg "Deleting $dev"
+		wipefs -aq "$dev" 2>/dev/null || :
+		sgdisk -d "$(partnum "$dev")" "$d" >/dev/null
+		reread "$d"
+	done < "$MANUAL"
+	while IFS=$'\t' read -r kind d start size fmt fs mnt enc; do
+		[ -n "$kind" ] && [ "$kind" != del ] || continue
+		[ "$mnt" = /home ] && sep_home=yes
+		ss=$(blockdev --getss "$d")
+		if [ "$kind" = new ]; then
+			local t=8300 label=ribbon
+			case "$fs:$mnt" in
+				vfat:/boot|vfat:/boot/efi) t=EF00 label=RIBBON_EFI ;;
+				swap:*) t=8200 label=swap ;;
+				*:/home) label=home ;;
+				*:/) [ "$FS" = zfs ] && t=BF00 ;;
+			esac
+			msg "Creating a $((size / 1048576)) MiB partition on $d for ${mnt/#-/(no mount point)}"
+			sgdisk -n "0:$((start / ss)):$(( (start + size) / ss - 1 ))" -t 0:"$t" -c 0:"$label" "$d" >/dev/null
+			reread "$d"
+			dev=$(part_at "$d" "$((start / ss))")
+			[ -n "$dev" ] || die "the new partition at $start on $d was not found"
+		else
+			dev=$kind
+			if [ "$fmt" = 1 ] && [ "$fs" = vfat ] && { [ "$mnt" = /boot ] || [ "$mnt" = /boot/efi ]; }; then
+				sgdisk -t "$(partnum "$dev"):EF00" "$d" >/dev/null
+				reread "$d"
+			fi
+		fi
+		P_DEV+=("$dev") P_FMT+=("$fmt") P_FS+=("$fs") P_MNT+=("$mnt") P_ENC+=("$enc")
+		i=$((i + 1))
+	done < "$MANUAL"
+	wait_dev "${P_DEV[@]}"
+	n=$i
+	# encrypt (/ and a formatted /home), then format
+	for ((i = 0; i < n; i++)); do
+		[ "${P_FMT[i]}" = 1 ] || continue
+		dev=${P_DEV[i]}
+		case "${P_MNT[i]}" in
+			/) ROOTPART=$dev; DEV=$dev
+				if [ "${P_ENC[i]}" = 1 ]; then
+					step 2 "Encrypting"; msg "Encrypting $dev (LUKS2, Argon2id)"
+					luks "$dev" ribbon-root; DEV=$LUKS_DEV; P_DEV[i]=$DEV
+				elif [ "${P_ENC[i]}" = native ]; then step 2 "Encrypting"; fi ;;
+			/home)
+				if [ "${P_ENC[i]}" = 1 ]; then
+					msg "Encrypting $dev (LUKS2, Argon2id)"
+					HOME_LUKS=$dev
+					luks "$dev" ribbon-home; P_DEV[i]=$LUKS_DEV
+				fi ;;
+		esac
+	done
+	sub 40 "Creating filesystems"
+	for ((i = 0; i < n; i++)); do
+		[ "${P_MNT[i]}" = / ] && { FS=${P_FS[i]}; make_root "$sep_home"; }
+	done
+	for ((i = 0; i < n; i++)); do
+		dev=${P_DEV[i]} fs=${P_FS[i]} mnt=${P_MNT[i]}
+		[ "$mnt" = / ] && continue
+		if [ "${P_FMT[i]}" = 1 ]; then
+			local label; label=$(basename "${mnt/#-/data}"); [ "$mnt" = /home ] && label=home
+			msg "Formatting $dev as $fs${mnt:+ for $mnt}"
+			case "$fs" in
+				vfat) mkfs.vfat -F32 -n RIBBON_EFI "$dev" >/dev/null ;;
+				swap) mkswap -L swap "$dev" >/dev/null ;;
+				btrfs) mkfs.btrfs -f -L "$label" "$dev" >/dev/null ;;
+				*) die "can't format $dev as $fs" ;;
+			esac
+		fi
+	done
+	# mount, shortest mount point first
+	sub 80 "Mounting"
+	local order
+	order=$(for ((i = 0; i < n; i++)); do printf '%s\t%s\n' "${#P_MNT[i]}" "$i"; done | sort -n | cut -f2)
+	for i in $order; do
+		dev=${P_DEV[i]} fs=${P_FS[i]} mnt=${P_MNT[i]}
+		case "$mnt" in
+			/|-) continue ;;
+			swap) fstab_add "UUID=$(uuid "$dev") none swap defaults 0 0"; continue ;;
+			/boot|/boot/efi) ESP=$dev; BOOTDIR=${mnt#/}; mount_esp "$BOOTDIR"; continue ;;
+		esac
+		# mount options now, and in fstab (where data drives get nofail, so a
+		# missing one never stops the boot)
+		local o=noatime pass=2 mfs=$fs fo
+		case "$fs" in
+			vfat|exfat) o=defaults,umask=0022; pass=0 ;;
+			ntfs) mfs=ntfs3; o=defaults; pass=0 ;;
+			btrfs) o=noatime,compress=zstd:1; pass=0 ;;
+		esac
+		fo=$o
+		case "$mnt" in /home|/var|/var/*|/srv|/opt|/usr|/usr/*) ;; *) fo="$o,nofail" ;; esac
+		mkdir -p "$TARGET$mnt"
+		mount -t "$mfs" -o "$o" "$dev" "$TARGET$mnt"
+		fstab_add "UUID=$(uuid "$dev") $mnt $mfs $fo 0 $pass"
+	done
+	[ -n "${ESP:-}" ] && [ -b "$ESP" ] || die "the plan has no EFI partition"
+	if [ -n "${HOME_LUKS:-}" ]; then
+		# /home unlocks at boot with a key kept on the (encrypted) root.
+		mkdir -p "$TARGET/etc/cryptsetup-keys.d"
+		chmod 700 "$TARGET/etc/cryptsetup-keys.d"
+		head -c 64 /dev/urandom > "$TARGET/etc/cryptsetup-keys.d/ribbon-home.key"
+		chmod 000 "$TARGET/etc/cryptsetup-keys.d/ribbon-home.key"
+		printf '%s' "$DISKPASS" | cryptsetup luksAddKey --key-file - "$HOME_LUKS" "$TARGET/etc/cryptsetup-keys.d/ribbon-home.key"
+		HOME_CRYPTTAB="ribbon-home UUID=$(uuid "$HOME_LUKS") /etc/cryptsetup-keys.d/ribbon-home.key luks"
+	fi
+}
+
+HOME_LUKS='' HOME_CRYPTTAB='' BOOTDIR=boot DEV='' LUKS_DEV=''
+case "$MODE" in
+	erase) prepare_erase ;;
+	alongside) prepare_alongside ;;
+	manual) prepare_manual ;;
+esac
+stop_here prepare
+
+# ------------------------------------------------------------- copy system
+step 3 "Copying Ribbon"
+msg "Copying the live system (rsync)"
+# --no-inc-recursive: the whole file list first, so the percentage is real.
+# Downloaded packages stay behind (the package manager's cache, if it has one).
+PKG_CACHE=$(RIBBON_ROOT='' bash "$PKG_SH" cache-dir 2>/dev/null || :)
+rsync -aHAXx --info=progress2 --no-inc-recursive --exclude='/home/*' --exclude='/root/*' --exclude='/tmp/*' \
+	--exclude='/run/*' ${PKG_CACHE:+--exclude="$PKG_CACHE/*"} --exclude='/var/lib/ribbon/offline-repo/*' \
+	"$SRC/" "$TARGET/"
+
+# A system whose /usr is the system kits' view (ribbon-kit): the copy brought the kits and the view's files
+# (/var/lib/kit), and left /usr empty, because on the live system it is a mount and the copy stays on one filesystem.
+# The new system mounts its own view at boot (the initramfs, 90ribbon-usrview); the same hook mounts it now, on the
+# target, so that the steps below run in the new system as it will be. cleanup unmounts it with the rest.
+USRVIEW_HOOK=${RIBBON_USRVIEW_HOOK:-/usr/lib/dracut/modules.d/90ribbon-usrview/ribbon-usrview.sh}
+if [ -f "$TARGET/var/lib/kit/system/usr/current" ] && ! mountpoint -q "$TARGET/usr"; then
+	msg "Mounting the new system's /usr (system kits)"
+	[ -r "$USRVIEW_HOOK" ] || die "the new system's /usr is a view of system kits, and $USRVIEW_HOOK is not here to mount it"
+	NEWROOT=$TARGET RIBBON_RUN=$(mktemp -d) RIBBON_KMSG=/dev/null sh "$USRVIEW_HOOK"
+	mountpoint -q "$TARGET/usr" || die "the new system's /usr (its system kits' view) could not be mounted"
+fi
+
+# ------------------------------------------------------------------ fstab
+msg "Writing /etc/fstab"
+mkdir -p "$TARGET/etc"
+{
+	echo "# /etc/fstab - written by ribbon-install"
+	printf '%s\n' "${FSTAB[@]}"
+	echo "tmpfs /tmp tmpfs defaults,noatime,mode=1777 0 0"
+} > "$TARGET/etc/fstab"
+# Kernels on a boot partition of their own (XBOOTLDR at /boot), the boot
+# loader on the EFI partition at /boot/efi: ribbon-limine reads them from
+# the partition with this GUID.
+if [ -n "$XBOOTLDR" ] && [ "$BOOTLOADER" = limine ]; then
+	mkdir -p "$TARGET/etc/default"
+	echo "LIMINE_XBOOTLDR=$XBOOTLDR" >> "$TARGET/etc/default/ribbon-limine"
+fi
+if [ -n "$HOME_CRYPTTAB" ]; then
+	printf '# written by ribbon-install: /home, unlocked with a key on the encrypted root\n%s\n' "$HOME_CRYPTTAB" >> "$TARGET/etc/crypttab"
+fi
+stop_here copy
+
+# ------------------------------------------------------------- configure
+step 4 "Setting up the system"
+if [ "$CHROOT" = chroot ]; then
+	for m in dev dev/pts proc sys run; do mkdir -p "$TARGET/$m"; mount --rbind "/$m" "$TARGET/$m"; mount --make-rslave "$TARGET/$m"; done
+	# Offline NVIDIA/Broadcom drivers from the ISO
+	mkdir -p "$TARGET/var/lib/ribbon/offline-repo"
+	mount --bind /var/lib/ribbon/offline-repo "$TARGET/var/lib/ribbon/offline-repo" 2>/dev/null || :
+fi
+cp -L /etc/resolv.conf "$TARGET/etc/resolv.conf"
+inchroot() { "$CHROOT" "$TARGET" /usr/bin/env -i PATH=/usr/bin:/usr/sbin HOME=/root TERM="${TERM:-linux}" RIBBON_INSTALLING=1 "$@"; }
+
+msg "Configuring system"
+sub 5 "Language, time and keyboard"
+echo "$HOSTNAME_" > "$TARGET/etc/hostname"
+printf '127.0.0.1 localhost\n::1 localhost\n127.0.1.1 %s\n' "$HOSTNAME_" > "$TARGET/etc/hosts"
+ln -sf "/usr/share/zoneinfo/$TZ_" "$TARGET/etc/localtime"
+# Windows keeps the hardware clock in local time: with it on the machine (installed alongside, or its boot manager
+# on another disk) Ribbon reads and writes the clock that way too (/etc/adjtime, read by boot.sh and hwclock), or
+# each system would set the other's time wrong at every switch. Otherwise the file is left out: UTC.
+if [ "$MODE" = alongside ] || [ -n "$WINDOWS_ESP" ]; then
+	printf '0.0 0 0.0\n0\nLOCAL\n' > "$TARGET/etc/adjtime"
+fi
+printf 'LANG=%s\nLC_COLLATE=C\n' "$LOCALE_" > "$TARGET/etc/locale.conf"
+# the console keymap: /etc/vconsole.conf on every base, and the base's own place too (the seam: Void's rc.conf)
+RIBBON_ROOT=$TARGET bash "$PKG_SH" keymap "$KEYMAP_" || die "the console keymap $KEYMAP_ could not be written"
+if [ -n "$XKB_" ]; then
+	# The greeter (and X programs) read the layout from here.
+	xl=${XKB_%%(*} xv=; [ "$xl" != "$XKB_" ] && { xv=${XKB_#*(}; xv=${xv%)}; }
+	mkdir -p "$TARGET/etc/X11/xorg.conf.d"
+	{
+		echo '# Written by ribbon-install'
+		echo 'Section "InputClass"'
+		echo '	Identifier "system-keyboard"'
+		echo '	MatchIsKeyboard "on"'
+		echo "	Option \"XkbLayout\" \"$xl\""
+		[ -n "$xv" ] && echo "	Option \"XkbVariant\" \"$xv\""
+		echo 'EndSection'
+	} > "$TARGET/etc/X11/xorg.conf.d/00-keyboard.conf"
+fi
+inchroot /usr/lib/ribbon/postinstall locale "$LOCALE_"
+inchroot dbus-uuidgen --ensure=/etc/machine-id
+
+msg "Post-install configuration"
+sub 15 "Removing live-only packages"
+inchroot /usr/lib/ribbon/postinstall boot-choice "$BOOTLOADER"
+inchroot /usr/lib/ribbon/postinstall live-cleanup
+sub 25 "Services, firewall and hardware"
+inchroot /usr/lib/ribbon/postinstall services
+inchroot /usr/lib/ribbon/postinstall security
+inchroot /usr/lib/ribbon/postinstall grub-defaults
+inchroot /usr/lib/ribbon/postinstall hardware
+inchroot /usr/lib/ribbon/postinstall reserve
+sub 45 "Drivers"
+[ "$GPU" != none ] && inchroot /usr/lib/ribbon/postinstall gpu "$GPU"
+[ -n "$DRIVERS$DRIVER_SVCS" ] && inchroot /usr/lib/ribbon/postinstall drivers "$DRIVERS" "$DRIVER_SVCS"
+sub 70 "Swap"
+inchroot /usr/lib/ribbon/postinstall swap "$SWAP" ${SWAP_SIZE:+"$SWAP_SIZE"}
+sub 80 "Apps"
+[ -n "$APPS" ] && inchroot /usr/lib/ribbon/postinstall apps "$APPS"
+[ -n "$FLATPAKS" ] && inchroot /usr/lib/ribbon/postinstall flatpak "$(printf '%s' "$FLATPAKS" | tr ' ' ',')"
+[ -n "$LATER_APPS$LATER_FLATPAKS" ] && inchroot /usr/lib/ribbon/postinstall later "$LATER_APPS" "$LATER_FLATPAKS"
+
+# --------------------------------------------------------- boot & unlock
+step 5 "Boot loader"
+msg "Installing the boot loader"
+case "$FS" in
+	zfs)
+		mkdir -p "$TARGET/etc/zfs" "$TARGET/etc/dracut.conf.d"
+		cp /etc/hostid "$TARGET/etc/hostid"
+		if [ "$ENCRYPT" = yes ]; then
+			cp /etc/zfs/zroot.key "$TARGET/etc/zfs/zroot.key"
+			echo 'install_items+=" /etc/zfs/zroot.key "' > "$TARGET/etc/dracut.conf.d/40-ribbon-zfs-key.conf"
+		fi
+		echo 'nofsck="yes"' > "$TARGET/etc/dracut.conf.d/40-ribbon-zfs.conf"
+		sub 10 "Building the initramfs"
+		inchroot /usr/lib/ribbon/postinstall initramfs
+		mkdir -p "$TARGET/etc/zfsbootmenu"
+		cat > "$TARGET/etc/zfsbootmenu/config.yaml" <<'EOF'
+Global:
+  ManageImages: true
+  BootMountPoint: /boot/efi
+  DracutConfDir: /etc/zfsbootmenu/dracut.conf.d
+Components:
+  Enabled: false
+EFI:
+  ImageDir: /boot/efi/EFI/zbm
+  Versions: false
+  Enabled: true
+Kernel:
+  CommandLine: quiet loglevel=3
+EOF
+		sub 60 "Installing ZFSBootMenu"
+		inchroot generate-zbm
+		inchroot /usr/lib/ribbon/postinstall zbm-cmdline
+		efibootmgr -c -d "$DISK" -p 1 -L "Ribbon OS (ZFSBootMenu)" -l '\EFI\ZBM\VMLINUZ.EFI' >/dev/null
+		;;
+	*)
+		if [ "$FS" = bcachefs ]; then
+			echo 'add_dracutmodules+=" ribbon-bcachefs "' > "$TARGET/etc/dracut.conf.d/40-ribbon-bcachefs.conf"
+			echo "RIBBON_ROOT_CMDLINE=\"root=UUID=$(uuid "$DEV") rootfstype=bcachefs rw\"" >> "$TARGET/etc/default/ribbon-limine"
+		fi
+		# Windows on another disk: a Limine entry for its boot manager.
+		if [ -n "$WINDOWS_ESP" ]; then
+			mkdir -p "$TARGET/etc/default"
+			echo "LIMINE_WINDOWS_ESP=$WINDOWS_ESP" >> "$TARGET/etc/default/ribbon-limine"
+		fi
+		# With LUKS the initramfs prompts for the passphrase (rd.luks.uuid,
+		# worked out by the bootloader step); /boot (ESP) holds no keys.
+		sub 10 "Building the initramfs"
+		inchroot /usr/lib/ribbon/postinstall initramfs
+		sub 70 "Installing $BOOTLOADER"
+		if [ "$BOOTLOADER" = limine ]; then
+			espdisk=$(parent_disk "$ESP") espnum=$(partnum "$ESP")
+			biospart=; [ "$UEFI" = yes ] || biospart=3
+			inchroot /usr/lib/ribbon/postinstall bootloader "$espdisk" "$espnum" ${biospart:+"$biospart"}
+		else
+			inchroot /usr/lib/ribbon/postinstall bootloader
+		fi
+		;;
+esac
+
+# --------------------------------------------------------------- account
+step 6 "Your account"
+msg "Creating $USER_"
+# The same groups as Settings -> Users gives a new administrator, each only
+# where the new system has it (useradd refuses an unknown group). wheel
+# makes the account an administrator; root is locked below.
+grep -q '^wheel:' "$TARGET/etc/group" || die "the new system has no wheel group, so $USER_ could not be an administrator"
+groups=
+# (no `input`: that group reads every keyboard and mouse on the machine, whoever has focus; the session's own devices come
+# through elogind's uaccess, which is what Wayland's input isolation relies on)
+for g in wheel audio video storage network plugdev kvm; do
+	if grep -q "^$g:" "$TARGET/etc/group"; then groups=${groups:+$groups,}$g; fi
+done
+inchroot useradd -m -s /bin/bash ${FULLNAME:+-c "$FULLNAME"} -G "$groups" "$USER_"
+printf '%s:%s\n' "$USER_" "$USERPASS" | inchroot chpasswd
+inchroot passwd -l root >/dev/null
+[ "$AUTOLOGIN" = yes ] && inchroot /usr/lib/ribbon/postinstall autologin "$USER_"
+if [ -n "$PICTURE" ] && [ -r "$PICTURE" ]; then
+	# ~/.face for the desktop, and AccountsService's icon, which a greeter
+	# (another user) can read
+	install -m 644 "$PICTURE" "$TARGET/home/$USER_/.face"
+	inchroot chown "$USER_:$USER_" "/home/$USER_/.face"
+	install -D -m 644 "$PICTURE" "$TARGET/var/lib/AccountsService/icons/$USER_"
+	mkdir -p "$TARGET/var/lib/AccountsService/users"
+	printf '[User]\nIcon=/var/lib/AccountsService/icons/%s\n' "$USER_" > "$TARGET/var/lib/AccountsService/users/$USER_"
+fi
+if [ -n "$XKB_" ]; then
+	# The desktop's layout, for every user of this computer: labwc's system-wide environment (/etc/xdg, the lowest
+	# layer of ribbon-session's XDG_CONFIG_DIRS), so a layout chosen later in Settings → Keyboard and mouse (the
+	# xdg-input layer) wins over it, and a user added later starts with it too.
+	d="$TARGET/etc/xdg/labwc/environment.d"
+	mkdir -p "$d"
+	{ echo '# Written by ribbon-install: the keyboard layout chosen at install'
+	  echo "XKB_DEFAULT_LAYOUT=$xl"; [ -n "$xv" ] && echo "XKB_DEFAULT_VARIANT=$xv"; } > "$d/10-keyboard.env"
+fi
+sub 30 "Game drives"
+for g in "${GAMES[@]}"; do
+	inchroot env SUDO_USER="$USER_" ribbon-drives add "${g%%:*}" "$( [ "${g#*:}" != "$g" ] && echo "${g#*:}")"
+done
+inchroot /usr/lib/ribbon/postinstall drives
+sub 60 "First snapshot"
+inchroot /usr/lib/ribbon/postinstall snapshots
+
+msg "Done. Remove the install media and reboot into Ribbon OS."
+ev DONE

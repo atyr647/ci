@@ -1,0 +1,31 @@
+# ncurses: terminal handling (the wide-character library, with links under the plain names, and the terminfo
+# database); less, procps and util-linux use it. Without the C++ binding (it would need the compiler's kit to run)
+# and without static libraries.
+name=ncurses
+kit=org.gnu.ncurses
+version=6.6
+revision=1
+summary="Terminal handling library and the terminfo database"
+license="MIT"
+source="https://invisible-island.net/archives/ncurses/ncurses-6.6.tar.gz"
+sha256="355b4cbbed880b0381a04c46617b7656e362585d52e9cf84a67e2009b749ff11"
+srcdir="ncurses-6.6"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr --mandir=/usr/share/man --with-shared --without-normal --without-debug --without-ada \
+		--without-cxx --without-cxx-binding --enable-pc-files --with-pkg-config-libdir=/usr/lib/pkgconfig \
+		--with-versioned-syms --disable-stripping
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	# programs that ask for the plain names get the wide-character libraries
+	for l in ncurses form panel menu; do
+		ln -s "lib${l}w.so" "$DESTDIR/usr/lib/lib$l.so"
+		ln -s "${l}w.pc" "$DESTDIR/usr/lib/pkgconfig/$l.pc"
+	done
+	ln -s libncursesw.so "$DESTDIR/usr/lib/libcurses.so"
+}

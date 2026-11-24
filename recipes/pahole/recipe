@@ -1,0 +1,24 @@
+# pahole (dwarves): reads a program's debug information; the kernel's build turns it into BTF, the type information
+# BPF programs use (CONFIG_DEBUG_INFO_BTF). With the libbpf its release carries.
+name=pahole
+kit=org.kernel.pahole
+version=1.32
+revision=1
+summary="Debug information tools (pahole, BTF)"
+license="GPL-2.0-only"
+source="https://fedorapeople.org/~acme/dwarves/dwarves-1.32.tar.xz"
+sha256="319cbf319e9fc92065a5407ce47eb868d73566f3d4840a56832734e4579df947"
+srcdir="dwarves-1.32"
+needs="org.gnu.glibc org.sourceware.elfutils net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.cmake.cmake org.sourceware.elfutils net.zlib.zlib"
+
+build() {
+	cmake -S . -B build -DCMAKE_INSTALL_PREFIX=/usr -D__LIB=lib -DCMAKE_INSTALL_LIBDIR=lib -DCMAKE_BUILD_TYPE=None -DBUILD_SHARED_LIBS=ON \
+		-DLIBBPF_EMBEDDED=ON
+	make -C build -j"$JOBS"
+}
+
+stage() {
+	make -C build DESTDIR="$DESTDIR" install
+	rm -f "$DESTDIR"/usr/lib/*.a
+}

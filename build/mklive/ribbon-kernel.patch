@@ -1,0 +1,31 @@
+mklive: boot Ribbon's kernel (-v ribbon-kernel)
+
+void-mklive takes the live image's kernel from a Void kernel package (linux6.18, linux-lts, ...) and names its
+release from the package's version (6.18.64_1). Ribbon's kernel package, ribbon-kernel, has the release
+6.18.64-ribbon_1 (srcpkgs/ribbon-kernel): with this, -v ribbon-kernel installs it and boots it, naming the release
+the way mklive already does for linux-asahi (6.18.64-asahi_1). build/build-iso.sh applies this to its clone of
+void-mklive when the repository holds a ribbon-kernel release, and stops if it does not apply.
+
+--- a/mklive.sh
++++ b/mklive.sh
+@@ -645,6 +645,10 @@
+         IGNORE_PKGS+=(linux)
+         PACKAGE_LIST+=(linux-asahi linux-base)
+         ;;
++    ribbon-kernel)
++        IGNORE_PKGS+=(linux)
++        PACKAGE_LIST+=(ribbon-kernel linux-base)
++        ;;
+     linux)
+         PACKAGE_LIST+=(linux)
+         LINUX_VERSION="$(XBPS_ARCH=$TARGET_ARCH $XBPS_QUERY_CMD -r "$ROOTFS" ${XBPS_REPOSITORY:=-R} -x linux | grep 'linux[0-9._]\+')"
+@@ -661,6 +665,9 @@
+ if [ "$LINUX_VERSION" = linux-asahi ]; then
+     KERNELVERSION="${KERNELVERSION%%_*}-asahi_${KERNELVERSION##*_}"
+ fi
++if [ "$LINUX_VERSION" = ribbon-kernel ]; then
++    KERNELVERSION="${KERNELVERSION%%_*}-ribbon_${KERNELVERSION##*_}"
++fi
+ 
+ if [ "$?" -ne "0" ]; then
+     die "Failed to find kernel package version"

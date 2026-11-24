@@ -1,0 +1,19 @@
+# xz: xz, unxz, xzcat and the rest, and liblzma.
+name=xz
+kit=org.tukaani.xz
+version=5.8.1
+revision=1
+summary="The xz compression tools and liblzma"
+license="0BSD AND GPL-2.0-or-later"
+source="https://github.com/tukaani-project/xz/releases/download/v5.8.1/xz-5.8.1.tar.xz"
+sha256="0b54f79df85912504de0b14aec7971e3f964491af1812d83447005807513cd9e"
+srcdir="xz-5.8.1"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr --sbindir=/usr/bin --disable-static --disable-doc
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

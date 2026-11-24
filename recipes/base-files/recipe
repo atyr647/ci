@@ -1,0 +1,24 @@
+# base-files: what a system needs that no upstream package brings: the first accounts and groups (root, nobody, and
+# dbus for the system bus, 81 as most distributions number it;
+# the groups and their numbers are Void's, which Ribbon's installs have had so far), /etc/hosts, shells, nsswitch.conf,
+# profile and an empty fstab, all as defaults (decision 126: put down only where missing, so an installed system's
+# accounts are never overwritten), and /usr/lib/os-release (the one file: build/overrides/base-files/os-release, which
+# the Void-built image takes too) with /etc/os-release linking to it. No source: the files are here.
+name=base-files
+kit=org.ribbon.base-files
+version=1
+revision=2
+summary="The system's first accounts, groups and /etc files"
+license="MIT"
+needs=""
+build_needs="org.gnu.bash org.gnu.coreutils org.gnu.findutils"
+
+stage() {
+	f=$RECIPE/files
+	install -Dm644 "$f/os-release" "$DESTDIR/usr/lib/os-release"
+	mkdir -p "$DESTDIR/etc"
+	ln -s ../usr/lib/os-release "$DESTDIR/etc/os-release"
+	for n in passwd group hosts shells nsswitch.conf profile fstab; do install -m644 "$f/$n" "$DESTDIR/etc/$n"; done
+	# only root reads the password file; it holds no password: both accounts are locked until one is set
+	install -m600 "$f/shadow" "$DESTDIR/etc/shadow"
+}

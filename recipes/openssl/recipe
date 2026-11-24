@@ -1,0 +1,26 @@
+# openssl: TLS and the cryptography library, and openssl. The kernel's build makes and uses its module signing key
+# with it. Its configuration is /etc/ssl/openssl.cnf (a default, decision 126); without the manual pages and the
+# static libraries. Certificate authorities are not part of it.
+name=openssl
+kit=org.openssl.openssl
+version=3.6.5
+revision=1
+summary="TLS and general-purpose cryptography"
+license="Apache-2.0"
+source="https://github.com/openssl/openssl/releases/download/openssl-3.6.5/openssl-3.6.5.tar.gz"
+sha256="a2157c2830efdec3788939b00c9b0638306d3f0bbb76dc4832ee503bb397df98"
+srcdir="openssl-3.6.5"
+needs="org.gnu.glibc net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.perl.perl net.zlib.zlib"
+
+build() {
+	./Configure --prefix=/usr --openssldir=/etc/ssl --libdir=lib shared zlib-dynamic no-static-engine linux-x86_64 \
+		$CFLAGS
+	make -j"$JOBS" depend
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install_sw install_ssldirs
+	rm -f "$DESTDIR"/usr/lib/libcrypto.a "$DESTDIR"/usr/lib/libssl.a
+}

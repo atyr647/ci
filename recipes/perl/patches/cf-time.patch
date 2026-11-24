@@ -1,0 +1,19 @@
+Configure: keep a cf_time given with -D
+
+Configure sets cf_time from date(1) after it has read the -D options, so `-D cf_time=...` has no effect and every
+build records the moment it was configured (in config.h, Config_heavy.pl, perlbug and perlthanks): two builds of the
+same sources differ. With this, a cf_time given is kept; without one, Configure asks date(1) as before.
+
+--- a/Configure
++++ b/Configure
+@@ -3917,7 +3917,9 @@
+ . ./posthint.sh
+ 
+ : who configured the system
+-cf_time=`LC_ALL=C; LANGUAGE=C; export LC_ALL; export LANGUAGE; $date 2>&1`
++case "$cf_time" in
++"") cf_time=`LC_ALL=C; LANGUAGE=C; export LC_ALL; export LANGUAGE; $date 2>&1` ;;
++esac
+ case "$cf_by" in
+ "")
+ 	cf_by=`(logname) 2>/dev/null`

@@ -1,0 +1,32 @@
+#!/bin/sh
+# /usr/lib/ribbon/firewall-load - what the nftables service runs: loads /etc/nftables.conf, and when that does not load
+# (a syntax error after a hand edit, a module missing) does NOT leave the machine without a firewall: Ribbon's own ruleset
+# (/usr/share/ribbon/nftables.conf) goes in instead, and if even that fails a minimal inbound-drop one. The exit status is
+# still 1 in the last two cases, so the service shows as failed (dinitctl list, the System monitor) with the reason in the
+# kernel log. Tests: RIBBON_NFT (a stand-in for nft), RIBBON_NFT_CONF, RIBBON_NFT_DEFAULT, RIBBON_KMSG.
+NFT=${RIBBON_NFT:-/usr/sbin/nft}
+CONF=${RIBBON_NFT_CONF:-/etc/nftables.conf}
+DEFAULT=${RIBBON_NFT_DEFAULT:-/usr/share/ribbon/nftables.conf}
+say() { echo "<4>ribbon-firewall: $*" >> "${RIBBON_KMSG:-/dev/kmsg}" 2>/dev/null; echo "ribbon-firewall: $*" >&2; }
+
+"$NFT" -f "$CONF" && exit 0
+say "$CONF did not load"
+if [ "$CONF" != "$DEFAULT" ] && [ -r "$DEFAULT" ] && "$NFT" -f "$DEFAULT"; then
+	say "Ribbon's own ruleset ($DEFAULT) is loaded in its place; fix $CONF, then: dinitctl restart nftables"
+	exit 1
+fi
+say "Ribbon's own ruleset did not load either: a minimal ruleset (inbound drop, replies and loopback allowed) is loaded"
+"$NFT" -f - <<'RULES'
+table inet ribbon
+delete table inet ribbon
+table inet ribbon {
+	chain input {
+		type filter hook input priority filter; policy drop;
+		ct state established,related accept
+		ct state invalid drop
+		iif "lo" accept
+		meta l4proto ipv6-icmp accept
+	}
+}
+RULES
+exit 1

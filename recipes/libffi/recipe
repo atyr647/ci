@@ -1,0 +1,20 @@
+# libffi: calls to functions whose signature is known only at run time (Wayland's and GLib's marshalling). Without
+# its documentation (texinfo) and static library.
+name=libffi
+kit=org.sourceware.libffi
+version=3.8.0
+revision=1
+summary="Calls to functions whose signatures are known only at run time"
+license="MIT"
+source="https://github.com/libffi/libffi/releases/download/v3.8.0/libffi-3.8.0.tar.gz"
+sha256="7da3e2d9a171eb0a038f592ecad3ff2bb2550f3496d87b3b29ad0cf4430c0db4"
+srcdir="libffi-3.8.0"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf"
+
+build() {
+	./configure --prefix=/usr --libdir=/usr/lib --disable-static --disable-docs --disable-multi-os-directory
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

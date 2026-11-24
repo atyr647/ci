@@ -1,0 +1,16 @@
+ribbon-kit-index 1
+format	1.0
+requires	
+manifest	kind	system
+manifest	license	MIT
+manifest	name	org.ribbon.golden.base
+manifest	summary	Golden test kit (system)
+manifest	version	2026.11.1
+need	org.ribbon.kernel	>=6.12
+effect	module	lib/modules
+effect	service	share/doc/README
+rootdir	493
+dir	share	493
+dir	share/doc	493
+file	share/doc/README	420	1700000000	54	raw	16384	e5fdefef5938c039966fbf2183928f921a82c3190ad1be2b5919b918871bceed
+image	erofs	16384	2831	1048576	1afd3f68d53a7df9829a129b053f5f7ed0f4d3a5a9e7236fb38746fbfee63bf2	097e07f8842a82ac8d3731060fb64d98c748bcabe7e7dfee38fa6ddf3c6ea5c2	421024b40d5537805fb41ec360c8e04ef859c6c9a2d0d3249b1a77159f483976

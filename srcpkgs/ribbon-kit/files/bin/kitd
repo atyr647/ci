@@ -1,0 +1,491 @@
+#!/usr/bin/env tclsh
+# kitd -- kit's privileged helper (docs/KIT.md D16): system-scope transactions, one at a time, for whoever
+# polkit allows.  A D-Bus system service, started by the bus when it is first called
+# (/usr/share/dbus-1/system-services/org.ribbon.Kit1.service) and gone again after a minute with nothing
+# to do; nothing of it runs while nobody asks.  No systemd: the bus starts it (dbus-daemon-launch-helper).
+#
+#   org.ribbon.Kit1 at /org/ribbon/Kit1, interface org.ribbon.Kit1:
+#     Submit(as words) -> s id      queue the kit verb WORDS (grab, check, toss, rewind, mend, list, info and
+#                                   their arguments) in system scope; asks polkit for org.ribbon.kit.system
+#                                   (interactive when the call allows it).  Answered at once with the id.
+#     Start(as words) -> s id       the same verbs, planned first: the worker works out the plan and WAITS with it; nothing
+#                                   changes until the person has seen it and answered. Asks polkit for the weaker
+#                                   org.ribbon.kit.system.plan (a person at the machine needs no password to look).
+#     Plan(s id) -> s               the plan the worker is waiting with, a Tcl dict {rows ROWS question Q default D}, or ""
+#                                   (the one who started it, or root); rows are kit's own (name short old new action bytes tags ...)
+#     Answer(s id, b yes)           yes or no to that plan. A yes asks polkit for org.ribbon.kit.system NOW, for this caller:
+#                                   the consent is to the plan that was shown, held by the worker that then carries it out.
+#     Cancel(s id)                  take a queued transaction off the queue (the one who queued it, or root), or say no to
+#                                   a plan it is waiting with
+#     Queue() -> a(ssuas)           {id state uid words} per transaction not yet done, in order
+#     Job(s id) -> (sias)           {state code output-lines} of one transaction, done or not (the one who
+#                                   queued it, or root: the output can name configured mirrors and files)
+#     Pending() -> a(sss)           what waits for a restart: {kit NAME VERSION} from the restart record of
+#                                   this boot, {process COMM PID} for each never-live process (dinit, the
+#                                   system bus, elogind, turnstiled, greetd) that maps a replaced file
+#     signal Changed()              the queue changed
+#     signal Finished(s id, i code) a transaction ended; code is kit's exit code (docs/KIT-CLI.md)
+#
+# Each transaction runs as `kitd --work ID`, a child that keeps its output in data/queue/ID.log, so a
+# failing verb never takes kitd down and the paths, lock and journal are kit's own (lib/system.tcl
+# ::kit::system::scope: /var/lib/kit, /var/cache/kit, /etc/kit.conf).  The queue is on disk
+# (data/queue/ID): kitd started again picks up where it was; a transaction that was running when kitd
+# went away is marked as interrupted (exit code 2), and the next one's txn::recover finishes or undoes it.
+#
+# Environment (the tests'): KITD_ROOT (default /) the root the system scope lives under; KITD_IDLE seconds
+# with nothing to do before kitd leaves (default 60); KITD_BUS a bus address (default: the system bus).
+
+set kitlib [file join [file dirname [file dirname [file normalize [info script]]]] lib]
+if {![file exists [file join $kitlib core.tcl]]} { set kitlib [file dirname [file normalize [info script]]] }
+if {![file exists [file join $kitlib core.tcl]]} { set kitlib /usr/lib/ribbon/kit }
+if {[info exists env(KIT_LIB)]} { set kitlib $env(KIT_LIB) }
+encoding system utf-8
+fconfigure stdout -encoding utf-8
+fconfigure stderr -encoding utf-8
+source -encoding utf-8 [file join $kitlib core.tcl]
+
+namespace eval ::kitd {
+    variable self [file normalize [info script]]
+    variable verbs {grab check toss rewind mend list info}
+    variable action org.ribbon.kit.system
+    variable planAction org.ribbon.kit.system.plan
+    variable name org.ribbon.Kit1
+    variable path /org/ribbon/Kit1
+    variable iface org.ribbon.Kit1
+    variable bus ""
+    variable running ""      ;# the id of the transaction running now
+    variable child ""        ;# its pipe
+    variable seq 0
+    variable idleTimer ""
+    variable keep 20         ;# finished transactions kept (their entry and log)
+    variable asking 0        ;# Submits waiting for polkit's answer
+}
+
+proc ::kitd::env {k d} { return [::kit::env $k $d] }
+
+# ---- the queue on disk ---------------------------------------------------------------------------------
+proc ::kitd::job {id} { return [::kit::slurp [::kit::path queue $id] utf-8] }
+proc ::kitd::put {j} { ::kit::spit [::kit::path queue [dict get $j id]] $j ; ::kit::durable [::kit::path queue [dict get $j id]] }
+proc ::kitd::validId {id} { return [regexp {^[0-9]+-[0-9]+$} $id] }
+
+# ---- D-Bus methods -------------------------------------------------------------------------------------
+# The caller's uid, from the bus (the bus daemon read it with SO_PEERCRED when the caller connected).
+proc ::kitd::uidOf {sender} {
+    variable bus
+    return [lindex [$bus call org.freedesktop.DBus /org/freedesktop/DBus org.freedesktop.DBus GetConnectionUnixUser s $sender] 0]
+}
+
+proc ::kitd::Submit {msg words} { Enqueue $msg $words 0 }
+proc ::kitd::Start {msg words} { Enqueue $msg $words 1 }
+# ASK 1: plan first and wait for the answer (Start); 0: carry the verb out at once, the polkit answer being the consent
+# (Submit, for a script that names exactly what it wants).
+proc ::kitd::Enqueue {msg words ask} {
+    variable verbs ; variable bus ; variable action ; variable planAction
+    if {![llength $words] || [lindex $words 0] ni $verbs} {
+        throw {DBUS org.freedesktop.DBus.Error.InvalidArgs} "kitd runs [join $verbs {, }], not \"[lindex $words 0]\""
+    }
+    foreach w [lrange $words 1 end] {
+        if {[string index $w 0] eq "-" || [string match *\n* $w] || $w eq ""} {
+            throw {DBUS org.freedesktop.DBus.Error.InvalidArgs} "\"$w\" is not a kit name"
+        }
+    }
+    set sender [dict get $msg sender]
+    set uid [uidOf $sender]
+    $bus defer $msg
+    # not idle while polkit asks (an interactive authorization can take as long as the user takes)
+    variable asking ; variable idleTimer
+    incr asking ; after cancel $idleTimer
+    # the subject is the caller's bus name: polkit finds its process and session from it (no pid race)
+    set subject [list system-bus-name [dict create name [list s $sender]]]
+    set flags [expr {([dict get $msg flags] & 4) ? 1 : 0}]
+    $bus call -timeout 0 -command [list ::kitd::Authorized $msg $uid $words $ask] org.freedesktop.PolicyKit1 \
+        /org/freedesktop/PolicyKit1/Authority org.freedesktop.PolicyKit1.Authority CheckAuthorization \
+        (sa{sv})sa{ss}us $subject [expr {$ask ? $planAction : $action}] [dict create] $flags ""
+}
+proc ::kitd::Authorized {msg uid words ask status values} {
+    variable bus ; variable seq ; variable asking
+    incr asking -1
+    if {$status ne "ok"} {
+        idle
+        $bus error $msg org.freedesktop.DBus.Error.AccessDenied "polkit could not be asked: [lindex $values 1]"
+        return
+    }
+    lassign [lindex $values 0] yes challenge
+    if {!$yes} {
+        idle
+        $bus error $msg org.freedesktop.DBus.Error.AccessDenied [expr {$challenge ? "not authorized (authentication is needed)" : "not authorized"}]
+        return
+    }
+    set id [clock milliseconds]-[incr seq]
+    put [dict create id $id uid $uid words $words ask $ask state queued code "" submitted [clock seconds] started "" finished "" pid ""]
+    $bus reply $msg $id
+    changed
+    next
+}
+
+proc ::kitd::Cancel {msg id} {
+    if {![validId $id] || [catch {job $id} j]} { throw {DBUS org.freedesktop.DBus.Error.InvalidArgs} "no transaction $id" }
+    set uid [uidOf [dict get $msg sender]]
+    if {$uid != 0 && $uid != [dict get $j uid]} { throw {DBUS org.freedesktop.DBus.Error.AccessDenied} "$id was queued by someone else" }
+    # a transaction waiting for its plan's answer is cancelled by saying no to it
+    if {[dict get $j state] eq "running" && [file exists [::kit::path queue $id.plan]] && ![file exists [::kit::path queue $id.answer]]} {
+        ::kit::spit [::kit::path queue $id.answer] "no\n"
+        return
+    }
+    if {[dict get $j state] ne "queued"} { throw {DBUS org.ribbon.Kit1.Error.NotQueued} "$id is [dict get $j state]" }
+    file delete [::kit::path queue $id]
+    changed
+    idle
+    return
+}
+
+# The plan the worker of transaction ID is waiting with ("" when it is not waiting).  Like Job, for the one who started it and root.
+proc ::kitd::Plan {msg id} {
+    if {![validId $id] || [catch {job $id} j]} { throw {DBUS org.freedesktop.DBus.Error.InvalidArgs} "no transaction $id" }
+    set uid [uidOf [dict get $msg sender]]
+    if {$uid != 0 && $uid != [dict get $j uid]} { throw {DBUS org.freedesktop.DBus.Error.AccessDenied} "$id was started by someone else" }
+    if {[file exists [::kit::path queue $id.answer]] || [catch {::kit::slurp [::kit::path queue $id.plan] utf-8} text]} { return "" }
+    return $text
+}
+
+# Yes or no to the plan.  No is free; yes asks polkit (the strong action, interactive when the call allows it) for THIS caller,
+# and only then lets the worker go on: the person agreed to the plan the worker holds, and the worker is what carries it out.
+proc ::kitd::Answer {msg id yes} {
+    variable bus ; variable action ; variable asking ; variable idleTimer
+    if {![validId $id] || [catch {job $id} j]} { throw {DBUS org.freedesktop.DBus.Error.InvalidArgs} "no transaction $id" }
+    set sender [dict get $msg sender]
+    set uid [uidOf $sender]
+    if {$uid != 0 && $uid != [dict get $j uid]} { throw {DBUS org.freedesktop.DBus.Error.AccessDenied} "$id was started by someone else" }
+    if {![file exists [::kit::path queue $id.plan]] || [file exists [::kit::path queue $id.answer]]} {
+        throw {DBUS org.ribbon.Kit1.Error.NotAsking} "$id is not waiting for an answer"
+    }
+    if {!$yes} { ::kit::spit [::kit::path queue $id.answer] "no\n" ; return }
+    $bus defer $msg
+    incr asking ; after cancel $idleTimer
+    set subject [list system-bus-name [dict create name [list s $sender]]]
+    set flags [expr {([dict get $msg flags] & 4) ? 1 : 0}]
+    $bus call -timeout 0 -command [list ::kitd::Answered $msg $id] org.freedesktop.PolicyKit1 \
+        /org/freedesktop/PolicyKit1/Authority org.freedesktop.PolicyKit1.Authority CheckAuthorization \
+        (sa{sv})sa{ss}us $subject $action [dict create] $flags ""
+}
+proc ::kitd::Answered {msg id status values} {
+    variable bus ; variable asking
+    incr asking -1
+    if {$status ne "ok"} { idle ; $bus error $msg org.freedesktop.DBus.Error.AccessDenied "polkit could not be asked: [lindex $values 1]" ; return }
+    lassign [lindex $values 0] yes challenge
+    if {!$yes} {
+        idle
+        $bus error $msg org.freedesktop.DBus.Error.AccessDenied [expr {$challenge ? "not authorized (authentication is needed)" : "not authorized"}]
+        return
+    }
+    # the worker may have gone (cancelled, timed out) while polkit asked
+    if {![file exists [::kit::path queue $id.plan]] || [file exists [::kit::path queue $id.answer]]} {
+        idle
+        $bus error $msg org.ribbon.Kit1.Error.NotAsking "$id is not waiting for an answer any more"
+        return
+    }
+    ::kit::spit [::kit::path queue $id.answer] "yes\n"
+    $bus reply $msg
+    idle
+}
+
+proc ::kitd::Queue {msg} {
+    set out {}
+    foreach j [::kit::system::queue] {
+        if {[dict get $j state] eq "done"} continue
+        lappend out [list [dict get $j id] [dict get $j state] [dict get $j uid] [dict get $j words]]
+    }
+    return $out
+}
+
+# What a transaction printed is for the one who queued it and root only: it can name mirrors as configured (a
+# URL with its user and password included, from a root-only repository file) and the submitter's own files.
+proc ::kitd::Job {msg id} {
+    if {![validId $id] || [catch {job $id} j]} { throw {DBUS org.freedesktop.DBus.Error.InvalidArgs} "no transaction $id" }
+    set uid [uidOf [dict get $msg sender]]
+    if {$uid != 0 && $uid != [dict get $j uid]} { throw {DBUS org.freedesktop.DBus.Error.AccessDenied} "$id was queued by someone else" }
+    set lines {}
+    if {![catch {::kit::slurp [::kit::path queue $id.log] utf-8} log]} { set lines [split [string trimright $log \n] \n] }
+    set code [expr {[string is integer -strict [dict get $j code]] ? [dict get $j code] : -1}]
+    return [list [dict get $j state] $code $lines]
+}
+
+proc ::kitd::Pending {msg} {
+    set out {}
+    foreach p [::kit::system::pending] { lappend out [list kit {*}$p] }
+    foreach s [::kit::system::stale] { lassign $s comm kit pid ; lappend out [list process $comm $pid] }
+    return $out
+}
+
+proc ::kitd::changed {} {
+    variable bus ; variable path ; variable iface
+    $bus emit $path $iface Changed
+}
+
+# ---- running the queue ------------------------------------------------------------------------------------
+proc ::kitd::next {} {
+    variable running ; variable child ; variable self ; variable idleTimer
+    if {$running ne ""} return
+    after cancel $idleTimer
+    foreach j [::kit::system::queue] {
+        if {[dict get $j state] ne "queued"} continue
+        set id [dict get $j id]
+        set running $id
+        set ::env(KITD_JOB) $id
+        set child [open |[list [info nameofexecutable] $self --work $id 2>@1] r]
+        unset ::env(KITD_JOB)
+        fconfigure $child -blocking 0 -translation binary
+        dict set j state running ; dict set j started [clock seconds] ; dict set j pid [pid $child]
+        put $j
+        changed
+        fileevent $child readable [list ::kitd::Drain $id]
+        return
+    }
+    idle
+}
+# the pipe only says when the worker is gone (it writes its output to its log itself, so it outlives kitd)
+proc ::kitd::Drain {id} {
+    variable child ; variable running ; variable bus ; variable path ; variable iface
+    read $child
+    if {![eof $child]} return
+    fconfigure $child -blocking 1
+    set code 0
+    if {[catch {close $child} err opts]} {
+        set ec [dict get $opts -errorcode]
+        set code [expr {[lindex $ec 0] eq "CHILDSTATUS" ? [lindex $ec 2] : 2}]
+    }
+    set child "" ; set running ""
+    if {![catch {job $id} j]} {
+        # the worker wrote its own code; a worker that died without one failed
+        if {![string is integer -strict [dict get $j code]]} { dict set j code $code }
+        dict set j state done ; dict set j finished [clock seconds]
+        put $j
+        set code [dict get $j code]
+    }
+    prune
+    $bus emit $path $iface Finished si $id $code
+    changed
+    next
+}
+# A transaction kitd did not start (it was running when kitd went away): while its worker still runs, nothing
+# else starts; when it is gone, it is done with the code it wrote, or 2 (interrupted: the next transaction's
+# txn::recover finishes or undoes what it left).
+proc ::kitd::Orphan {id} {
+    variable running ; variable bus ; variable path ; variable iface
+    if {[catch {job $id} j]} { set running "" ; next ; return }
+    if {[worker [dict get $j pid] $id] && [dict get $j code] eq ""} {
+        set running $id
+        after 500 [list ::kitd::Orphan $id]
+        return
+    }
+    set running ""
+    if {![string is integer -strict [dict get $j code]]} { dict set j code 2 }
+    dict set j state done ; dict set j finished [clock seconds]
+    put $j
+    $bus emit $path $iface Finished si $id [dict get $j code]
+    changed
+    next
+}
+# is PID still the worker of transaction ID (not another process that has its pid now, after a reboot say)?
+proc ::kitd::worker {pid id} {
+    if {![::kit::pidAlive $pid] || [catch {::kit::slurp /proc/$pid/cmdline} cl]} { return 0 }
+    set argv [split [string trimright $cl \0] \0]
+    return [expr {[lrange $argv end-1 end] eq [list --work $id]}]
+}
+# keep the newest finished transactions (entry and log), drop the rest
+proc ::kitd::prune {} {
+    variable keep
+    set done [lmap j [::kit::system::queue] { expr {[dict get $j state] eq "done" ? [dict get $j id] : [continue]} }]
+    foreach id [lrange $done 0 end-$keep] { file delete [::kit::path queue $id] [::kit::path queue $id.log] }
+}
+# nothing queued, nothing running: leave after KITD_IDLE seconds (the bus starts kitd again when asked)
+proc ::kitd::idle {} {
+    variable idleTimer ; variable running ; variable asking
+    after cancel $idleTimer
+    if {$running ne "" || $asking > 0} return
+    foreach j [::kit::system::queue] { if {[dict get $j state] ne "done"} return }
+    set idleTimer [after [expr {int([env KITD_IDLE 60] * 1000)}] ::kitd::leave]
+}
+proc ::kitd::leave {args} {
+    variable bus ; variable name
+    catch {$bus release $name}
+    catch {$bus close}
+    exit 0
+}
+
+# ---- one transaction (kitd --work ID) ---------------------------------------------------------------------
+# The verb runs as `kit` would run it (bin/kit main), in system scope, with --yes: whoever submitted it was
+# asked by their own front end and polkit, and nobody is at this process's terminal.
+proc ::kitd::work {id} {
+    variable log
+    set j [job $id]
+    # what the verb prints, on stdout or stderr, goes to data/queue/ID.log: written here, not through kitd, so
+    # the transaction finishes and says how even when kitd goes away meanwhile
+    # (0600: it can name mirrors as configured and the submitter's files; Job hands it to that user and root only)
+    set log [open [::kit::path queue $id.log] {WRONLY CREAT APPEND} 0600]
+    fconfigure $log -encoding utf-8 -buffering line
+    rename ::puts ::kitd::Puts
+    proc ::puts {args} {
+        set nl [expr {[lindex $args 0] ne "-nonewline"}]
+        if {!$nl} { set args [lrange $args 1 end] }
+        if {[llength $args] == 1} { set args [list stdout [lindex $args 0]] }
+        lassign $args ch s
+        if {$ch in {stdout stderr}} { set ch $::kitd::log }
+        if {$nl} { ::kitd::Puts $ch $s } else { ::kitd::Puts -nonewline $ch $s }
+    }
+    set words [dict get $j words]
+    set rc [catch {
+        set verb [lindex $words 0]
+        ::kit::load $verb
+        if {[namespace exists ::kit::ui]} {
+            if {[dict exists $j ask] && [dict get $j ask]} {
+                # Start: the plan is shown to whoever started it, and the answer waited for (askui below)
+                set ::kit::ui::renderer ::kitd::askui
+                set ::kit::ui::yes 0
+            } else {
+                set ::kit::ui::yes 1
+            }
+        }
+        ::kit::prologue
+        # a recovery that finishes a switch also brings the /usr view to the set (plan.tcl adds it for a change)
+        if {"::kit::system::afterSwitch" ni $::kit::txn::afterSwitch} { lappend ::kit::txn::afterSwitch ::kit::system::afterSwitch }
+        ::kit::txn::recover
+        set B [::kit::store::load]
+        set V [string toupper [string index $verb 0]][string range $verb 1 end]
+        set code [::kit::verbs::$V {*}[lrange $words 1 end]]
+        if {$::kit::txn::last ne ""} { ::kit::system::settle $B [::kit::store::load] }
+        set code
+    } res opts]
+    if {$rc} {
+        set ec [dict get $opts -errorcode]
+        switch -- [lindex $ec 0] {
+            KIT { set code [lindex $ec 1] }
+            KITFMT { set code [expr {[lindex $ec 1] in {CONFIG NOENT EXISTS} ? 2 : 4}] }
+            KITTRUST { set code [expr {[lindex $ec 1] in {IO CONFIG} ? 2 : 4}] }
+            default { set code 2 ; puts stderr [dict get $opts -errorinfo] }
+        }
+        catch {::kit::unlock}
+        puts stderr "kit: $res"
+    } else {
+        set code [expr {[string is integer -strict $res] ? $res : 0}]
+    }
+    close $log
+    set j [job $id]
+    dict set j code $code
+    put $j
+    return $code
+}
+# The renderer of a transaction that was Started: show hands the plan to Plan (queue/ID.plan) and waits for Answer's yes or
+# no (queue/ID.answer, written by the kitd that holds the bus); what is said after the change goes on as it does.
+# KITD_ASK_TIMEOUT is how long it waits (900 s): nobody answering is a no.
+proc ::kitd::askui {op a b c d} {
+    switch -- $op {
+        show {
+            set id [::kit::env KITD_JOB ""]
+            set plan [::kit::path queue $id.plan] ; set answer [::kit::path queue $id.answer]
+            file delete $answer
+            ::kit::spit $plan [dict create rows $a question $b default $c]
+            set end [expr {[clock seconds] + [::kit::env KITD_ASK_TIMEOUT 900]}]
+            set reply no
+            while {[clock seconds] < $end} {
+                if {![catch {::kit::slurp $answer utf-8} t]} { set reply [string trim $t] ; break }
+                after 200
+            }
+            file delete $plan $answer
+            return [expr {$reply eq "yes"}]
+        }
+        default { return [::kit::ui::term $op $a $b $c $d] }
+    }
+}
+
+# ---- main ----------------------------------------------------------------------------------------------
+namespace eval ::kit {
+    # the modules each verb needs (bin/kit's table) and system.tcl, which holds the system scope
+    variable needs {
+        grab  {ui repo net store plan system verbs txn launch}
+        check {ui repo net store plan system verbs txn}
+        toss  {ui repo net store plan system verbs txn}
+        rewind {ui repo net store plan system verbs txn launch}
+        list  {store verbs txn system}
+        info  {repo net store plan system verbs txn ui}
+        mend  {repo net store plan system verbs txn ui}
+    }
+    proc load {verb} { variable needs ; need {*}[dict get $needs $verb] }
+    proc selfCmd {} { return /usr/bin/kit }
+}
+
+# kitd runs as root from the bus's launch helper, which may leave HOME out; its own paths are the system scope's
+# (set just below), and kit's init wants a home folder for the user scope it is about to leave
+if {![info exists ::env(HOME)] || $::env(HOME) eq ""} { set ::env(HOME) /root }
+::kit::init
+::kit::need system
+::kit::system::scope [::kitd::env KITD_ROOT /]
+
+# kitd --root ROOT VERB WORD...: system kits into a root that is not the running system (an install's target, an image
+# being built).  No bus, no polkit, no queue: root runs it, the verb's output is this process's, its exit code the
+# verb's.  The kits come from the running system's repositories and keys (/etc/kit.conf; KIT_CONF names another);
+# no snapshot is taken, no kernel made bootable, no service touched.  The /usr view is left MOUNTED at ROOT/usr (an
+# installer's chroot steps need it; an image builder unmounts it), and its device list names the kits as the
+# installed system will see them, which is what the initramfs reads at boot.
+if {[lindex $argv 0] eq "--root"} {
+    set root [lindex $argv 1]
+    set words [lrange $argv 2 end]
+    if {[catch {exec id -u} uid] || $uid != 0} { puts stderr "kitd: --root is root's" ; exit 2 }
+    if {$root eq "" || [file pathtype $root] ne "absolute" || ![file isdirectory $root] || [file normalize $root] eq "/"} {
+        puts stderr "kitd: --root needs a directory that is not / (the running system is changed through the bus)" ; exit 2
+    }
+    if {[lindex $words 0] ni {grab toss check mend list info}} { puts stderr "kitd: --root ROOT grab|toss|check|mend|list|info ..." ; exit 2 }
+    ::kit::system::scope $root 1
+    set rc [catch {
+        set verb [lindex $words 0]
+        ::kit::load $verb
+        if {[namespace exists ::kit::ui]} { set ::kit::ui::yes 1 }
+        ::kit::prologue
+        if {"::kit::system::afterSwitch" ni $::kit::txn::afterSwitch} { lappend ::kit::txn::afterSwitch ::kit::system::afterSwitch }
+        ::kit::txn::recover
+        ::kit::verbs::[string toupper [string index $verb 0]][string range $verb 1 end] {*}[lrange $words 1 end]
+    } res opts]
+    if {$rc} {
+        set ec [dict get $opts -errorcode]
+        switch -- [lindex $ec 0] {
+            KIT { set code [lindex $ec 1] }
+            KITFMT { set code [expr {[lindex $ec 1] in {CONFIG NOENT EXISTS} ? 2 : 4}] }
+            KITTRUST { set code [expr {[lindex $ec 1] in {IO CONFIG} ? 2 : 4}] }
+            default { set code 2 ; puts stderr [dict get $opts -errorinfo] }
+        }
+        catch {::kit::unlock}
+        puts stderr "kit: $res"
+        exit $code
+    }
+    exit [expr {[string is integer -strict $res] ? $res : 0}]
+}
+
+if {[lindex $argv 0] eq "--work"} {
+    set ::kitd::workId [lindex $argv 1]
+    if {![::kitd::validId $::kitd::workId]} { puts stderr "kitd: no transaction [lindex $argv 1]" ; exit 2 }
+    exit [::kitd::work $::kitd::workId]
+}
+
+lappend auto_path /usr/lib/ribbon [file join [file dirname [file dirname [file dirname [file dirname [file normalize [info script]]]]]] ribbon-desktop files]
+package require ribbon::dbus
+file mkdir [::kit::path queue]
+set ::kitd::bus [ribbon::dbus::connect [::kitd::env KITD_BUS system] -onclose ::kitd::leave]
+$::kitd::bus export $::kitd::path $::kitd::iface {
+    method Submit as s ::kitd::Submit
+    method Start as s ::kitd::Start
+    method Plan s s ::kitd::Plan
+    method Answer sb "" ::kitd::Answer
+    method Cancel s "" ::kitd::Cancel
+    method Queue "" a(ssuas) ::kitd::Queue
+    method Job s (sias) ::kitd::Job
+    method Pending "" a(sss) ::kitd::Pending
+    signal Changed ""
+    signal Finished si
+}
+if {[$::kitd::bus request $::kitd::name -noqueue 1] ne "primary"} { puts stderr "kitd: $::kitd::name is taken" ; exit 1 }
+# what was left: a transaction that was running when kitd went away
+foreach j [::kit::system::queue] {
+    if {[dict get $j state] eq "running"} { ::kitd::Orphan [dict get $j id] }
+}
+::kitd::next
+vwait forever

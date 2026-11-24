@@ -1,0 +1,13 @@
+#!/bin/sh
+# A stand-in for nvidia-smi: one card, and two processes in pmon's table.
+case "${1:-}" in
+--query-gpu=*) echo "NVIDIA GeForce RTX 4070, 43, 3072, 12282, 61, 35, 118.50, 200.00" ;;
+pmon) cat <<'T'
+# gpu         pid   type     sm    mem    enc    dec    jpg    ofa     fb   ccpm    command
+# Idx           #    C/G      %      %      %      %      %      %     MB     MB    name
+    0       4242     G     37     12      -      -      -      -   2048      0    game
+    0       4243     G      -      -      -      -      -      -     64      0    Xwayland
+T
+;;
+*) exit 1 ;;
+esac

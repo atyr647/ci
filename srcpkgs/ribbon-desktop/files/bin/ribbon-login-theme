@@ -1,0 +1,323 @@
+#!/usr/bin/tclsh
+# ribbon-login-theme - the login screen's colours and background, for
+# everyone: the one privileged step behind "ribbon-theme login" (and the
+# Appearance app). Runs as root through pkexec (polkit action
+# org.ribbon.login-theme: an admin at the machine needs no password,
+# anyone else is asked for an admin's).
+#
+#   pkexec /usr/lib/ribbon/ribbon-login-theme set-palette FILE
+#   pkexec /usr/lib/ribbon/ribbon-login-theme set-background ribbon|FILE
+#   pkexec /usr/lib/ribbon/ribbon-login-theme set-options KEY=VALUE...
+#   /usr/lib/ribbon/ribbon-login-theme show          (needs no privileges)
+#
+# set-palette checks every line of FILE (only the palette keys Ribbon knows,
+# #RRGGBB colours, numbers in range) and installs a clean copy, written
+# here, as /etc/ribbon/palette.conf. set-background takes a PNG, JPEG or
+# WebP picture (the type from its header, never its name; at most 32 MB and
+# 16384 px a side) and installs it as /etc/ribbon/login/background.<type>;
+# "ribbon" goes back to the striped Ribbon pattern in the login palette.
+# The greeter, unprivileged, scales and crops the picture to the screen.
+# set-options sets how the login screen looks, in
+# /etc/ribbon/login/options.conf (the keys not given are kept):
+#   FIT=fill|fit|centre|tile   how the picture is laid out
+#   BLUR=0..64                 blur the picture by this many px
+#   DIM=0..100                 darken the background by this many percent
+#   CLOCK=yes|no               show the clock and the date
+#   COLOUR=#RRGGBB or empty    a plain colour when there is no picture
+#                              (empty: the ribbon pattern); around a fitted one
+#
+# Safety: FILE is an absolute path, read with the caller's own rights (as
+# PKEXEC_UID, through setpriv), so nobody can show a file they couldn't
+# read. The output names are fixed; nothing is written through a symlink:
+# new files are created beside the target with O_EXCL and renamed over it,
+# and /etc/ribbon and /etc/ribbon/login must be real root-owned
+# directories that only root can write.
+#
+# Tests: RIBBON_LOGIN_ROOT=DIR works on DIR/etc instead of /etc (pkexec
+# clears the environment, so callers through polkit can't set it).
+
+set here [file dirname [file normalize [info script]]]
+foreach d [list [file join $here shell] [file join [file dirname $here] shell] /usr/lib/ribbon/shell] {
+	if {[file exists $d/wall.tcl]} { source -encoding utf-8 $d/wall.tcl; break }
+}
+
+set MAX_PALETTE 16384
+set MAX_PICTURE [expr {32 * 1024 * 1024}]
+set MAX_SIDE 16384
+set MAX_PIXELS [expr {64 * 1000 * 1000}]
+
+# key -> kind, in the order the installed file lists them
+set KEYS {
+	NAME text
+	BAR colour FIELD colour PILL colour BORDER colour FG colour MUTED colour
+	ACCENT colour ACCENT2 colour INK colour CLOCK colour OK colour WARN colour CRIT colour
+	DESK_TOP colour DESK_BOTTOM colour DESK_STRIPE colour DESK_STRIPE_ALPHA alpha
+	DESK_MARK colour DESK_MARK_ALPHA alpha
+	ON_ACCENT colour WIN colour BAR_SHADOW shadow
+	GTK_THEME word ICON_THEME word BG colour SURFACE colour SURFACE2 colour
+	SYN_KW colour SYN_FN colour SYN_VAR colour SYN_STR colour SYN_NUM colour
+	SYN_COM colour SYN_OPT colour SYN_PUN colour SYN_NUM0 colour
+	LINE colour VADD colour VMOD colour VDEL colour ERR colour
+	MATCH colour MATCH_ALPHA alpha WELL colour WELL_ALPHA alpha
+}
+
+proc die {msg {code 1}} { puts stderr "ribbon-login-theme: $msg"; exit $code }
+proc usage {} {
+	die "usage: ribbon-login-theme set-palette FILE | set-background ribbon|FILE | set-options KEY=VALUE... | show" 2
+}
+
+proc root {} {
+	if {![info exists ::env(RIBBON_LOGIN_ROOT)] || $::env(RIBBON_LOGIN_ROOT) eq ""} { return "" }
+	set r $::env(RIBBON_LOGIN_ROOT)
+	if {[file pathtype $r] ne "absolute"} { die "RIBBON_LOGIN_ROOT must be an absolute path" 2 }
+	return [string trimright $r /]
+}
+proc etc {} { return [root]/etc }
+
+# ---- reading what the caller gave ---------------------------------------
+
+# FILE's bytes, at most MAX, read as the user who ran pkexec.
+proc slurp {file max} {
+	if {[file pathtype $file] ne "absolute"} { die "$file: give an absolute path" 2 }
+	if {[info exists ::env(PKEXEC_UID)]} {
+		set uid $::env(PKEXEC_UID)
+		if {![string is digit -strict $uid]} { die "bad PKEXEC_UID" }
+		if {[auto_execok setpriv] eq ""} { die "setpriv is missing; refusing to read $file as root" }
+		set gid [exec id -g $uid]
+		set cmd [list setpriv --reuid=$uid --regid=$gid --init-groups --no-new-privs --]
+	} else {
+		set cmd {}
+	}
+	# head opens FILE (as the caller) and stops after MAX + 1 bytes; timeout
+	# so that a FIFO can't hold root's process forever
+	lappend cmd head -c [expr {$max + 1}] -- $file
+	if {[catch {open |[list timeout 20 {*}$cmd 2>@stderr] rb} fh]} { die "cannot read $file" }
+	fconfigure $fh -translation binary
+	set d [read $fh]
+	if {[catch {close $fh}]} { die "cannot read $file" }
+	if {[string length $d] > $max} { die "$file: too big (at most $max bytes)" }
+	return $d
+}
+
+# ---- the palette -------------------------------------------------------
+
+proc check_value {kind v} {
+	set A {(?:0|1|0?\.[0-9]{1,4}|1\.0{1,4})}
+	switch -- $kind {
+		colour { return [regexp {^#[0-9A-Fa-f]{6}$} $v] }
+		alpha  { return [regexp "^$A\$" $v] }
+		shadow {
+			# CSS "0 DYpx BLURpx rgba(COLOUR, ALPHA)": dy, blur, alpha, ?#colour?
+			if {![regexp "^(-?\[0-9\]{1,2}) (\[0-9\]{1,2}) ${A}(?: (#\[0-9A-Fa-f\]{6}))?\$" $v -> dy blur]} { return 0 }
+			return [expr {abs($dy) <= 32 && $blur <= 48}]
+		}
+		word   { return [regexp {^[A-Za-z0-9][A-Za-z0-9._+-]{0,63}$} $v] }
+		text   { return [expr {[string length $v] <= 48 && [regexp {^[[:print:]]+$} $v] && ![regexp {["'\\$`]} $v]}] }
+	}
+	return 0
+}
+
+# The checked palette as a dict, or an error naming the first bad line.
+proc parse_palette {bytes} {
+	if {[string first \0 $bytes] >= 0} { error "it is not a text file" }
+	set text [encoding convertfrom utf-8 $bytes]
+	if {[encoding convertto utf-8 $text] ne $bytes} { error "it is not UTF-8 text" }
+	set pal [dict create]
+	set n 0
+	foreach line [split $text \n] {
+		incr n
+		if {[regexp {[\x00-\x08\x0a-\x1f\x7f]} $line]} { error "line $n: control characters" }
+		set line [string trim $line " \t"]
+		if {$line eq "" || [string index $line 0] eq "#"} continue
+		if {![regexp {^([A-Za-z0-9_]+)=(.*)$} $line -> k v]} { error "line $n: not KEY=VALUE" }
+		if {![dict exists $::KEYS $k]} { error "line $n: unknown key '$k'" }
+		if {[dict exists $pal $k]} { error "line $n: $k given twice" }
+		if {[regexp {^"([^"]*)"$} $v -> inner] || [regexp {^'([^']*)'$} $v -> inner]} { set v $inner }
+		set kind [dict get $::KEYS $k]
+		if {![check_value $kind $v]} {
+			error "line $n: bad value for $k ([dict get {colour {a colour, #RRGGBB} alpha {a number from 0 to 1}
+				shadow {"DY BLUR ALPHA #RRGGBB"} word {a theme name} text {up to 48 characters, no quotes}} $kind])"
+		}
+		if {$kind eq "colour"} { set v [string toupper $v] }
+		dict set pal $k $v
+	}
+	if {[dict size [dict remove $pal NAME GTK_THEME ICON_THEME]] == 0} { error "no colours in it" }
+	return $pal
+}
+
+proc format_palette {pal id} {
+	set out "# The login screen's palette, installed by ribbon-login-theme\n"
+	append out "# (ribbon-theme login <scheme>). Edit with that, not by hand.\n"
+	if {$id ne ""} { append out "# id: $id\n" }
+	foreach {k kind} $::KEYS {
+		if {![dict exists $pal $k]} continue
+		set v [dict get $pal $k]
+		if {$kind in {text shadow}} { set v "\"$v\"" }
+		append out "$k=$v\n"
+	}
+	return $out
+}
+
+# ---- writing, never through a symlink ------------------------------------
+
+proc euid {} {
+	if {![info exists ::euid]} { set ::euid [exec id -u] }
+	return $::euid
+}
+
+# DIR must be a real directory owned by us (root) that no one else can write;
+# create it (0755) if it is missing.
+proc safe_dir {dir} {
+	if {[catch {file lstat $dir st}]} {
+		if {[catch {file mkdir $dir} err]} { die "cannot create $dir: $err" }
+		file attributes $dir -permissions 0755
+		file lstat $dir st
+	}
+	if {$st(type) ne "directory"} { die "$dir is a $st(type), not a directory; not writing there" }
+	if {$st(uid) != [euid]} { die "$dir is not owned by root; not writing there" }
+	if {$st(mode) & 0022} { die "$dir can be written by others; not writing there" }
+}
+
+# Replace TARGET (a fixed name in a checked directory) with DATA atomically.
+proc install {target data} {
+	set dir [file dirname $target]
+	set tmp [file join $dir .[file tail $target].[pid].[clock clicks]]
+	if {[catch {open $tmp {WRONLY CREAT EXCL BINARY} 0644} fh]} { die "cannot write in $dir: $fh" }
+	if {[catch {puts -nonewline $fh $data; close $fh} err]} { catch {close $fh}; file delete -- $tmp; die "cannot write $tmp: $err" }
+	file attributes $tmp -permissions 0644
+	if {![catch {file lstat $target st}]} {
+		switch -- $st(type) {
+			file {}
+			link { file delete -- $target }
+			default { file delete -- $tmp; die "$target is a $st(type); not replacing it" }
+		}
+	}
+	# a plain rename(2): the target name itself is replaced
+	if {[catch {file rename -force -- $tmp $target} err]} { file delete -- $tmp; die "cannot install $target: $err" }
+}
+
+# Remove a file or symlink (never what a link points to, never a directory).
+proc remove {f} {
+	if {![catch {file lstat $f st}] && $st(type) in {file link}} { file delete -- $f }
+}
+
+proc writable_dirs {args} {
+	if {[root] eq "" && [euid] != 0} { die "run me through pkexec (ribbon-theme login ...)" }
+	if {[catch {file lstat [etc] st}] || $st(type) ne "directory"} { die "[etc] is not a directory" }
+	foreach d $args { safe_dir $d }
+}
+
+proc set_palette {file} {
+	set bytes [slurp $file $::MAX_PALETTE]
+	if {[catch {parse_palette $bytes} pal]} { die "$file: $pal" }
+	set id [file rootname [file tail $file]]
+	if {![regexp {^[a-z0-9][a-z0-9._-]{0,63}$} $id] || [file extension $file] ne ".conf"} { set id "" }
+	writable_dirs [etc]/ribbon
+	install [etc]/ribbon/palette.conf [format_palette $pal $id]
+	puts "login palette: [expr {[dict exists $pal NAME] ? [dict get $pal NAME] : $id}]"
+}
+
+# ---- the background ----------------------------------------------------
+
+# The picture's type from its first bytes, and its size from its header.
+proc picture_type {d} {
+	if {[string range $d 0 7] eq "\x89PNG\r\n\x1a\n"} {
+		if {[string range $d 8 15] ne "\x00\x00\x00\x0dIHDR"} { error "a broken PNG" }
+		set t png
+	} elseif {[string range $d 0 2] eq "\xff\xd8\xff"} {
+		set t jpg
+	} elseif {[string range $d 0 3] eq "RIFF" && [string range $d 8 11] eq "WEBP"} {
+		binary scan $d @4iu riff
+		if {[string range $d 12 15] ni {"VP8 " VP8L VP8X} || $riff + 8 > [string length $d]} { error "a broken WebP" }
+		set t webp
+	} else {
+		error "not a PNG, JPEG or WebP picture"
+	}
+	if {[catch {wall::image_size_data $d} wh] || [llength $wh] != 2} { error "a broken [string toupper $t] (no size in its header)" }
+	lassign $wh w h
+	if {$w < 1 || $h < 1 || $w > $::MAX_SIDE || $h > $::MAX_SIDE || $w * $h > $::MAX_PIXELS} {
+		error "${w}x$h is out of range (1 to $::MAX_SIDE px a side, at most [expr {$::MAX_PIXELS / 1000000}] megapixels)"
+	}
+	return [list $t $w $h]
+}
+
+proc set_background {what} {
+	set dir [etc]/ribbon/login
+	if {$what eq "ribbon"} {
+		writable_dirs [etc]/ribbon $dir
+		foreach e {png jpg webp} { remove $dir/background.$e }
+		puts "login background: the ribbon pattern"
+		return
+	}
+	set d [slurp $what $::MAX_PICTURE]
+	if {[catch {picture_type $d} info]} { die "$what: $info" }
+	lassign $info t w h
+	writable_dirs [etc]/ribbon $dir
+	install $dir/background.$t $d
+	foreach e {png jpg webp} { if {$e ne $t} { remove $dir/background.$e } }
+	puts "login background: [string toupper $t] ${w}x$h"
+}
+
+# ---- options -----------------------------------------------------------
+
+set OPTIONS {FIT {^(fill|fit|centre|tile)$} BLUR {^([0-9]|[1-5][0-9]|6[0-4])$} DIM {^([0-9]|[1-9][0-9]|100)$}
+	CLOCK {^(yes|no)$} COLOUR {^(#[0-9A-Fa-f]{6})?$}}
+
+# options.conf as a dict (only the keys and values above)
+proc read_options {} {
+	set d {}
+	if {[catch {open [etc]/ribbon/login/options.conf} fh]} { return $d }
+	foreach line [split [read $fh 4096] \n] {
+		if {[regexp {^([A-Z]+)=(.*)$} $line -> k v] && [dict exists $::OPTIONS $k] && [regexp [dict get $::OPTIONS $k] $v]} {
+			dict set d $k $v
+		}
+	}
+	close $fh
+	return $d
+}
+
+proc set_options {args} {
+	if {![llength $args]} usage
+	set d [read_options]
+	foreach a $args {
+		if {![regexp {^([A-Z]+)=(.*)$} $a -> k v] || ![dict exists $::OPTIONS $k]} { die "unknown option '$a' (FIT, BLUR, DIM, CLOCK, COLOUR)" 2 }
+		if {![regexp [dict get $::OPTIONS $k] $v]} { die "bad value for $k: '$v'" 2 }
+		dict set d $k [expr {$k eq "COLOUR" ? [string toupper $v] : $v}]
+	}
+	set out "# How the login screen looks, set by ribbon-login-theme\n# (ribbon-theme login options, the Appearance app).\n"
+	foreach k [dict keys $::OPTIONS] { if {[dict exists $d $k]} { append out "$k=[dict get $d $k]\n" } }
+	writable_dirs [etc]/ribbon [etc]/ribbon/login
+	install [etc]/ribbon/login/options.conf $out
+	puts "login options: [join [lmap k [dict keys $::OPTIONS] { expr {[dict exists $d $k] ? "$k=[dict get $d $k]" : [continue]} }] { }]"
+}
+
+# ---- show --------------------------------------------------------------
+
+proc show {} {
+	set f [etc]/ribbon/palette.conf
+	if {[file isfile $f] && ![catch {open $f} fh]} {
+		set text [read $fh]; close $fh
+		set name ""; set id ""
+		regexp -line {^NAME="?([^"]*)"?$} $text -> name
+		regexp -line {^# id: (\S+)} $text -> id
+		puts "PALETTE=$f\nPALETTE_ID=$id\nPALETTE_NAME=$name"
+	} else {
+		puts "PALETTE=\nPALETTE_ID=ribbon\nPALETTE_NAME=Graphite"
+	}
+	set bg ribbon; set bt -1
+	foreach e {png jpg webp} {
+		set p [etc]/ribbon/login/background.$e
+		if {[file isfile $p] && [file mtime $p] > $bt} { set bg $p; set bt [file mtime $p] }
+	}
+	puts "BACKGROUND=$bg"
+	dict for {k v} [read_options] { puts "$k=$v" }
+}
+
+lassign $argv cmd arg
+switch -- $cmd {
+	set-palette    { if {[llength $argv] != 2} usage; set_palette $arg }
+	set-background { if {[llength $argv] != 2} usage; set_background $arg }
+	set-options    { set_options {*}[lrange $argv 1 end] }
+	show           { if {[llength $argv] != 1} usage; show }
+	default        usage
+}

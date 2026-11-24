@@ -1,0 +1,22 @@
+# bc: the arbitrary-precision calculator language; the kernel's build computes its time constants with it.
+name=bc
+kit=org.gnu.bc
+version=1.08.2
+revision=1
+summary="An arbitrary-precision calculator language"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/bc/bc-1.08.2.tar.gz"
+sha256="ae470fec429775653e042015edc928d07c8c3b2fc59765172a330d3d87785f86"
+srcdir="bc-1.08.2"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.westes.flex org.gnu.bison"
+
+build() {
+	./configure --prefix=/usr --without-readline --without-libedit
+	# configure writes doc/texi-ver.incl anew, which makes the shipped bc.info and dc.info look stale to make (and
+	# there is no makeinfo here): they are what the sources carry, unchanged
+	touch doc/bc.info doc/dc.info
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

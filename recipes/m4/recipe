@@ -1,0 +1,19 @@
+# m4: bison runs it; gmp is built with it.
+name=m4
+kit=org.gnu.m4
+version=1.4.20
+revision=1
+summary="The GNU macro processor"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/m4/m4-1.4.20.tar.xz"
+sha256="e236ea3a1ccf5f6c270b1c4bb60726f371fa49459a8eaaebc90b216b328daf2b"
+srcdir="m4-1.4.20"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

@@ -1,0 +1,19 @@
+# mpfr: the compiler needs it.
+name=mpfr
+kit=org.mpfr.mpfr
+version=4.2.2
+revision=1
+summary="Multiple precision floating point with correct rounding"
+license="LGPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/mpfr/mpfr-4.2.2.tar.xz"
+sha256="b67ba0383ef7e8a8563734e2e889ef5ec3c3b898a01d00fa0a6869ad81c6ce01"
+srcdir="mpfr-4.2.2"
+needs="org.gnu.glibc org.gmplib.gmp"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gmplib.gmp"
+
+build() {
+	./configure --prefix=/usr --disable-static --enable-thread-safe
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

@@ -1,0 +1,19 @@
+# libxrender: the X Render extension (anti-aliased drawing).
+name=libxrender
+kit=org.x.libxrender
+version=0.9.13
+revision=1
+summary="The X Render extension"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libXrender-0.9.13.tar.xz"
+sha256="3fe88c609df6782e1e7af2e4de36b2563d70cd70ff7dcb1cda561ad64912bb64"
+srcdir="libXrender-0.9.13"
+needs="org.gnu.glibc org.x.libx11"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.x.xorgproto org.x.libx11"
+
+build() {
+	./configure --prefix=/usr --disable-static --without-xmlto --without-fop --without-xsltproc --disable-specs
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

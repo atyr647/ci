@@ -1,0 +1,6 @@
+# hostname, utmp/wtmp, RNG seed, machine-id, /var/log/dinit, rc.local
+type = scripted
+command = /usr/lib/ribbon/boot.sh misc
+restart = false
+log-type = buffer
+depends-on: early-filesystems

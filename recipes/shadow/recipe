@@ -1,0 +1,41 @@
+# shadow: accounts and passwords (useradd, usermod, groupadd, passwd, chpasswd, login, su, newgrp and the rest), with
+# /etc/login.defs as a default. groups is left to coreutils. With PAM: login, su, passwd and the rest ask Linux-PAM,
+# through Ribbon's files (files/pam.d, /etc defaults: upstream's name modules this stack does not have, pam_securetty,
+# pam_console and pam_selinux). Without the optional libraries, each named off. su, passwd, newgrp and the others that
+# must be are installed setuid root.
+name=shadow
+kit=io.github.shadow-maint.shadow
+version=4.20.0
+revision=2
+summary="Account and password tools"
+license="BSD-3-Clause"
+source="https://github.com/shadow-maint/shadow/releases/download/4.20.0/shadow-4.20.0.tar.xz"
+sha256="239781632846db3b01901028147fb4b57e6f2d5330ca63ce104b21d9b3e6031f"
+srcdir="shadow-4.20.0"
+needs="org.gnu.glibc io.github.besser82.libxcrypt io.github.linux-pam.linux-pam"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf io.github.besser82.libxcrypt io.github.linux-pam.linux-pam"
+
+# its libraries go to /lib and its "usr sbin" programs (useradd, groupadd ...) to /usr/sbin unless told here
+smake() { make exec_prefix=/usr usbindir=/usr/bin "$@"; }
+build() {
+	# 4.20.0 uses uintmax_t in these two without the header that declares it
+	sed -i '1i #include <stdint.h>' lib/find_new_sub_gids.c lib/find_new_sub_uids.c
+	# groups is coreutils'
+	sed -i 's/groups$(EXEEXT) //' src/Makefile.in
+	find man -name Makefile.in -exec sed -i -e 's/groups\.1 / /' -e 's/getspnam\.3 / /' -e 's/passwd\.5 / /' {} +
+	./configure --prefix=/usr --bindir=/usr/bin --sbindir=/usr/bin --sysconfdir=/etc --disable-static --disable-nls \
+		--with-libpam --without-libbsd --without-selinux --without-audit --without-acl --without-attr --without-tcb \
+		--without-nscd --without-sssd --without-skey --without-libcrack --with-yescrypt --with-bcrypt \
+		--with-group-name-max-length=32 --disable-logind --disable-man
+	smake -j"$JOBS"
+}
+
+stage() {
+	smake DESTDIR="$DESTDIR" install
+	rm -rf "$DESTDIR/etc/pam.d"
+	for f in "$RECIPE"/files/pam.d/*; do install -Dm644 "$f" "$DESTDIR/etc/pam.d/$(basename "$f")"; done
+	# yescrypt, as the installer's and Settings' password changes write it
+	sed -i 's/^#\{0,1\}ENCRYPT_METHOD.*/ENCRYPT_METHOD YESCRYPT/' "$DESTDIR/etc/login.defs"
+	# no mail spool: nothing on Ribbon delivers local mail, and useradd complained that /var/spool/mail is missing
+	printf 'CREATE_MAIL_SPOOL=no\n' | install -Dm644 /dev/stdin "$DESTDIR/etc/default/useradd"
+}

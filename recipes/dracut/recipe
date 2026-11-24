@@ -1,0 +1,25 @@
+# dracut: builds the initramfs (the small system the kernel starts first, which finds and mounts the real one);
+# Ribbon's own modules for it mount the /usr view of the system kits (90ribbon-usrview) and a snapshot's overlay.
+# dracut 056 from kernel.org, the last release there: the newer line (dracut-ng, which Void packages) has only
+# GitHub's archive of a tag for a source, and that download is refused here. Its systemd modules stay as they come:
+# each leaves itself out of an initramfs when there is no systemd. Without the Rust cpio helper and the
+# documentation (asciidoc).
+name=dracut
+kit=org.kernel.dracut
+version=056
+revision=1
+summary="The dracut initramfs builder"
+license="GPL-2.0-or-later AND LGPL-2.1-or-later"
+source="https://www.kernel.org/pub/linux/utils/boot/dracut/dracut-056.tar.xz"
+sha256="e025bbdce9d1209640fb3f5f674f059c7e1f441537ba421703fe56055502421d"
+srcdir="dracut-056"
+needs="org.gnu.glibc org.gnu.bash org.gnu.coreutils org.gnu.findutils org.gnu.grep org.gnu.sed org.gnu.gzip org.tukaani.xz org.gnu.cpio org.kernel.kmod org.kernel.util-linux io.github.eudev-project.eudev"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.kernel.kmod"
+
+build() {
+	./configure --prefix=/usr --bindir=/usr/bin --sbindir=/usr/bin --libdir=/usr/lib --sysconfdir=/etc \
+		--disable-documentation
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

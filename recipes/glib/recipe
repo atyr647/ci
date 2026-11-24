@@ -1,0 +1,25 @@
+# glib: GLib, GObject and GIO (pango's and cairo-gobject's base, and later the portals', GTK's and much else's). With
+# libmount and inotify; without SELinux, sysprof, dtrace, systemtap, libelf, introspection (its own recipe, which needs
+# GLib), translations, documentation and tests (each named off).
+name=glib
+kit=org.gnome.glib
+version=2.88.3
+revision=1
+summary="GLib, GObject and GIO"
+license="LGPL-2.1-or-later"
+source="https://download.gnome.org/sources/glib/2.88/glib-2.88.3.tar.xz"
+sha256="ab24d24e698dfa1e408b7bcdb508f4aafc906185a8b8ce72fdf79bbbdc9b383b"
+srcdir="glib-2.88.3"
+needs="org.gnu.glibc org.sourceware.libffi org.pcre.pcre2 net.zlib.zlib org.kernel.util-linux"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python org.sourceware.libffi org.pcre.pcre2 net.zlib.zlib org.kernel.util-linux"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --sbindir=bin --sysconfdir=/etc --localstatedir=/var \
+		--buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Dlibmount=enabled -Dxattr=true -Dselinux=disabled -Dsysprof=disabled -Ddtrace=disabled -Dsystemtap=disabled \
+		-Dlibelf=disabled -Dintrospection=disabled -Dnls=disabled -Dman-pages=disabled -Ddocumentation=false -Dtests=false \
+		-Dinstalled_tests=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

@@ -1,0 +1,19 @@
+# dosfstools: mkfs.fat, fsck.fat and fatlabel (with the mkfs.vfat and fsck.vfat names): the EFI system partition.
+name=dosfstools
+kit=io.github.dosfstools.dosfstools
+version=4.2
+revision=1
+summary="Tools for FAT filesystems"
+license="GPL-3.0-or-later"
+source="https://github.com/dosfstools/dosfstools/releases/download/v4.2/dosfstools-4.2.tar.gz"
+sha256="64926eebf90092dca21b14259a5301b7b98e7b1943e8a201c7d726084809b527"
+srcdir="dosfstools-4.2"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr --sbindir=/usr/bin --enable-compat-symlinks --without-udev --without-iconv
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

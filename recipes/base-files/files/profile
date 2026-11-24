@@ -1,0 +1,5 @@
+# /etc/profile: every login shell reads this. A file of your own in /etc/profile.d/NAME.sh is read after it.
+export PATH=/usr/bin
+umask 022
+for f in /etc/profile.d/*.sh; do [ -r "$f" ] && . "$f"; done
+unset f

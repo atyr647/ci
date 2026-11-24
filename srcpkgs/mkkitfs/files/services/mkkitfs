@@ -1,0 +1,7 @@
+# The session's kit server: kits mounted at $XDG_RUNTIME_DIR/kit/mnt, asked for on
+# $XDG_RUNTIME_DIR/kit/mkkitfs.sock (docs/MKKITFS.md).  Not started at login by default:
+# `kit run` starts it on demand (mkkitfsd start) when it is not running.
+type = process
+command = /usr/bin/mkkitfsd serve -ready-fd 3
+ready-notification = pipefd:3
+smooth-recovery = true

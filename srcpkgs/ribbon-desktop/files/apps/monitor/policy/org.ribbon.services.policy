@@ -1,0 +1,59 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- System monitor, Services (the System side): the system's dinit answers only root. pkexec runs
+     /usr/bin/ribbon-services-helper as root. Its list is shown to the person at the machine without a password; a
+     start, stop or restart asks for an administrator's, kept for a few minutes. One action for each verb, each with its
+     exec.argv1: pkexec takes the first action whose path matches (in no set order), so an action without argv1
+     could also catch `list`. -->
+<policyconfig>
+  <vendor>Ribbon OS</vendor>
+  <action id="org.ribbon.services.list">
+    <description>List the system's services</description>
+    <message>Authentication is required to list the system's services</message>
+    <icon_name>utilities-system-monitor</icon_name>
+    <defaults>
+      <allow_any>no</allow_any>
+      <allow_inactive>no</allow_inactive>
+      <allow_active>yes</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/ribbon-services-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">list</annotate>
+  </action>
+  <action id="org.ribbon.services.start">
+    <description>Start a system service</description>
+    <message>Authentication is required to start a system service</message>
+    <icon_name>utilities-system-monitor</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/ribbon-services-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">start</annotate>
+  </action>
+  <action id="org.ribbon.services.stop">
+    <description>Stop a system service</description>
+    <message>Authentication is required to stop a system service</message>
+    <icon_name>utilities-system-monitor</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/ribbon-services-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">stop</annotate>
+  </action>
+  <action id="org.ribbon.services.restart">
+    <description>Restart a system service</description>
+    <message>Authentication is required to restart a system service</message>
+    <icon_name>utilities-system-monitor</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/ribbon-services-helper</annotate>
+    <annotate key="org.freedesktop.policykit.exec.argv1">restart</annotate>
+  </action>
+</policyconfig>

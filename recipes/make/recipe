@@ -1,0 +1,19 @@
+# make: without Guile.
+name=make
+kit=org.gnu.make
+version=4.4.1
+revision=1
+summary="The GNU make"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/make/make-4.4.1.tar.gz"
+sha256="dd16fb1d67bfab79a72f5e8390735c49e3e8e70b4945a15ab1f81ddb78658fb3"
+srcdir="make-4.4.1"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr --sbindir=/usr/bin --without-guile
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

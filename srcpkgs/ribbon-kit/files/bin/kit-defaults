@@ -1,0 +1,45 @@
+#!/bin/sh
+# /usr/lib/ribbon/kit/kit-defaults [ROOT] - put down what system kits ship for the places outside /usr.
+#
+# A system kit is /usr only (its image is the read-only view). What its package would install elsewhere it carries as
+# defaults instead (build/kits/ribbon-kits.sh; docs/SYSTEM-KITS-BUILD.md, decision 126):
+#
+#   /usr/share/ribbon/defaults/KIT/...       files and links by their path from / (etc/kit.conf, etc/sudoers.d/10-ribbon)
+#   /usr/share/ribbon/defaults/KIT.state     directories to have: PATH MODE OWNER GROUP per line
+#
+# A file is copied only where there is none: /etc is the person's, an edited or deliberately emptied file stays, and
+# deleting one brings the default back at the next run. Nothing is ever overwritten or removed. Run at boot
+# (ribbon-dinit's boot.sh, before the hostname is read) and by kitd after a change of the view. ROOT is another root
+# (kitd's own in the tests). Exit 0 unless ROOT is unusable; what could not be put down is said on stderr.
+set -u
+ROOT=${1:-}
+ROOT=${ROOT%/}
+D=$ROOT/usr/share/ribbon/defaults
+[ -d "$D" ] || exit 0
+say() { echo "kit-defaults: $*" >&2; }
+for k in "$D"/*/; do
+	[ -d "$k" ] || continue
+	(cd "$k" && find . -mindepth 1 \( -type f -o -type l \) -print) | while IFS= read -r f; do
+		f=${f#./}
+		dst=$ROOT/$f
+		# there already (a file, a link, even a dangling one, or a directory in its place): the person's
+		{ [ -e "$dst" ] || [ -L "$dst" ]; } && continue
+		mkdir -p "$(dirname "$dst")" 2>/dev/null || { say "cannot make $(dirname "$dst")"; continue; }
+		# beside it first, then a rename: a default is whole or absent
+		tmp=$dst.kit-default.$$
+		if cp -P -p "$k$f" "$tmp" 2>/dev/null && mv -f "$tmp" "$dst" 2>/dev/null; then :; else rm -f "$tmp"; say "cannot put down /$f"; fi
+	done
+done
+for s in "$D"/*.state; do
+	[ -f "$s" ] || continue
+	while read -r path mode owner group _; do
+		case $path in /*) ;; *) continue ;; esac
+		case $path in *..*) continue ;; esac
+		dst=$ROOT$path
+		[ -e "$dst" ] && continue
+		if ! mkdir -p "$dst" 2>/dev/null || ! chmod "$mode" "$dst" 2>/dev/null; then say "cannot make $path"; continue; fi
+		# an account that does not exist yet (its package's own step makes it) leaves the directory root's
+		chown "$owner:$group" "$dst" 2>/dev/null || say "$path stays root's: no account $owner:$group yet"
+	done < "$s"
+done
+exit 0

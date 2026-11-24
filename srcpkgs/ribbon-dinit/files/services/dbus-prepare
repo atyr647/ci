@@ -1,0 +1,4 @@
+type = scripted
+command = /usr/bin/mkdir -p /run/dbus
+restart = false
+depends-on: early-filesystems

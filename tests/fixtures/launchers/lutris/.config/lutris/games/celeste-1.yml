@@ -1,0 +1,6 @@
+name: Celeste
+slug: celeste
+runner: linux
+game:
+  exe: @HOME@/Games/Celeste/Celeste
+  path: @HOME@/Games/Celeste

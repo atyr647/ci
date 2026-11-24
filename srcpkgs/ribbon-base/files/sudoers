@@ -1,0 +1,2 @@
+# Ribbon OS: members of wheel may use sudo.
+%wheel ALL=(ALL:ALL) ALL

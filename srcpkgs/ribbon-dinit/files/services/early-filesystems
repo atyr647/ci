@@ -1,0 +1,8 @@
+# fsck, remount / read-write, mount everything in /etc/fstab.
+type = scripted
+command = /usr/lib/ribbon/boot.sh filesystems
+restart = false
+start-timeout = 0
+options: starts-on-console starts-rwfs start-interruptible
+depends-on: early-devices
+waits-for: early-console

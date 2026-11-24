@@ -1,0 +1,21 @@
+# fontconfig: finds fonts and chooses among them. Its configuration is in /etc/fonts (defaults, decision 126), its cache
+# in /var/cache/fontconfig. Without its documentation (docbook) and without fontations (Rust).
+name=fontconfig
+kit=org.freedesktop.fontconfig
+version=2.18.3
+revision=1
+summary="Font finding and matching"
+license="MIT"
+source="https://gitlab.freedesktop.org/api/v4/projects/890/packages/generic/fontconfig/2.18.3/fontconfig-2.18.3.tar.xz"
+sha256="4f7b554a38cdf78c033f666c8871f3749e14a094f65a07f630c91ed0b43d35e3"
+srcdir="fontconfig-2.18.3"
+needs="org.gnu.glibc org.freetype.freetype io.github.libexpat.expat"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.gnu.gperf org.python.python org.freetype.freetype io.github.libexpat.expat"
+
+build() {
+	./configure --prefix=/usr --sysconfdir=/etc --localstatedir=/var --disable-static --disable-docs \
+		--with-cache-dir=/var/cache/fontconfig
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

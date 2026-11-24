@@ -1,0 +1,4 @@
+#!/bin/sh
+# ribbon-term-prefs GROUP - Ribbon Terminal's preferences, a tab of terminal window GROUP (/usr/lib/ribbon/term).
+# The terminal opens it: the strip's sliders button, Ctrl+, in a terminal (ribbon-term-ctl prefs).
+exec wish -encoding utf-8 /usr/lib/ribbon/term/prefs-main.tcl -name ribbon-term-prefs -- "$@"

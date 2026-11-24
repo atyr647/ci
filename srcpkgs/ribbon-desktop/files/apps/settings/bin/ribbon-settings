@@ -1,0 +1,4 @@
+#!/bin/sh
+# ribbon-settings - Settings: the rail, search and the pages (Tcl/Tk, /usr/lib/ribbon/settings).
+#   ribbon-settings ?--page appearance|theme|colours|desktop|login?
+exec wish -encoding utf-8 /usr/lib/ribbon/settings/main.tcl -name ribbon-settings -- "$@"

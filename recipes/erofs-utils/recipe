@@ -1,0 +1,29 @@
+# erofs-utils: mkfs.erofs, fsck.erofs, dump.erofs. kitd builds the merged /usr view with mkfs.erofs's rebuild mode,
+# which needs 1.9 or later (decision 87, D68); the builders make every system kit's image with it. Kit images are not
+# compressed, so libdeflate (a faster deflate) is left out: zlib does deflate. No libuuid: Ribbon always gives -U, and
+# without it mkfs.erofs takes a random one from the kernel.
+name=erofs-utils
+kit=org.kernel.erofs-utils
+version=1.9.4
+revision=1
+summary="User-space tools for the EROFS filesystem"
+license="GPL-2.0-or-later OR MIT"
+source="https://git.kernel.org/pub/scm/linux/kernel/git/xiang/erofs-utils.git/snapshot/erofs-utils-1.9.4.tar.gz"
+sha256="7d135aa2550326a5acf20f53c518aea5a8900015ce50700044e40f818c31dd80"
+srcdir="erofs-utils-1.9.4"
+needs="org.gnu.glibc io.github.lz4.lz4 org.tukaani.xz net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.gnu.autoconf org.gnu.automake org.gnu.libtool org.gnu.m4 org.perl.perl io.github.lz4.lz4 net.zlib.zlib"
+
+build() {
+	autoreconf -fi
+	./configure --prefix=/usr --sbindir=/usr/bin --enable-lz4 --enable-lzma --enable-multithreading --without-libdeflate --with-zlib \
+		--without-json-c --without-libcurl --without-libnl3 --without-libxml2 --without-libzstd --without-openssl \
+		--without-qpl --without-selinux --without-xxhash --without-uuid --disable-fuse --disable-oci --disable-s3 \
+		--disable-ublk --disable-fanotify
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	install -Dm644 LICENSES/MIT "$DESTDIR/usr/share/licenses/erofs-utils/MIT"
+}

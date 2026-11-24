@@ -1,0 +1,76 @@
+# Template file for 'ribbon-kit'
+# kit (docs/KIT-CLI.md): install, update and remove kits, in Tcl, with the reference reader and
+# writer kitfmt/kitpack and the signing policy kittrust (kit/kitfmt, kit/kittrust, copied into
+# files/ by build/build-packages.sh).  Repositories are published with kittrust's kitindex.
+# minisign checks every signature (the index's and each kit's); curl fetches https when Tcl
+# has no tls package; dbus-send lets the updater see metered connections.
+# Mk4tcl (Metakit for Tcl) is Ribbon's own package, mk4tcl, built from the user's fork.
+# kitd (files/bin/kitd): kit's privileged helper for system kits, org.ribbon.Kit1 on the system bus, started by
+# D-Bus activation and asking polkit (org.ribbon.kit.system); unix_extra for its bus, erofs-utils (Ribbon's 1.9
+# build) and util-linux (losetup) for the merged /usr view (lib/mount.tcl, with mkkitfs's kit-swapmount).
+# kit-landlock (C, files/landlock): the first program kit run starts inside an app's sandbox; it
+# closes every descriptor but 0, 1, 2 and applies the Landlock layer where the kernel has one.
+pkgname=ribbon-kit
+version=0.1.0
+revision=2
+depends="tcl mk4tcl minisign curl dbus coreutils mkkitfs bubblewrap xdg-dbus-proxy tcl-unix-extra
+ erofs-utils util-linux"
+short_desc="Ribbon OS kit: find, grab, check, toss, list, info, mend, pack and run kits"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/ribbon"
+conf_files="/etc/kit.conf /etc/kit/repos.d/org.ribbon.main.conf"
+
+do_build() {
+	make -C "${FILESDIR}/landlock" CC="${CC}" CFLAGS="${CFLAGS}" LDFLAGS="${LDFLAGS}" O="${wrksrc}"
+}
+
+do_install() {
+	vbin "${FILESDIR}/bin/kit"
+	vmkdir usr/lib/ribbon/kit
+	for f in "${FILESDIR}"/lib/*.tcl; do
+		vinstall "$f" 644 usr/lib/ribbon/kit
+	done
+	# next to kit's library, where kit run finds it (sandbox.tcl ::kit::sandbox::helper)
+	vinstall "${wrksrc}/kit-landlock" 755 usr/lib/ribbon/kit
+	# the background refresh and update check
+	vinstall "${FILESDIR}/bin/kit-updater" 755 usr/lib/ribbon/kit
+	# kitd: system kits through the system bus (D-Bus activation; polkit asks)
+	vinstall "${FILESDIR}/bin/kitd" 755 usr/lib/ribbon/kit
+	# what system kits ship for /etc and /var is put down where it is missing (boot, and kitd after a change)
+	vinstall "${FILESDIR}/bin/kit-defaults" 755 usr/lib/ribbon/kit
+	vinstall "${FILESDIR}/dbus/org.ribbon.Kit1.service" 644 usr/share/dbus-1/system-services
+	vinstall "${FILESDIR}/dbus/org.ribbon.Kit1.conf" 644 usr/share/dbus-1/system.d
+	vinstall "${FILESDIR}/polkit/org.ribbon.kit.policy" 644 usr/share/polkit-1/actions
+	# the initramfs mounts the system kits' merged /usr view before switch_root (a root without a view is left alone)
+	vmkdir usr/lib/dracut/modules.d/90ribbon-usrview
+	vinstall "${FILESDIR}/dracut/90ribbon-usrview/module-setup.sh" 755 usr/lib/dracut/modules.d/90ribbon-usrview
+	vinstall "${FILESDIR}/dracut/90ribbon-usrview/ribbon-usrview.sh" 755 usr/lib/dracut/modules.d/90ribbon-usrview
+	# kitfmt (the reader) and kitpack (what kit pack runs)
+	vmkdir usr/lib/ribbon/kit/kitfmt
+	for f in kitfmt.tcl sha256.tcl pkgIndex.tcl; do
+		vinstall "${FILESDIR}/kitfmt/${f}" 644 usr/lib/ribbon/kit/kitfmt
+	done
+	vinstall "${FILESDIR}/kitfmt/kitpack" 755 usr/lib/ribbon/kit/kitfmt
+	# kittrust: who may sign what (docs/KIT-TRUST.md), kitfmt's verifier
+	vmkdir usr/lib/ribbon/kit/kittrust
+	for f in kittrust.tcl pkgIndex.tcl; do
+		vinstall "${FILESDIR}/kittrust/${f}" 644 usr/lib/ribbon/kit/kittrust
+	done
+	# per user, started at login by turnstile's dinit --user
+	vinstall "${FILESDIR}/services/kit-updater" 644 usr/lib/dinit.d/user
+	vmkdir usr/lib/dinit.d/user/boot.d
+	ln -s ../kit-updater "${DESTDIR}/usr/lib/dinit.d/user/boot.d/kit-updater"
+	vinstall "${FILESDIR}/etc/kit.conf" 644 etc
+	# Ribbon's repository (KIT-TRUST.md section 6): its url and mirrors, and its key list,
+	# /etc/kit/trusted-keys, the only one whose keys may sign system kits.  The list itself is the
+	# root ceremony's output (KIT-TRUST.md section 5), shipped here once the root holders commit it
+	# as files/etc/kit/trusted-keys (+ .minisig); without it nothing from the repository verifies.
+	vinstall "${FILESDIR}/etc/kit/repos.d/org.ribbon.main.conf" 644 etc/kit/repos.d
+	if [ -f "${FILESDIR}/etc/kit/trusted-keys" ]; then
+		vinstall "${FILESDIR}/etc/kit/trusted-keys" 644 etc/kit
+		vinstall "${FILESDIR}/etc/kit/trusted-keys.minisig" 644 etc/kit
+	fi
+	# double-click on a .kit is kit run: ribbon-desktop's ribbon-kit-run.desktop (K4)
+	vlicense "${FILESDIR}/LICENSE"
+}

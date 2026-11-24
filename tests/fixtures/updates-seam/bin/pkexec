@@ -1,0 +1,5 @@
+#!/bin/sh
+# a stand-in for pkexec: logs the call, then runs it as "root" (the stand-ins below on PATH, id saying 0)
+echo "pkexec $*" >> "${RIBBON_SEAM_STUB:?}/log"
+[ -e "$RIBBON_SEAM_STUB/deny" ] && { echo "Error executing command as another user: Not authorized" >&2; exit 127; }
+PATH=$(dirname "$0")/root:$PATH exec "$@"

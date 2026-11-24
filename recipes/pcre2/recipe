@@ -1,0 +1,22 @@
+# pcre2: Perl-compatible regular expressions (GLib's GRegex), 8-bit, with the JIT. pcre2grep without compressed
+# input, pcre2test without readline (each named off).
+name=pcre2
+kit=org.pcre.pcre2
+version=10.49
+revision=1
+summary="Perl-compatible regular expressions"
+license="BSD-3-Clause"
+source="https://github.com/PhilipHazel/pcre2/releases/download/pcre2-10.49/pcre2-10.49.tar.bz2"
+sha256="53c156e1ba416a20da8e65395daa132da0d80e76910424caca3fcdae7831d384"
+srcdir="pcre2-10.49"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf"
+
+build() {
+	./configure --prefix=/usr --bindir=/usr/bin --libdir=/usr/lib --disable-static --enable-jit --enable-pcre2-8 \
+		--disable-pcre2-16 --disable-pcre2-32 --disable-pcre2grep-libz --disable-pcre2grep-libbz2 \
+		--disable-pcre2test-libreadline --disable-pcre2test-libedit
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

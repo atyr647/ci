@@ -1,0 +1,7 @@
+# Text login on a VT: enable with `dinitctl enable agetty@tty2` etc.
+type = process
+command = /usr/bin/agetty --noclear $1 38400 linux
+restart = true
+term-signal = HUP
+smooth-recovery = true
+depends-on: loginready

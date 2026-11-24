@@ -1,0 +1,115 @@
+#!/bin/bash
+# ribbon-hdr - turn HDR on/off for your desktop session (per user, no root).
+#
+# HDR in Ribbon is done by labwc 0.20 (HDR10 output via its Vulkan renderer)
+# plus Ribbon's wlroots patch that makes "SDR white" configurable, so normal
+# desktop windows keep their usual brightness instead of looking dim/washed
+# out (upstream maps SDR white to a fixed 203 nits).
+#
+# With HDR on, games get HDR with no Steam launch options: Ribbon exports
+# PROTON_ENABLE_WAYLAND=1 / PROTON_ENABLE_HDR=1 / DXVK_HDR=1 to everything
+# started from the session (restart Steam after toggling).
+#
+# Files written (Ribbon-managed layer, below your own ~/.config):
+#   ~/.local/state/ribbon/xdg/labwc/rc.xml               <core><hdr>
+#   ~/.local/state/ribbon/xdg/labwc/environment.d/50-hdr.env
+set -u
+. /usr/lib/ribbon/common.sh
+
+[ "$(id -u)" -eq 0 ] && die "run ribbon hdr as your normal user, not root"
+
+LAYER="${XDG_STATE_HOME:-$HOME/.local/state}/ribbon/xdg/labwc"
+CONF="${XDG_CONFIG_HOME:-$HOME/.config}/ribbon/hdr.conf"
+HDR=off SDR_WHITE=250 GAME_ENV=yes
+[ -r "$CONF" ] && . "$CONF"
+
+usage() {
+	cat <<EOF
+Usage: ribbon hdr <command>
+  status              current setting and what each monitor supports
+  on | off            enable/disable HDR output on HDR-capable monitors
+  sdr-white <nits>    brightness of normal (SDR) content in HDR mode, 80-1000
+                      (match your monitor's usual SDR brightness; default 250)
+  game-env on|off     export Proton/DXVK HDR variables when HDR is on (default on)
+EOF
+}
+
+save() {
+	mkdir -p "$(dirname "$CONF")" "$LAYER/environment.d"
+	printf 'HDR=%s\nSDR_WHITE=%s\nGAME_ENV=%s\n' "$HDR" "$SDR_WHITE" "$GAME_ENV" > "$CONF"
+	local hdr_xml=no
+	[ "$HDR" = on ] && hdr_xml=yes
+	cat > "$LAYER/rc.xml" <<EOF
+<?xml version="1.0"?>
+<!-- Written by ribbon-hdr. Your ~/.config/labwc/rc.xml still wins on conflicts. -->
+<labwc_config>
+  <core>
+    <hdr>${hdr_xml}</hdr>
+  </core>
+</labwc_config>
+EOF
+	{
+		echo "# Written by ribbon-hdr"
+		if [ "$HDR" = on ]; then
+			echo "WLR_RENDERER=vulkan"
+			echo "WLR_HDR_SDR_WHITE_NITS=${SDR_WHITE}"
+			if [ "$GAME_ENV" = yes ]; then
+				echo "PROTON_ENABLE_WAYLAND=1"
+				echo "PROTON_ENABLE_HDR=1"
+				echo "DXVK_HDR=1"
+			fi
+		fi
+	} > "$LAYER/environment.d/50-hdr.env"
+}
+
+# HDR on needs the Vulkan renderer, which the compositor takes only at login. HDR off is <hdr>no</hdr>, which
+# labwc reads on --reconfigure under either renderer: the screen leaves HDR now (the session keeps its Vulkan
+# renderer until the next login, when 50-hdr.env no longer asks for it).
+apply() {
+	if [ -n "${WAYLAND_DISPLAY:-}" ] && have labwc; then
+		if [ "$HDR" = on ] && [ "${WLR_RENDERER:-gles2}" != vulkan ]; then
+			echo "Log out and back in to finish (the compositor must switch to its vulkan renderer)."
+		elif labwc --reconfigure; then
+			echo "Applied. Restart Steam/games to pick up the new environment."
+		else
+			echo "Saved; labwc did not reload its settings (they take effect at your next login)."
+		fi
+	else
+		echo "Saved; takes effect at your next login."
+	fi
+}
+
+cmd_status() {
+	echo "HDR: $HDR   SDR white: ${SDR_WHITE} nits   game env: $GAME_ENV"
+	echo "Renderer in this session: ${WLR_RENDERER:-gles2 (default)}"
+	if have wlr-randr && [ -n "${WAYLAND_DISPLAY:-}" ]; then
+		echo; wlr-randr 2>/dev/null | grep -E '^[^ ]|HDR|Adaptive|Make|Model' || true
+	fi
+	local dec=
+	have di-edid-decode && dec=di-edid-decode
+	have edid-decode && dec=${dec:-edid-decode}
+	if [ -n "$dec" ]; then
+		for e in /sys/class/drm/card*-*/edid; do
+			[ -s "$e" ] || continue
+			if "$dec" "$e" 2>/dev/null | grep -q 'SMPTE ST2084'; then
+				echo "$(basename "$(dirname "$e")"): HDR10 capable"
+			fi
+		done
+	fi
+}
+
+case "${1:-}" in
+	status) cmd_status ;;
+	on) HDR=on; save; apply ;;
+	off) HDR=off; save; apply ;;
+	sdr-white)
+		n=${2:-}
+		[[ "$n" =~ ^[0-9]+$ ]] && [ "$n" -ge 80 ] && [ "$n" -le 1000 ] || die "give a value between 80 and 1000"
+		SDR_WHITE=$n; save
+		echo "SDR white set to $n nits; log out and back in to apply." ;;
+	game-env)
+		case "${2:-}" in on) GAME_ENV=yes ;; off) GAME_ENV=no ;; *) die "use: on|off" ;; esac
+		save; apply ;;
+	-h|--help|"") usage ;;
+	*) usage >&2; exit 2 ;;
+esac

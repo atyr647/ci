@@ -1,0 +1,19 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Settings, Printers: adding and removing a printer. pkexec runs /usr/bin/ribbon-printers-helper as root; the
+     helper checks the queue's name and the printer's address itself. An admin's password, kept for a few minutes. -->
+<policyconfig>
+  <vendor>Ribbon OS</vendor>
+  <action id="org.ribbon.printers">
+    <description>Add or remove a printer</description>
+    <message>Authentication is required to add or remove a printer</message>
+    <icon_name>printer</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/ribbon-printers-helper</annotate>
+  </action>
+</policyconfig>

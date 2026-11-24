@@ -1,0 +1,66 @@
+# Ribbon defaults; yours in ~/.config/mimeapps.list win.
+[Default Applications]
+inode/directory=ribbon-files.desktop
+application/x-ribbon-kit=ribbon-kit-run.desktop
+image/png=org.ribbon.imageviewer.desktop
+image/jpeg=org.ribbon.imageviewer.desktop
+image/gif=org.ribbon.imageviewer.desktop
+image/webp=org.ribbon.imageviewer.desktop
+image/bmp=org.ribbon.imageviewer.desktop
+image/avif=org.ribbon.imageviewer.desktop
+image/tiff=org.ribbon.imageviewer.desktop
+image/x-portable-pixmap=org.ribbon.imageviewer.desktop
+image/x-portable-graymap=org.ribbon.imageviewer.desktop
+# Text: plain text and the kinds of it the Text editor reads, under shared-mime-info's names and
+# file(1)'s (xdg-open asks file(1)); any other kind of text follows text/plain (properties/facts.tcl)
+text/plain=ribbon-editor.desktop
+text/markdown=ribbon-editor.desktop
+text/x-markdown=ribbon-editor.desktop
+text/x-tcl=ribbon-editor.desktop
+text/x-python=ribbon-editor.desktop
+text/x-python3=ribbon-editor.desktop
+text/x-script.python=ribbon-editor.desktop
+application/x-shellscript=ribbon-editor.desktop
+text/x-shellscript=ribbon-editor.desktop
+text/x-c=ribbon-editor.desktop
+text/x-csrc=ribbon-editor.desktop
+text/x-chdr=ribbon-editor.desktop
+application/json=ribbon-editor.desktop
+application/xml=ribbon-editor.desktop
+text/xml=ribbon-editor.desktop
+application/toml=ribbon-editor.desktop
+text/x-patch=ribbon-editor.desktop
+text/x-diff=ribbon-editor.desktop
+application/x-desktop=ribbon-editor.desktop
+text/x-log=ribbon-editor.desktop
+text/csv=ribbon-editor.desktop
+text/x-makefile=ribbon-editor.desktop
+text/x-readme=ribbon-editor.desktop
+# Web pages: the browser (Settings → Default apps → Web writes these too), not the Text editor
+# that a kind of text would otherwise fall back to
+text/html=firefox.desktop
+application/xhtml+xml=firefox.desktop
+# Documents (PDF) and Music: Firefox's own reader and player until Ribbon has apps for them, music
+# to VLC first when it is installed (the installer's Apps page, or its Flatpak). Video: VLC first too, else
+# the image viewer (it plays videos in mpv). Archives: none (no archive app yet). A .flatpakref: the Catalogue.
+application/pdf=firefox.desktop
+audio/mpeg=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/flac=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/x-flac=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/ogg=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/x-vorbis+ogg=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/x-opus+ogg=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/mp4=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/x-m4a=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/aac=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/x-wav=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/wav=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/vnd.wave=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+audio/webm=vlc.desktop;org.videolan.VLC.desktop;firefox.desktop;
+video/mp4=vlc.desktop;org.videolan.VLC.desktop;org.ribbon.imageviewer.desktop;
+video/x-m4v=vlc.desktop;org.videolan.VLC.desktop;org.ribbon.imageviewer.desktop;
+video/x-matroska=vlc.desktop;org.videolan.VLC.desktop;org.ribbon.imageviewer.desktop;
+video/webm=vlc.desktop;org.videolan.VLC.desktop;org.ribbon.imageviewer.desktop;
+video/quicktime=vlc.desktop;org.videolan.VLC.desktop;org.ribbon.imageviewer.desktop;
+video/x-msvideo=vlc.desktop;org.videolan.VLC.desktop;org.ribbon.imageviewer.desktop;
+application/vnd.flatpak.ref=ribbon-catalogue.desktop

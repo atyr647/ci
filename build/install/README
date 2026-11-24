@@ -1,0 +1,41 @@
+build/install: build and install Ribbon on any base (docs/BUILDING.md, "Build and install on any base")
+
+  build.sh      make build: this repository's native pieces and generated files, per package, into O/PACKAGE
+  install.sh    make install / install-PACKAGE / uninstall: one package from its manifest
+  deps.sh       the dependencies report, from the templates and deps.map
+  deps.map      base-neutral names and purposes for every dependency a template declares
+  manifests/    one manifest per Ribbon package: its template's do_install, line for line
+
+Manifest lines (one directive per line; # starts a comment). A source starts with @files/ (the package's
+srcpkgs/PACKAGE/files), @build/ (O/PACKAGE, what build.sh made), @dist/ (DISTDIR) or @repo/ (this repository); it
+may be a glob, as the template's for loops are. A source starting with ? is optional: when it is not there the
+file is left out and the install says so.
+
+  file MODE DIR SRC [NAME]   vinstall SRC MODE DIR [NAME]
+  bin SRC                    vbin SRC                (usr/bin, 755)
+  license SRC [NAME]         vlicense SRC [NAME]     (usr/share/licenses/PACKAGE, 644)
+  doc SRC                    vdoc SRC                (usr/share/doc/PACKAGE, 644)
+  conf SRC                   vconf SRC               (etc, 644)
+  man SRC                    vman SRC                (usr/share/man/manN by the suffix)
+  dir DIR                    vmkdir DIR
+  link PATH TARGET           ln -s TARGET PATH
+  tree SRC DIR               vcopy SRC DIR           (SRC's directory copied into DIR, modes kept)
+  apps SRC                   ribbon-desktop's drop-in apps loop (apps:begin .. apps:end)
+  state PATH MODE OWNER GROUP  a make_dirs entry: made at install (owned so when installing as root into /)
+  external PATH WHERE        a file the template installs from a third-party distfile: not installed here
+  base BACKEND DIRECTIVE...  DIRECTIVE only where the base's package manager is BACKEND (pkg.sh's backend: xbps for
+                             Void's xbps.d files and kernel.d hook point); RIBBON_PKG_BACKEND names it by hand
+  needs VAR                  the package is built only when VAR is set (make install skips it otherwise)
+
+After an install or uninstall onto the running system (no DESTDIR), or into DESTDIR with CACHES=1 (a root that runs
+as it is), install.sh makes the base's caches again when the package put down what they index, as a package manager's
+triggers do: update-desktop-database for usr/share/applications/*.desktop (GLib and xdg-mime read only its
+mimeinfo.cache) and update-mime-database for usr/share/mime/packages/*.xml (tests/steps.d/90-install-caches.sh).
+
+Every install also leaves its record on the target, /var/lib/ribbon/installed/PACKAGE.files (the paths as that
+system sees them): Ribbon's tools (srcpkgs/ribbon-tools/files/lib/pkg.sh) know a package by it on a base without a
+package manager they can use, and remove it by it (the live system's installer, after an install). Uninstall
+removes it again.
+
+tests/steps.d/90-install.sh holds every manifest to its template: a file a template gains or loses, a changed mode
+or link, or a changed file fails the step until the manifest follows.

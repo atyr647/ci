@@ -1,0 +1,6 @@
+# kitd, kit's privileged helper (bin/kitd), started by the system bus when it is first called.
+# Installed in /usr/share/dbus-1/system-services; dbus-daemon-launch-helper runs it as root.
+[D-BUS Service]
+Name=org.ribbon.Kit1
+Exec=/usr/lib/ribbon/kit/kitd
+User=root

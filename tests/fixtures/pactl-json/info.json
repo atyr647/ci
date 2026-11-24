@@ -1,0 +1,9 @@
+{
+  "user_name": "user",
+  "host_name": "ribbon",
+  "server_name": "PulseAudio (on PipeWire 1.2.7)",
+  "server_version": "15.0.0",
+  "default_sink_name": "alsa_output.pci-0000_00_1f.3.analog-stereo",
+  "default_source_name": "alsa_input.pci-0000_00_1f.3.analog-stereo",
+  "cookie": 1234
+}

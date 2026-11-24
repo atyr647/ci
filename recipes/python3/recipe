@@ -1,0 +1,25 @@
+# python3: the interpreter and its standard library, as far as the kits under it reach: the modules that need a
+# library Ribbon has no kit for yet (ssl, ctypes, sqlite3, readline, curses, bz2, tkinter) are not built, and come with
+# a new revision when those kits exist. The C library's build needs it. No profile-guided optimisation: such a build is
+# not the same twice.
+name=python3
+kit=org.python.python
+version=3.13.7
+revision=1
+summary="The Python language"
+license="PSF-2.0"
+source="https://www.python.org/ftp/python/3.13.7/Python-3.13.7.tar.xz"
+sha256="5462f9099dfd30e238def83c71d91897d8caa5ff6ebc7a50f14d4802cdaaa79a"
+srcdir="Python-3.13.7"
+needs="org.gnu.glibc net.zlib.zlib org.tukaani.xz"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz net.zlib.zlib"
+
+build() {
+	./configure --prefix=/usr --enable-shared --without-ensurepip --without-static-libpython
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	ln -s python3 "$DESTDIR/usr/bin/python"
+}

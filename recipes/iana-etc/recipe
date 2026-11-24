@@ -1,0 +1,20 @@
+# iana-etc: services and protocols from IANA's registries: in /usr/share/iana-etc, and as the defaults of /etc/services
+# and /etc/protocols (decision 126).
+name=iana-etc
+kit=io.github.mic92.iana-etc
+version=20250807
+revision=1
+summary="IANA's /etc/services and /etc/protocols"
+license="MIT"
+source="https://github.com/Mic92/iana-etc/releases/download/20250807/iana-etc-20250807.tar.gz"
+sha256="4f88470a2cac2a2f9568285aaff9aeaee0ab66c6ba3c12bba51adca915fa92b1"
+srcdir="iana-etc-20250807"
+needs=""
+build_needs="org.gnu.bash org.gnu.coreutils org.gnu.findutils"
+
+stage() {
+	for f in services protocols; do
+		install -Dm644 "$f" "$DESTDIR/usr/share/iana-etc/$f"
+		install -Dm644 "$f" "$DESTDIR/etc/$f"
+	done
+}

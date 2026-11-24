@@ -1,0 +1,22 @@
+# cmake: the build system pahole builds with. Built by its own bootstrap, with the libraries it carries (curl,
+# libarchive and the rest: none of them is a kit yet), without TLS (it downloads nothing for Ribbon) and without its
+# curses and Qt front ends.
+name=cmake
+kit=org.cmake.cmake
+version=4.2.2
+revision=1
+summary="The CMake build system"
+license="BSD-3-Clause"
+source="https://www.cmake.org/files/v4.2/cmake-4.2.2.tar.gz"
+sha256="bbda94dd31636e89eb1cc18f8355f6b01d9193d7676549fba282057e8b730f58"
+srcdir="cmake-4.2.2"
+needs="org.gnu.glibc org.gnu.gcc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./bootstrap --prefix=/usr --datadir=/share/cmake --docdir=/share/doc/cmake --mandir=/share/man --parallel="$JOBS" \
+		--no-system-libs --no-qt-gui -- -DCMAKE_USE_OPENSSL=OFF -DBUILD_CursesDialog=OFF -DBUILD_TESTING=OFF
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

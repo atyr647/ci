@@ -1,0 +1,21 @@
+# file: tells a file's type, with libmagic and its database. It looks inside gzip files with zlib; the other
+# compressors are named off.
+name=file
+kit=com.darwinsys.file
+version=5.46
+revision=1
+summary="File type identification (file, libmagic)"
+license="BSD-2-Clause"
+source="https://astron.com/pub/file/file-5.46.tar.gz"
+sha256="c9cc77c7c560c543135edc555af609d5619dbef011997e988ce40a3d75d86088"
+srcdir="file-5.46"
+needs="org.gnu.glibc net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz net.zlib.zlib"
+
+build() {
+	./configure --prefix=/usr --disable-static --enable-zlib --disable-bzlib --disable-xzlib --disable-zstdlib \
+		--disable-lzlib --disable-lrziplib --disable-libseccomp
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

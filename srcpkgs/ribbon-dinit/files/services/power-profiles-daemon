@@ -1,0 +1,8 @@
+# power-profiles-daemon (Settings → Power and the shell's power menu: the power mode, on the system bus). Ribbon's
+# own description, for a base that has no other (a service in /etc/dinit.d or /run/dinit.d wins).
+type = process
+command = /usr/libexec/power-profiles-daemon
+smooth-recovery = true
+logfile = /var/log/dinit/power-profiles-daemon.log
+depends-on: system
+depends-on: dbus

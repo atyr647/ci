@@ -1,0 +1,34 @@
+#!/bin/sh
+# ribbon-greeter - Ribbon's login screen, started by greetd as _greeter
+# (see /usr/share/ribbon/greetd/config.toml): the Tcl/Tk greeter in labwc,
+# the desktop's own compositor, with the locked-down config in
+# /usr/share/ribbon/xdg/labwc-greeter (one fullscreen window; no keys,
+# menus or panels that could start anything else). Tk 8.6 draws only on
+# X11, so the greeter runs on labwc's XWayland; labwc ends when the
+# greeter does, which ends greetd's greeter session.
+#
+# The keyboard: the layouts the system was set up with (the installer
+# writes them to the X keyboard config) for labwc, and so for XWayland.
+# Tests: RIBBON_GREETER_LABWC (the config folder), RIBBON_GREETER_MAIN (main.tcl).
+cfg=${RIBBON_GREETER_LABWC:-/usr/share/ribbon/xdg/labwc-greeter}
+main=${RIBBON_GREETER_MAIN:-/usr/lib/ribbon/greeter/main.tcl}
+if [ "${1:-}" = --in-labwc ]; then
+	# labwc's startup command: the greeter, then labwc itself (labwc --exit signals $LABWC_PID)
+	wish -encoding utf-8 "$main" -name ribbon-greeter
+	labwc --exit
+	exit 0
+fi
+conf=/etc/X11/xorg.conf.d/00-keyboard.conf
+if [ -z "${XKB_DEFAULT_LAYOUT:-}" ] && [ -r "$conf" ]; then
+	opt() { sed -n "s/^[[:space:]]*Option[[:space:]]*\"$1\"[[:space:]]*\"\\([^\"]*\\)\".*/\\1/p" "$conf" | head -n 1; }
+	l=$(opt XkbLayout) v=$(opt XkbVariant) m=$(opt XkbModel) o=$(opt XkbOptions)
+	[ -n "$l" ] && export XKB_DEFAULT_LAYOUT="$l"
+	[ -n "$v" ] && export XKB_DEFAULT_VARIANT="$v"
+	[ -n "$m" ] && export XKB_DEFAULT_MODEL="$m"
+	[ -n "$o" ] && export XKB_DEFAULT_OPTIONS="$o"
+fi
+export XCURSOR_THEME="${XCURSOR_THEME:-Adwaita}" XCURSOR_SIZE="${XCURSOR_SIZE:-24}"
+# labwc splits the startup command into words itself (no shell): this script, by its full path, quoted
+case $0 in /*) self=$0 ;; */*) self=$PWD/$0 ;; *) self=$(command -v -- "$0") ;; esac
+case $self in *\'*) echo "ribbon-greeter: a quote in its own path ($self)" >&2; exit 1 ;; esac
+exec labwc -C "$cfg" -s "'$self' --in-labwc"

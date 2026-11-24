@@ -1,0 +1,81 @@
+#!/bin/bash
+# ribbon-scheduler - manage the sched_ext CPU scheduler (dinit service "scx").
+#
+# sched_ext schedulers are BPF programs loaded into the stock kernel. If one
+# misbehaves or exits, the kernel ejects it and falls back to its built-in
+# EEVDF scheduler within milliseconds - so this is a speed-up that cannot
+# take the system down. Default: scx_lavd (latency-aware, built for gaming).
+set -u
+. /usr/lib/ribbon/common.sh
+
+CONF=/etc/ribbon/scheduler.conf
+SCHEDULER=scx_lavd
+ARGS=""
+GAMEMODE_ARGS="--performance"
+[ -r "$CONF" ] && . "$CONF"
+
+usage() {
+	cat <<EOF
+Usage: ribbon scheduler <command>
+  status              which scheduler the kernel is running now
+  list                installed sched_ext schedulers
+  set <name>|off      e.g. scx_lavd (default), scx_bpfland, scx_rusty; off = kernel EEVDF
+  args "<flags>"      extra flags for the scheduler
+  run                 (internal) started by dinit
+  gamemode on|off     (internal) called by GameMode when a game starts/stops
+EOF
+}
+
+save() {
+	cat > "$CONF" <<EOF
+# Written by ribbon-scheduler. SCHEDULER=off uses the kernel's EEVDF scheduler.
+SCHEDULER=$SCHEDULER
+ARGS="$ARGS"
+GAMEMODE_ARGS="$GAMEMODE_ARGS"
+EOF
+}
+
+cmd_run() {
+	if [ -n "${RIBBON_SAFE:-}" ] || [ -e /run/ribbon/safe-mode ]; then
+		echo "safe mode: not loading a sched_ext scheduler"; exit 0
+	fi
+	[ "$SCHEDULER" = off ] && exit 0
+	[ -e /sys/kernel/sched_ext ] || { echo "kernel has no sched_ext support; using EEVDF"; exit 0; }
+	local bin=/usr/bin/$SCHEDULER extra=""
+	[ -x "$bin" ] || { echo "$bin not installed; using EEVDF"; exit 0; }
+	[ -e /run/ribbon/gamemode ] && extra=$GAMEMODE_ARGS
+	# shellcheck disable=SC2086
+	exec "$bin" $ARGS $extra
+}
+
+cmd_status() {
+	local state ops
+	state=$(cat /sys/kernel/sched_ext/state 2>/dev/null || echo unsupported)
+	ops=$(cat /sys/kernel/sched_ext/root/ops 2>/dev/null)
+	echo "sched_ext: $state${ops:+ ($ops)}"
+	echo "configured: $SCHEDULER ${ARGS}"
+	[ "$state" = enabled ] || echo "The kernel's default EEVDF scheduler is active."
+}
+
+case "${1:-}" in
+	run) cmd_run ;;
+	status) cmd_status ;;
+	list) for s in /usr/bin/scx_*; do [ -x "$s" ] && basename "$s"; done ;;
+	set)
+		need_root "$@"
+		[ -n "${2:-}" ] || die "usage: ribbon scheduler set <name>|off"
+		[ "$2" = off ] || [ -x "/usr/bin/$2" ] || die "/usr/bin/$2 is not installed"
+		SCHEDULER=$2; save
+		dinitctl restart scx 2>/dev/null || dinitctl start scx
+		cmd_status ;;
+	args) need_root "$@"; ARGS=${2:-}; save; dinitctl restart scx ;;
+	gamemode)
+		[ "$(id -u)" -eq 0 ] || exec sudo -n "$0" "$@"
+		case "${2:-}" in
+			on) : > /run/ribbon/gamemode; have powerprofilesctl && powerprofilesctl set performance 2>/dev/null ;;
+			off) rm -f /run/ribbon/gamemode; have powerprofilesctl && powerprofilesctl set balanced 2>/dev/null ;;
+		esac
+		[ -n "$GAMEMODE_ARGS" ] && dinitctl restart scx >/dev/null 2>&1 || : ;;
+	-h|--help|"") usage ;;
+	*) usage >&2; exit 2 ;;
+esac

@@ -1,0 +1,98 @@
+#!/usr/bin/env tclsh8.6
+# fake-cups - a stand-in for CUPS's client programs (lpstat, lpq, lpoptions, lp, cancel, lpadmin, ippfind), called by
+# the name it is linked as, answering in their format from a state kept in $FAKE_CUPS/state (a Tcl dict) and logging
+# every call to $FAKE_CUPS/log. tests/settings-printers.tcl and the Printers page scene use it.
+#   state: printers {NAME {label L state idle|printing|disabled reason R uri U reasons SR}} default NAME
+#          jobs {{printer P rank active|1st.. id N file F}} opts {NAME {PageSize A4 Duplex None}} nearby {{uri label}}
+#          down 1: the scheduler is not running (lpstat fails, lpstat -r says so)
+set dir $::env(FAKE_CUPS)
+set me [file tail $argv0]
+proc slurp {f} { set h [open $f r]; fconfigure $h -encoding utf-8; set t [read $h]; close $h; set t }
+proc save {} { set h [open $::dir/state w]; fconfigure $h -encoding utf-8; puts -nonewline $h $::S; close $h }
+set S [slurp $dir/state]
+set h [open $dir/log a]; fconfigure $h -encoding utf-8; puts $h [concat $me $argv]; close $h
+fconfigure stdout -encoding utf-8
+set down [expr {[dict exists $S down] && [dict get $S down]}]
+# lpstat -r answers either way (and exits 0), as CUPS's does
+if {$me eq "lpstat" && [lindex $argv 0] eq "-r"} { puts [expr {$down ? "scheduler is not running" : "scheduler is running"}]; exit 0 }
+if {$down && $me in {lpstat lpq lpoptions lp cancel}} {
+	puts stderr "$me: Scheduler is not running."; exit 1
+}
+switch -- $me {
+	lpstat {
+		switch -- [lindex $argv 0] {
+			-e {
+				# every destination CUPS can print to: the queues, and (as CUPS 2.2+ does) the driverless printers the
+				# network announces, as temporary destinations named from their service name
+				foreach n [dict keys [dict get $S printers]] { puts $n }
+				foreach u [dict get $S nearby] {
+					set t [string trim [regsub -all {[^A-Za-z0-9]+} [lindex $u 1] _] _]
+					if {![dict exists $S printers $t]} { puts $t }
+				}
+			}
+			-p {
+				# no queue: CUPS-Get-Printers says not-found, and lpstat fails
+				if {![dict size [dict get $S printers]]} { puts stderr "lpstat: No destinations added."; exit 1 }
+				dict for {n p} [dict get $S printers] {
+					switch -- [dict get $p state] {
+						idle { puts "printer $n is idle.  enabled since Sat 07 Nov 2026 10:00:00 AM" }
+						printing { puts "printer $n now printing $n-12.  enabled since Sat 07 Nov 2026 10:00:00 AM" }
+						disabled { puts "printer $n disabled since Sat 07 Nov 2026 10:00:00 AM -"; puts "\t[dict get $p reason]" }
+					}
+				}
+			}
+			-v { dict for {n p} [dict get $S printers] { puts "device for $n: [dict get $p uri]" } }
+			-d { if {[dict get $S default] ne ""} { puts "system default destination: [dict get $S default]" } else { puts "no system default destination" } }
+		}
+	}
+	lpq {
+		set n [lindex $argv 1]
+		puts "$n is ready"
+		puts "Rank    Owner   Job     File(s)                         Total Size"
+		foreach j [dict get $S jobs] {
+			if {[dict get $j printer] eq $n} { puts [format "%-7s %-7s %-7s %-31s %s bytes" [dict get $j rank] adam [dict get $j id] [dict get $j file] 102400] }
+		}
+	}
+	lpoptions {
+		if {[lindex $argv 0] eq "-d"} { dict set S default [lindex $argv 1]; save; exit 0 }
+		set n [lindex $argv 1]
+		if {![dict exists $S printers $n]} { puts stderr "lpoptions: Unknown printer or class."; exit 1 }
+		if {[lindex $argv 2] eq "-o"} {
+			lassign [split [lindex $argv 3] =] k v
+			dict set S opts $n $k $v; save; exit 0
+		}
+		set o [dict get $S opts $n]
+		if {[lindex $argv 2] eq "-l"} {
+			set ps {}
+			foreach s {A4 A5 Letter Legal Custom.WIDTHxHEIGHT} { lappend ps [expr {$s eq [dict get $o PageSize] ? "*$s" : $s}] }
+			puts "PageSize/Media Size: [join $ps]"
+			set ds {}
+			foreach s {None DuplexNoTumble DuplexTumble} { lappend ds [expr {$s eq [dict get $o Duplex] ? "*$s" : $s}] }
+			puts "Duplex/2-Sided Printing: [join $ds]"
+			exit 0
+		}
+		set p [dict get $S printers $n]
+		puts "copies=1 device-uri=[dict get $p uri] finishings=3 job-cancel-after=10800 printer-info='[dict get $p label]' printer-is-accepting-jobs=true printer-state-reasons=[dict get $p reasons] printer-type=4180\n"
+	}
+	cancel {
+		set id [lindex $argv 0]
+		set js {}
+		foreach j [dict get $S jobs] { if {[dict get $j id] ne $id} { lappend js $j } }
+		if {[llength $js] == [llength [dict get $S jobs]]} { puts stderr "cancel: Job #$id does not exist."; exit 1 }
+		dict set S jobs $js; save
+	}
+	lp { puts "request id is [lindex $argv 1]-13 (1 file(s))" }
+	lpadmin {
+		if {[lindex $argv 0] eq "-x"} { dict unset S printers [lindex $argv 1]; save; exit 0 }
+		set n [lindex $argv 1]; set uri [lindex $argv 4]
+		foreach u [dict get $S nearby] { if {[lindex $u 0] eq $uri} { set label [lindex $u 1] } }
+		dict set S printers $n [dict create label $label state idle reason "" uri $uri reasons none]
+		dict set S opts $n {PageSize A4 Duplex None}
+		save
+	}
+	ippfind {
+		# -T N TYPES... --exec echo FORMAT ;
+		foreach u [dict get $S nearby] { lassign $u uri label; puts "$uri\t$label\t$label" }
+	}
+}
+exit 0

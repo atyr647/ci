@@ -1,0 +1,27 @@
+# binutils: ld, as, ar, nm, objdump, readelf, strip and their libraries. Built as Linux From Scratch 12.4 builds it,
+# without gprofng (the profiler that wants Java).
+name=binutils
+kit=org.gnu.binutils
+version=2.45
+revision=1
+summary="The GNU linker, assembler and binary tools"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/binutils/binutils-2.45.tar.xz"
+sha256="c50c0e7f9cb188980e2cc97e4537626b1672441815587f1eab69d2a1bfbef5d2"
+srcdir="binutils-2.45"
+needs="org.gnu.glibc net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz net.zlib.zlib"
+
+build() {
+	mkdir build; cd build
+	../configure --prefix=/usr --sbindir=/usr/bin --sysconfdir=/etc --enable-ld=default --enable-plugins --enable-shared \
+		--disable-werror --enable-64-bit-bfd --enable-new-dtags --with-system-zlib --enable-default-hash-style=gnu \
+		--enable-gprofng=no --enable-deterministic-archives
+	make -j"$JOBS" tooldir=/usr
+}
+
+stage() {
+	cd build
+	make tooldir=/usr DESTDIR="$DESTDIR" install
+	for l in bfd ctf ctf-nobfd opcodes sframe gprofng; do rm -f "$DESTDIR/usr/lib/lib$l.a"; done
+}

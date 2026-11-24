@@ -1,0 +1,35 @@
+# Template file for 'tcl-unix-extra'
+# Ribbon's companion to tcl-unix-sockets: stream channels that keep fds
+# passed with SCM_RIGHTS (and adopt unix_sockets channels, -passfds queues
+# included), handing a live connection to another process, datagrams
+# (sd_notify, abstract names), SO_PEERCRED and socketpair, as the Tcl
+# package unix_extra. The source lives in files/ (see files/README).
+pkgname=tcl-unix-extra
+version=0.3
+revision=1
+hostmakedepends="tcl"
+makedepends="tcl-devel"
+depends="tcl"
+# the passfds tests need -passfds (tcl-unix-sockets 0.7_2 and later; the
+# version this tree builds is always the one used)
+checkdepends="tcl-unix-sockets"
+short_desc="Tcl datagrams, fd passing and peer credentials for unix sockets"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/ribbon"
+
+do_build() {
+	make -C "${FILESDIR}" O="${wrksrc}" CC="${CC}" CFLAGS="${CFLAGS}" \
+		LDFLAGS="${LDFLAGS}" TCL_CONFIG="${XBPS_CROSS_BASE}/usr/lib/tclConfig.sh"
+}
+
+do_check() {
+	make -C "${FILESDIR}" O="${wrksrc}" TCL_CONFIG="${XBPS_CROSS_BASE}/usr/lib/tclConfig.sh" \
+		TCLSH=tclsh TESTFLAGS="-tmpdir ${wrksrc}" test
+}
+
+do_install() {
+	make -C "${FILESDIR}" O="${wrksrc}" DESTDIR="${DESTDIR}" install
+	vlicense "${FILESDIR}/LICENSE"
+	vdoc "${FILESDIR}/README"
+}

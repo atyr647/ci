@@ -1,0 +1,29 @@
+# eudev: udev without systemd (udevd, udevadm, libudev, the rules and the hardware database): it names and sets up
+# devices as the kernel finds them, and loads their modules. Everything under /usr; the compiled hardware database is
+# /usr/lib/udev/hwdb.bin (not /etc/udev: it is made of the kit's own files).
+name=eudev
+kit=io.github.eudev-project.eudev
+version=3.2.14
+revision=1
+summary="The udev device manager (without systemd)"
+license="GPL-2.0-or-later AND LGPL-2.1-or-later"
+source="https://github.com/eudev-project/eudev/releases/download/v3.2.14/eudev-3.2.14.tar.gz"
+sha256="8da4319102f24abbf7fff5ce9c416af848df163b29590e666d334cc1927f006f"
+srcdir="eudev-3.2.14"
+needs="org.gnu.glibc org.kernel.kmod org.kernel.util-linux"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.gnu.gperf org.kernel.kmod org.kernel.util-linux"
+
+build() {
+	./configure --prefix=/usr --bindir=/usr/bin --sbindir=/usr/bin --libdir=/usr/lib --sysconfdir=/etc \
+		--with-rootprefix=/usr --with-rootlibdir=/usr/lib --with-rootlibexecdir=/usr/lib/udev --with-rootrundir=/run \
+		--disable-static --disable-manpages --disable-selinux --disable-introspection --disable-rule-generator \
+		--enable-kmod --enable-blkid --enable-hwdb
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	rm -f "$DESTDIR/etc/udev/hwdb.bin"
+	src/udev/udevadm hwdb --update --usr --root="$DESTDIR"
+	[ -s "$DESTDIR/usr/lib/udev/hwdb.bin" ]
+}

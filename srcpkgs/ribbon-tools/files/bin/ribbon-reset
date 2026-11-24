@@ -1,0 +1,79 @@
+#!/bin/bash
+# ribbon-reset - put one part of your desktop back to Ribbon's defaults.
+# Customise freely: Ribbon's defaults live read-only in /usr/share/ribbon and
+# your changes live in ~/.config, so a reset is always possible. Every reset
+# backs up what it replaces to ~/.local/state/ribbon/reset-backups/.
+set -u
+. /usr/lib/ribbon/common.sh
+
+[ "$(id -u)" -eq 0 ] && die "run ribbon reset as your normal user"
+
+CFG=${XDG_CONFIG_HOME:-$HOME/.config}
+BK="${XDG_STATE_HOME:-$HOME/.local/state}/ribbon/reset-backups/$(date +%Y%m%d-%H%M%S)"
+
+# Each file keeps its place under the backup folder (gtk-3.0/gtk.css and gtk-4.0/gtk.css are two files, not one), and a
+# backup is never overwritten: when a reset runs several parts (`reset all`), a file the first part took away and ribbon-theme
+# wrote again is the default, not the person's, and the person's copy in the backup stays.
+backup() {
+	local p rel dest
+	for p; do
+		[ -e "$p" ] || continue
+		rel=${p#"$CFG"/}
+		[ "$rel" != "$p" ] || rel=${p##*/}
+		dest=$BK/$rel
+		if [ ! -e "$dest" ] && [ ! -L "$dest" ]; then
+			# no backup, no reset: the defaults would be written over it by what runs next
+			mkdir -p "${dest%/*}" || die "cannot make $BK: nothing was changed from $p on"
+			cp -a "$p" "$dest" || die "cannot back up $p: it was not touched and nothing was reset after it"
+		fi
+		rm -rf "$p"
+	done
+}
+
+reset_shell() {
+	# the shell keeps no settings of its own; clear its drawing cache and
+	# restart it (also removes leftovers from the old Xfce panel setup)
+	rm -rf "${XDG_CACHE_HOME:-$HOME/.cache}/ribbon/shell" "${XDG_CACHE_HOME:-$HOME/.cache}/ribbon/wallpaper"
+	backup "$CFG/xfce4/panel" "$CFG/xfce4/xfconf/xfce-perchannel-xml/xfce4-panel.xml"
+	have ribbon-shell-ctl && ribbon-shell-ctl reload 2>/dev/null
+	ok "shell reset"
+}
+
+reset_labwc() {
+	backup "$CFG/labwc"
+	[ -n "${WAYLAND_DISPLAY:-}" ] && labwc --reconfigure 2>/dev/null
+	ok "window manager (labwc) reset"
+}
+
+reset_conky() {
+	pkill -x conky 2>/dev/null
+	backup "$CFG/conky"
+	[ -n "${WAYLAND_DISPLAY:-}" ] && (setsid ribbon-conky >/dev/null 2>&1 &)
+	ok "conky reset"
+}
+
+reset_theme() {
+	backup "$CFG/gtk-3.0/gtk.css" "$CFG/gtk-4.0/gtk.css" "$CFG/ribbon/theme.conf"
+	have ribbon-theme && ribbon-theme apply ribbon
+	ok "theme reset"
+}
+
+reset_gtk() {
+	backup "$CFG/gtk-3.0" "$CFG/gtk-4.0" "$CFG/ribbon/Xresources"
+	# settings.ini and gtk.css are ribbon-theme's: write them again for the scheme you have now
+	pal=$(sed -n 's/^PALETTE=//p' "$CFG/ribbon/theme.conf" 2>/dev/null)
+	have ribbon-theme && ribbon-theme apply "${pal:-ribbon}" --quiet --no-reload --no-login
+	ok "GTK settings reset"
+}
+
+case "${1:-}" in
+	shell|panel) reset_shell ;;
+	labwc|wm) reset_labwc ;;
+	conky) reset_conky ;;
+	theme) reset_theme ;;
+	gtk) reset_gtk ;;
+	all) reset_shell; reset_labwc; reset_conky; reset_gtk; reset_theme ;;
+	*) echo "Usage: ribbon reset shell|labwc|conky|theme|gtk|all"; exit 2 ;;
+esac
+[ -d "$BK" ] && echo "Backup of your previous settings: $BK"
+exit 0

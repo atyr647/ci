@@ -1,0 +1,52 @@
+# ribbon-dinit: srcpkgs/ribbon-dinit/template's do_install. The first block reuses void-runit (a third-party
+# distfile, built from its source by the template): those files are not built or installed here; on another base
+# they come from void-runit or the base's own equivalents (see the dependencies report).
+external usr/bin/seedrng void-runit
+external usr/bin/pause void-runit
+external usr/bin/modules-load void-runit
+external usr/bin/zzz void-runit
+external usr/bin/ZZZ void-runit
+external usr/libexec/ribbon/halt void-runit
+external usr/share/man/man8/modules-load.8 void-runit
+external usr/share/man/man8/zzz.8 void-runit
+external usr/share/man/man1/pause.1 void-runit
+external etc/rc.conf void-runit
+external etc/rc.local void-runit
+external etc/rc.shutdown void-runit
+external usr/lib/ribbon/crypt.awk void-runit
+# hostname and locale.conf are written by build.sh, with the template's contents
+conf @build/hostname
+conf @build/locale.conf
+file 755 usr/lib/ribbon @files/init
+file 755 usr/lib/ribbon @files/boot.sh
+file 755 usr/lib/ribbon @files/udev-trigger
+file 755 usr/lib/ribbon @files/power
+file 755 usr/lib/ribbon @files/firewall-load
+file 755 usr/lib/dinit @files/shutdown-hook
+bin @files/ribbon-sv2dinit
+file 755 usr/lib/ribbon/sv2dinit @files/sv-exec
+file 755 usr/lib/ribbon/sv2dinit/compat @files/sv
+file 644 usr/share/ribbon/sv2dinit @files/map
+file 644 usr/share/ribbon/sv2dinit @files/skip
+file 644 usr/share/ribbon/sv2dinit @files/force
+dir usr/lib/dinit.d
+file 644 usr/lib/dinit.d @files/services/*
+dir usr/lib/dinit.d/user/boot.d
+file 644 usr/lib/dinit.d/user @files/user-services/*
+link usr/lib/dinit.d/user/boot.d/dbus ../dbus
+link usr/lib/dinit.d/user/boot.d/pipewire ../pipewire
+link usr/lib/dinit.d/user/boot.d/wireplumber ../wireplumber
+link usr/lib/dinit.d/user/boot.d/pipewire-pulse ../pipewire-pulse
+# PID 1 and the power commands: installing this package into / replaces the running system's init
+link usr/bin/init ../lib/ribbon/init
+link usr/bin/halt ../lib/ribbon/power
+link usr/bin/poweroff ../lib/ribbon/power
+link usr/bin/reboot ../lib/ribbon/power
+link usr/bin/shutdown ../lib/ribbon/power
+license @repo/LICENSE
+state /etc/dinit.d/boot.d 0755 root root
+state /etc/ribbon/sv2dinit 0755 root root
+state /etc/zzz.d/suspend 0755 root root
+state /etc/zzz.d/resume 0755 root root
+state /var/log/dinit 0755 root root
+state /var/lib/ribbon/dinit.d 0755 root root

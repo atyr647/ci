@@ -1,0 +1,34 @@
+# glibc: the C library, its loader, its headers and its tools. Runs on kernel 5.4 and later. No compiled locales are
+# in the kit beyond the built-in C and C.UTF-8: their sources are (share/i18n), and the chosen ones are made on the
+# machine (docs/STACK.md, change 21). Built as Linux From Scratch 12.4 builds it, without nscd.
+name=glibc
+kit=org.gnu.glibc
+version=2.42
+revision=1
+summary="The GNU C library"
+license="LGPL-2.1-or-later"
+source="https://ftp.gnu.org/gnu/glibc/glibc-2.42.tar.xz"
+sha256="d1775e32e4628e64ef930f435b67bb63af7599acb6be2b335b9f19f16509f17f"
+srcdir="glibc-2.42"
+needs=""
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gnu.bison org.python.python"
+
+build() {
+	mkdir build; cd build
+	# one directory for programs (docs/RECIPES.md): ldconfig and the rest go to /usr/bin
+	printf 'rootsbindir=/usr/bin\nsbindir=/usr/bin\n' > configparms
+	../configure --prefix=/usr --disable-werror --disable-nscd --enable-stack-protector=strong --enable-kernel=5.4 \
+		libc_cv_slibdir=/usr/lib libc_cv_rtlddir=/lib64
+	make -j"$JOBS"
+}
+
+stage() {
+	cd build
+	make DESTDIR="$DESTDIR" install
+	# The loader's name is /lib64/ld-linux-x86-64.so.2 in every program (the C library's own too: rtlddir above), and
+	# the file is in /usr/lib: /lib64 is the root's link to it on a merged /usr.
+	mv "$DESTDIR/lib64/ld-linux-x86-64.so.2" "$DESTDIR/usr/lib/ld-linux-x86-64.so.2"
+	rmdir "$DESTDIR/lib64"
+	# the library cache is the machine's to make, not a default to hand out
+	rm -f "$DESTDIR/etc/ld.so.cache"
+}

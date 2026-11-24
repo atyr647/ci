@@ -1,0 +1,25 @@
+# libdrm: the userspace side of the kernel's DRM (modesetting, buffers), and the Intel, AMD, Radeon and Nouveau
+# helpers Mesa uses (Intel's with libpciaccess). Without the ARM and VMware drivers' (not for x86 PCs), its tests,
+# manual pages and Valgrind support.
+name=libdrm
+kit=org.freedesktop.libdrm
+version=2.4.134
+revision=2
+summary="The kernel's direct rendering interface"
+license="MIT"
+source="https://dri.freedesktop.org/libdrm/libdrm-2.4.134.tar.xz"
+sha256="ac5e74d157830eb8bee44c6a6bf3ad49774ef0dd2a72bdad74a8f20308b52a95"
+srcdir="libdrm-2.4.134"
+needs="org.gnu.glibc org.x.libpciaccess"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python org.x.libpciaccess"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --sbindir=bin --sysconfdir=/etc --localstatedir=/var \
+		--buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Damdgpu=enabled -Dradeon=enabled -Dnouveau=enabled -Dintel=enabled -Dvmwgfx=disabled -Domap=disabled \
+		-Dexynos=disabled -Dfreedreno=disabled -Dtegra=disabled -Dvc4=disabled -Detnaviv=disabled -Dcairo-tests=disabled \
+		-Dman-pages=disabled -Dvalgrind=disabled -Dudev=false -Dtests=false -Dinstall-test-programs=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

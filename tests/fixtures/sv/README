@@ -1,0 +1,2 @@
+# Fixtures: run scripts copied from void-packages (srcpkgs/*/files/<svc>/), except
+# libvirtd and badservice, which are deliberately broken to test refusal.

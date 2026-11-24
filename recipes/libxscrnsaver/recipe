@@ -1,0 +1,19 @@
+# libxscrnsaver: the X screen saver extension (how long the user has been idle).
+name=libxscrnsaver
+kit=org.x.libxscrnsaver
+version=1.2.5
+revision=1
+summary="The X screen saver extension"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libXScrnSaver-1.2.5.tar.xz"
+sha256="5057365f847253e0e275871441e10ff7846c8322a5d88e1e187d326de1cd8d00"
+srcdir="libXScrnSaver-1.2.5"
+needs="org.gnu.glibc org.x.libx11 org.x.libxext"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.x.xorgproto org.x.libx11 org.x.libxext"
+
+build() {
+	./configure --prefix=/usr --disable-static --without-xmlto --without-fop --without-xsltproc --disable-specs
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

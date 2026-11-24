@@ -1,0 +1,24 @@
+# pango: laying out and drawing text (labwc's titles and menus, GTK later), on HarfBuzz, fribidi, fontconfig and
+# FreeType, drawn with cairo, and with Xft (Tk's text library). Without libthai (Thai line breaking: not a kit yet),
+# sysprof, introspection, documentation, tests and examples (each named off).
+name=pango
+kit=org.gnome.pango
+version=1.56.3
+revision=1
+summary="Text layout and rendering"
+license="LGPL-2.1-or-later"
+source="https://download.gnome.org/sources/pango/1.56/pango-1.56.3.tar.xz"
+sha256="2606252bc25cd8d24e1b7f7e92c3a272b37acd6734347b73b47a482834ba2491"
+srcdir="pango-1.56.3"
+needs="org.gnu.glibc org.gnome.glib io.github.harfbuzz.harfbuzz org.fribidi.fribidi org.freedesktop.fontconfig org.freetype.freetype org.cairographics.cairo org.x.libxft org.x.libx11 org.x.libxrender"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python org.gnome.glib io.github.harfbuzz.harfbuzz org.fribidi.fribidi org.freedesktop.fontconfig org.freetype.freetype org.cairographics.cairo org.x.libxft org.x.libx11 org.x.libxrender org.x.xorgproto io.github.libexpat.expat"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --buildtype=plain --wrap-mode=nodownload \
+		-Ddefault_library=shared -Dfontconfig=enabled -Dfreetype=enabled -Dcairo=enabled -Dxft=enabled \
+		-Dlibthai=disabled -Dsysprof=disabled -Dintrospection=disabled -Ddocumentation=false -Dgtk_doc=false \
+		-Dman-pages=false -Dbuild-testsuite=false -Dbuild-examples=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

@@ -1,0 +1,20 @@
+# Template file for 'font-jetbrains-mono'
+pkgname=font-jetbrains-mono
+version=2.304
+revision=1
+depends="font-util"
+short_desc="JetBrains Mono typeface: the monospace face of Ribbon OS (upstream release)"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="OFL-1.1"
+homepage="https://www.jetbrains.com/lp/mono/"
+distfiles="https://github.com/JetBrains/JetBrainsMono/releases/download/v${version}/JetBrainsMono-${version}.zip"
+checksum=6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf
+font_dirs="/usr/share/fonts/TTF"
+
+do_install() {
+	vmkdir usr/share/fonts/TTF
+	for f in fonts/ttf/*.ttf; do
+		vinstall "$f" 644 usr/share/fonts/TTF
+	done
+	vlicense OFL.txt
+}

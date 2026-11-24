@@ -1,0 +1,10 @@
+[Desktop Entry]
+Type=Application
+Name=Image Viewer
+Comment=View pictures and videos and their folder
+Exec=ribbon-viewer %F
+Icon=image-viewer
+Terminal=false
+Categories=Graphics;Viewer;
+MimeType=image/png;image/jpeg;image/gif;image/webp;image/bmp;image/avif;image/tiff;image/x-portable-pixmap;image/x-portable-graymap;video/mp4;video/x-m4v;video/x-matroska;video/webm;video/quicktime;video/x-msvideo;
+StartupWMClass=RibbonImageViewer

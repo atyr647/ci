@@ -1,0 +1,24 @@
+# cairo: 2D drawing (labwc's and pango's), to images, PNG, PDF/SVG and X (Xlib and XCB), with FreeType and
+# fontconfig, and cairo-gobject (GLib). Without LZO, spectre, its symbol lookup (bfd), the GTK utilities and tests.
+name=cairo
+kit=org.cairographics.cairo
+version=1.18.4
+revision=1
+summary="2D graphics"
+license="LGPL-2.1-only OR MPL-1.1"
+source="https://cairographics.org/releases/cairo-1.18.4.tar.xz"
+sha256="445ed8208a6e4823de1226a74ca319d3600e83f6369f99b14265006599c32ccb"
+srcdir="cairo-1.18.4"
+needs="org.gnu.glibc org.cairographics.pixman org.freetype.freetype org.freedesktop.fontconfig org.libpng.libpng net.zlib.zlib org.x.libx11 org.x.libxext org.x.libxrender org.x.libxcb org.gnome.glib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python org.cairographics.pixman org.freetype.freetype org.freedesktop.fontconfig org.libpng.libpng net.zlib.zlib org.x.libx11 org.x.libxext org.x.libxrender org.x.libxcb org.x.xorgproto org.gnome.glib io.github.libexpat.expat"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --sbindir=bin --sysconfdir=/etc --localstatedir=/var \
+		--buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Dfreetype=enabled -Dfontconfig=enabled -Dpng=enabled -Dzlib=enabled -Dxlib=enabled -Dxcb=enabled \
+		-Dxlib-xcb=disabled -Dglib=enabled -Dlzo=disabled -Dspectre=disabled -Dsymbol-lookup=disabled -Dgtk2-utils=disabled \
+		-Dtee=disabled -Ddwrite=disabled -Dquartz=disabled -Dtests=disabled -Dgtk_doc=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

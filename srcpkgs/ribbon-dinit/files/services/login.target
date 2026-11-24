@@ -1,0 +1,4 @@
+# login.target: the name upstream dinit service files order themselves "before" (turnstile's turnstiled does).
+# Here it is reached with Ribbon's `loginready`.
+type = internal
+depends-on: loginready

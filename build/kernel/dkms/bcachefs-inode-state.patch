@@ -1,0 +1,19 @@
+bcachefs 1.36.1 (DKMS): the inode state helpers are in Linux 6.18.64
+
+bcachefs defines inode_state_read, inode_state_read_once and inode_state_set_raw itself on kernels older than 6.19,
+which introduced them. Linux 6.18.64 (stable) brought them back to 6.18, so on 6.18.64 they are defined twice and the
+module does not build (with Void's 6.18.64 kernel as with Ribbon's). bcachefs-tools 1.39.7 has the same guard. With
+this, bcachefs's own definitions are for kernels older than 6.18.64. build/ci/kernel.sh applies it before DKMS builds
+the module, and stops when it does not apply.
+
+--- a/src/fs/bcachefs/vfs/fs.c
++++ b/src/fs/bcachefs/vfs/fs.c
+@@ -48,7 +48,7 @@
+ #include <linux/version.h>
+ #include <linux/xattr.h>
+ 
+-#if LINUX_VERSION_CODE < KERNEL_VERSION(6,19,0)
++#if LINUX_VERSION_CODE < KERNEL_VERSION(6,18,64)
+ static inline unsigned inode_state_read(struct inode *inode)
+ {
+ 	return inode->i_state;

@@ -1,0 +1,37 @@
+# linux-pam: Pluggable Authentication Modules, how login, su, passwd, sudo and the login screen check who someone is
+# and open their session. With pam_unix (passwords in /etc/shadow, hashed by libxcrypt); without logind/elogind,
+# audit, SELinux, NIS, econf, pwaccess, the Berkeley DB module, its translations, documentation and examples (each
+# named off). Ribbon's base stack (files/pam.d: system-auth, system-login, system-local-login, other) is /etc
+# defaults; each service's own file comes with the kit of the program (shadow's login, su and passwd, sudo's sudo).
+# The modules' own configuration (limits.conf, access.conf, pam_env.conf ...) is upstream's, in /usr/share/pam (its
+# vendor directory): a file of the same name in /etc/security takes its place.
+name=linux-pam
+kit=io.github.linux-pam.linux-pam
+version=1.7.2
+revision=1
+summary="Pluggable Authentication Modules"
+license="BSD-3-Clause OR GPL-2.0-or-later"
+source="https://github.com/linux-pam/linux-pam/releases/download/v1.7.2/Linux-PAM-1.7.2.tar.xz"
+sha256="3d86b6383fb5fd9eb9578d2cd47d92801191f4bf3f9bc61419bfefc8aa1e531a"
+srcdir="Linux-PAM-1.7.2"
+needs="org.gnu.glibc io.github.besser82.libxcrypt"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python org.gnu.bison io.github.westes.flex io.github.besser82.libxcrypt"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --sbindir=bin --sysconfdir=/etc --buildtype=plain \
+		--wrap-mode=nodownload -Ddefault_library=shared -Dsecuredir=/usr/lib/security \
+		-Dpam_unix=enabled -Dlckpwdf=true -Ddocs=disabled -Di18n=disabled -Daudit=disabled -Deconf=disabled \
+		-Dlogind=disabled -Delogind=disabled -Dselinux=disabled -Dnis=disabled -Dpwaccess=disabled \
+		-Dpam_userdb=disabled -Dpam_lastlog=disabled -Dopenssl=disabled -Dexamples=false -Dxtests=false
+	samu -C build -j"$JOBS"
+}
+
+stage() {
+	DESTDIR="$DESTDIR" meson install -C build --no-rebuild
+	for f in "$RECIPE"/files/pam.d/*; do install -Dm644 "$f" "$DESTDIR/etc/pam.d/$(basename "$f")"; done
+	# unix_chkpwd checks a user's own password for programs that are not root (a screen locker): /etc/shadow is
+	# root's alone, so it runs as root
+	chmod 4755 "$DESTDIR/usr/bin/unix_chkpwd"
+	# pam_namespace's systemd unit: no systemd here
+	rm -rf "$DESTDIR/usr/lib/systemd"
+}

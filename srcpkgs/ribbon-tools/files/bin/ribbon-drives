@@ -1,0 +1,108 @@
+#!/bin/bash
+# ribbon-drives - mount game drives automatically at boot.
+#
+# Entries are added to /etc/fstab with "nofail", so a missing, unplugged or
+# broken drive never blocks booting. Each drive mounts at /mnt/games/<name>
+# and is owned by you, ready to add as a Steam/Lutris library folder.
+set -u
+. /usr/lib/ribbon/common.sh
+
+FSTAB="${RIBBON_ROOT}/etc/fstab"
+BASE=/mnt/games
+MARK="# ribbon-drives:"
+
+usage() {
+	cat <<EOF
+Usage: ribbon-drives <command>
+  list                     show drives and partitions that could hold games
+  add <device> [name]      mount <device> at $BASE/<name> on every boot
+  remove <name>            stop mounting $BASE/<name>
+  fixup-fstab              make sure every game drive entry has "nofail"
+                           (run by the installer after manual partitioning)
+EOF
+}
+
+cmd_list() {
+	lsblk -o NAME,SIZE,FSTYPE,LABEL,UUID,MOUNTPOINTS -e 7,11
+	echo
+	echo "Configured game drives:"
+	grep -F "$MARK" "$FSTAB" 2>/dev/null | sed "s|.*$MARK||" | sed 's/^/  /' || true
+}
+
+# nosuid,nodev on every drive: it may have been written on another machine, and a setuid-root file or a device node
+# on it must never work here (games need exec and nothing more)
+opts_for() { # fstype uid gid
+	case "$1" in
+		ext4|xfs|f2fs) echo "defaults,nosuid,nodev,noatime,nofail,x-gvfs-show" ;;
+		btrfs) echo "defaults,nosuid,nodev,noatime,compress=zstd:1,nofail,x-gvfs-show" ;;
+		ntfs|ntfs3) echo "uid=$2,gid=$3,umask=022,windows_names,nosuid,nodev,noatime,nofail,x-gvfs-show" ;;
+		exfat|vfat) echo "uid=$2,gid=$3,umask=022,nosuid,nodev,noatime,nofail,x-gvfs-show" ;;
+		*) return 1 ;;
+	esac
+}
+
+cmd_add() {
+	local dev=${1:-} name=${2:-} fstype uuid label user uid gid mp opts
+	[ -b "$dev" ] || die "'$dev' is not a block device (see: ribbon drives list)"
+	fstype=$(blkid -s TYPE -o value "$dev")
+	uuid=$(blkid -s UUID -o value "$dev")
+	label=$(blkid -s LABEL -o value "$dev")
+	[ -n "$uuid" ] || die "$dev has no filesystem UUID (format it first)"
+	[ -n "$name" ] || name=${label:-games}
+	name=$(printf '%s' "$name" | tr -c 'A-Za-z0-9._-' '_')
+	# a label of . or .. (or empty) would mount over /mnt/games or /mnt itself
+	case $name in ''|.|..) name=games ;; esac
+	mp="$BASE/$name"
+	grep -q "[[:space:]]${mp}[[:space:]]" "$FSTAB" && die "$mp is already in /etc/fstab"
+	grep -q "UUID=$uuid" "$FSTAB" && die "$dev is already in /etc/fstab"
+
+	user=$(session_user); uid=$(id -u "$user"); gid=$(id -g "$user")
+	case "$fstype" in
+		ntfs) fstype=ntfs3
+			warn "NTFS works, but Proton games can misbehave on it (case-insensitive names, no Unix permissions)."
+			warn "For a dedicated game drive, ext4, XFS or btrfs is strongly recommended." ;;
+		bcachefs|zfs_member) die "$fstype pools are mounted by their own tools; add them to fstab by hand" ;;
+	esac
+	opts=$(opts_for "$fstype" "$uid" "$gid") || die "unsupported filesystem '$fstype' on $dev"
+
+	mkdir -p "${RIBBON_ROOT}${mp}"
+	# an fstab whose last line has no newline would take the new entry onto that line (root, /boot or swap)
+	[ -s "$FSTAB" ] && [ -n "$(tail -c1 "$FSTAB")" ] && echo >> "$FSTAB"
+	printf 'UUID=%s %s %s %s 0 0 %s%s\n' "$uuid" "$mp" "$fstype" "$opts" "$MARK" "$name" >> "$FSTAB"
+	if [ -z "$RIBBON_ROOT" ]; then
+		mount "$mp" || die "mount failed; the fstab entry was added - fix it with: ribbon drives remove $name"
+		case "$fstype" in ext4|xfs|btrfs|f2fs) chown "$uid:$gid" "$mp" ;; esac
+	fi
+	ok "$dev -> $mp (mounted at every boot; missing drives are skipped)"
+	echo "In Steam: Settings > Storage > Add Drive > $mp"
+}
+
+cmd_remove() {
+	local name=${1:-}; [ -n "$name" ] || die "usage: ribbon drives remove <name>"
+	grep -qF "$MARK$name" "$FSTAB" || die "no game drive called '$name'"
+	[ -z "$RIBBON_ROOT" ] && umount "$BASE/$name" 2>/dev/null
+	sed -i "\|$MARK$name\$|d" "$FSTAB"
+	ok "$BASE/$name will no longer be mounted at boot"
+}
+
+cmd_fixup() {
+	# Any fstab entry under /mnt/games (e.g. created by the installer's manual
+	# partitioning) gets nofail so it can never block the boot.
+	awk -v base="$BASE" '
+	/^[[:space:]]*#/ || NF < 4 { print; next }
+	index($2, base) == 1 && $4 !~ /(^|,)nofail(,|$)/ { $4 = $4 ",nofail" }
+	{ print }' "$FSTAB" > "$FSTAB.ribbon-tmp" || { rm -f "$FSTAB.ribbon-tmp"; die "could not rewrite $FSTAB; it is unchanged"; }
+	# renamed over the fstab (same directory, same mode): a crash or a full disk never leaves it cut short
+	chmod --reference="$FSTAB" "$FSTAB.ribbon-tmp" 2>/dev/null
+	mv -f "$FSTAB.ribbon-tmp" "$FSTAB" || { rm -f "$FSTAB.ribbon-tmp"; die "could not replace $FSTAB; it is unchanged"; }
+	ok "game drive entries in /etc/fstab use nofail"
+}
+
+case "${1:-}" in
+	list) cmd_list ;;
+	add) need_root; shift; cmd_add "$@" ;;
+	remove) need_root; shift; cmd_remove "$@" ;;
+	fixup-fstab) need_root; cmd_fixup ;;
+	-h|--help|"") usage ;;
+	*) usage >&2; exit 2 ;;
+esac

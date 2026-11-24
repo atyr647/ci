@@ -1,0 +1,12 @@
+# ribbon-base: srcpkgs/ribbon-base/template's do_install. xbps-repository-main.conf has its @RIBBON_REPO@ and
+# @RIBBON_CHANNEL@ filled in by build.sh, as build/build-packages.sh does. The xbps.d files are Void's (the xbps
+# backend's): installed only on a base whose package manager is xbps.
+base xbps file 644 usr/share/xbps.d @files/xbps-ribbon.conf 10-ribbon.conf
+base xbps file 644 etc/xbps.d @build/xbps-repository-main.conf 00-repository-main.conf
+file 644 etc/ribbon @files/ribbon.conf
+file 644 etc/default @files/ribbon-boot
+file 644 etc/default @files/ribbon-grub
+file 440 etc/sudoers.d @files/sudoers 10-ribbon
+file 644 usr/lib/dracut/dracut.conf.d @files/dracut.conf 10-ribbon.conf
+file 644 usr/share/ribbon @files/nftables.conf
+file 644 usr/share/licenses/ribbon-base @repo/LICENSE

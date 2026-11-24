@@ -1,0 +1,87 @@
+# kernel: Ribbon's kernel, Linux 6.18 LTS with Ribbon's configuration (build/kernel/config: a base and Ribbon's
+# fragments, merged and checked by srcpkgs/ribbon-kernel/files/kconfig.sh, both linked here), as a system kit: the
+# image beside its modules in /usr/lib/modules/VERSION (vmlinuz, with config and System.map), which kernel-boot-files
+# makes bootable, and the headers out-of-tree modules are built against (/usr/src/kernel-headers-VERSION, the
+# modules' build link to it). Modules are stripped, signed with the key the build makes, and compressed with xz as the
+# kernel's own modules_install would (CRC32, 1 MiB dictionary; no zstd, D38). The release is VERSION-ribbon_REVISION.
+# A build makes a new signing key, so two builds never give the same kit (until Ribbon's own key signs modules).
+name=kernel
+kit=org.ribbon.kernel
+version=6.18.64
+revision=1
+summary="The Linux kernel, with Ribbon's configuration"
+license="GPL-2.0-only"
+source="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.tar.xz
+https://cdn.kernel.org/pub/linux/kernel/v6.x/patch-6.18.64.xz"
+sha256="9106a4605da9e31ff17659d958782b815f9591ab308d03b0ee21aad6c7dced4b
+4841e26f8f6c7b22c6c4d63899ff27ebdc50f61fab720cba7242d5adc3257dd4"
+srcdir="linux-6.18"
+needs="org.gnu.glibc org.openssl.openssl org.sourceware.elfutils"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gnu.patch org.gnu.bison io.github.westes.flex org.gnu.bc org.perl.perl org.python.python org.openssl.openssl org.sourceware.elfutils org.kernel.pahole org.kernel.kmod org.gnu.cpio net.zlib.zlib"
+
+kconfig() { sh "$RECIPE/kconfig.sh" "$@"; }
+
+build() {
+	xz -dc ../patch-6.18.64.xz | patch -s -p1
+	# shellcheck disable=SC2046
+	kconfig lint $(kconfig dir "$RECIPE/config")
+	# shellcheck disable=SC2046
+	kconfig merge $(kconfig dir "$RECIPE/config") > .config
+	sed -i "s|^\(CONFIG_LOCALVERSION=\).*|\1\"-ribbon_$revision\"|" .config
+	make olddefconfig
+	# shellcheck disable=SC2046
+	kconfig check .config $(kconfig dir "$RECIPE/config" | tail -n +2)
+	grep -qx "CONFIG_LOCALVERSION=\"-ribbon_$revision\"" .config
+	export KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$SOURCE_DATE_EPOCH")" KBUILD_BUILD_USER=ribbon KBUILD_BUILD_HOST=ribbon
+	make -j"$JOBS" KCFLAGS="-ffile-prefix-map=$PWD=." bzImage modules
+	[ "$(make -s kernelrelease)" = "$version-ribbon_$revision" ] || { echo "the kernel release is not $version-ribbon_$revision" >&2; return 1; }
+}
+
+stage() {
+	kv=$version-ribbon_$revision
+	m=$DESTDIR/usr/lib/modules/$kv
+	h=$DESTDIR/usr/src/kernel-headers-$kv
+	export KBUILD_BUILD_TIMESTAMP="$(date -u -d "@$SOURCE_DATE_EPOCH")" KBUILD_BUILD_USER=ribbon KBUILD_BUILD_HOST=ribbon
+	make INSTALL_MOD_PATH="$DESTDIR/usr" INSTALL_MOD_STRIP=1 DEPMOD=true modules_install
+	install -Dm644 arch/x86/boot/bzImage "$m/vmlinuz"
+	install -m644 .config "$m/config"
+	install -m644 System.map "$m/System.map"
+	# signed after stripping (a strip after would take the signature off), then compressed
+	find "$m" -name '*.ko' | while IFS= read -r k; do
+		scripts/sign-file sha512 certs/signing_key.pem certs/signing_key.x509 "$k"
+		xz --check=crc32 --lzma2=dict=1MiB -T1 -f -q "$k"
+	done
+	rm -f "$m/build" "$m/source"
+	ln -s "../../../src/kernel-headers-$kv" "$m/build"
+	depmod -b "$DESTDIR/usr" -F System.map "$kv"
+
+	# the headers out-of-tree modules (NVIDIA, ZFS) are built against
+	install -Dm644 Makefile "$h/Makefile"
+	install -Dm644 Kbuild "$h/Kbuild"
+	install -Dm644 kernel/Makefile "$h/kernel/Makefile"
+	install -Dm644 .config "$h/.config"
+	install -Dm644 Module.symvers "$h/Module.symvers"
+	find . -name 'Kconfig*' -type f | while IFS= read -r f; do install -Dm644 "$f" "$h/$f"; done
+	find arch/x86 scripts \( -name module.lds -o -name Kbuild.platforms -o -name Platform \) -type f |
+		while IFS= read -r f; do install -Dm644 "$f" "$h/$f"; done
+	mkdir -p "$h/include" "$h/arch/x86/kernel" "$h/arch/x86/entry/syscalls" "$h/kernel/time" "$h/tools/include" \
+		"$h/tools/objtool" "$h/security/selinux"
+	for i in acpi asm-generic clocksource config crypto drm generated keys linux math-emu media net pcmcia scsi sound \
+		trace uapi vdso video xen dt-bindings hyperv; do
+		[ ! -d "include/$i" ] || cp -a "include/$i" "$h/include/"
+	done
+	cp -a arch/x86/include "$h/arch/x86/"
+	cp -a arch/x86/tools "$h/arch/x86/"
+	install -m644 arch/x86/Makefile "$h/arch/x86/Makefile"
+	install -m644 arch/x86/kernel/asm-offsets.s "$h/arch/x86/kernel/asm-offsets.s"
+	install -m644 arch/x86/entry/syscalls/syscall_32.tbl "$h/arch/x86/entry/syscalls/syscall_32.tbl"
+	install -m644 kernel/time/timeconst.bc "$h/kernel/time/timeconst.bc"
+	install -m644 kernel/bounds.c "$h/kernel/bounds.c"
+	cp -a scripts "$h/"
+	cp -a security/selinux/include "$h/security/selinux/"
+	cp -a tools/include/tools "$h/tools/include/"
+	install -m755 tools/objtool/objtool "$h/tools/objtool/objtool"
+	# the build's own objects and the signing key stay out of the kit
+	find "$h/scripts" -name '*.o' -delete
+	rm -f "$h"/certs/signing_key.pem
+}

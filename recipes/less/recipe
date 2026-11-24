@@ -1,0 +1,19 @@
+# less: the pager.
+name=less
+kit=org.greenwoodsoftware.less
+version=710
+revision=1
+summary="The less pager"
+license="GPL-3.0-or-later OR BSD-2-Clause"
+source="https://www.greenwoodsoftware.com/less/less-710.tar.gz"
+sha256="d1008fb78dcae1323ddab664bcb352a61f022b1b131bd8018548e021d975ec7a"
+srcdir="less-710"
+needs="org.gnu.glibc org.gnu.ncurses"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gnu.ncurses"
+
+build() {
+	./configure --prefix=/usr --sysconfdir=/etc --with-regex=posix
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

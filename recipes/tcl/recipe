@@ -1,0 +1,41 @@
+# tcl: Tcl 9.1, the language Ribbon's own programs are written in (docs/STACK.md, 4), with the packages its release
+# carries (sqlite3, tdbc, thread, itcl). The first kit built on the base set that is not of it. tclsh is a link to
+# tclsh9.1. Its script library is files in /usr/lib/tcl9.1, not a zip appended to libtcl9.1.so (--disable-zipfs:
+# stripping would take an appended zip off, decision 146). The checksum is the SourceForge release file's as
+# downloaded on 22 Nov; no second host carries the file and upstream publishes no checksum, so nothing confirms it
+# (decision 139).
+name=tcl
+kit=org.tcl-lang.tcl
+version=9.1.0
+revision=1
+summary="The Tcl language"
+license="TCL"
+source="https://prdownloads.sourceforge.net/tcl/tcl9.1.0-src.tar.gz"
+sha256="536c45543f64d6eb11832d97ba3494aacff046fbc5040273bd55258d0e448ff1"
+srcdir="tcl9.1.0"
+needs="org.gnu.glibc net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz net.zlib.zlib"
+
+build() {
+	src=$PWD
+	cd unix
+	./configure --prefix=/usr --mandir=/usr/share/man --disable-rpath --disable-zipfs
+	make -j"$JOBS"
+	# the files that tell an extension's build where Tcl is must name the installed places, not this build's
+	sed -e "s|$src/unix|/usr/lib|" -e "s|$src|/usr/include|" -i tclConfig.sh
+	for c in pkgs/tdbc*/tdbcConfig.sh pkgs/itcl*/itclConfig.sh; do
+		p=$(basename "$(dirname "$c")")
+		sed -e "s|$src/unix/pkgs/$p|/usr/lib/$p|" -e "s|$src/pkgs/$p/generic|/usr/include|" \
+			-e "s|$src/pkgs/$p/library|/usr/lib/tcl9.1|" -e "s|$src/pkgs/$p|/usr/include|" -i "$c"
+	done
+}
+
+stage() {
+	cd unix
+	make DESTDIR="$DESTDIR" install
+	make DESTDIR="$DESTDIR" install-private-headers
+	ln -s tclsh9.1 "$DESTDIR/usr/bin/tclsh"
+	if grep -rl "/run/build" "$DESTDIR/usr/lib"/*Config.sh "$DESTDIR/usr/lib"/*/*Config.sh 2>/dev/null; then
+		echo "a Config.sh still names the build's directory" >&2; return 1
+	fi
+}

@@ -1,0 +1,19 @@
+# automake: makes Makefile.in files; with autoconf, what autoreconf runs.
+name=automake
+kit=org.gnu.automake
+version=1.20
+revision=1
+summary="Makes Makefile.in files"
+license="GPL-2.0-or-later"
+source="https://ftp.gnu.org/gnu/automake/automake-1.20.tar.xz"
+sha256="f6f34dad4cbe395715762b0710f7c511e39bd5cf777e6b95818ccbecf7714248"
+srcdir="automake-1.20"
+needs="org.gnu.autoconf org.perl.perl"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gnu.autoconf org.gnu.m4 org.perl.perl"
+
+build() {
+	./configure --prefix=/usr
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

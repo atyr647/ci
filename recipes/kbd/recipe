@@ -1,0 +1,24 @@
+# kbd: the console's keyboard maps and fonts (loadkeys, setfont, kbd_mode, showkey and the others), with the maps
+# and fonts themselves under /usr/share/kbd: the installer's keyboard choice and a readable console font at boot.
+# Without vlock (no PAM service for it yet), the tests and translations; its maps and fonts are kept uncompressed (no
+# compression library is linked, each named off).
+name=kbd
+kit=org.kernel.kbd
+version=2.9.0
+revision=1
+summary="Console keyboard maps and fonts"
+license="GPL-2.0-or-later"
+source="https://mirrors.edge.kernel.org/pub/linux/utils/kbd/kbd-2.9.0.tar.xz"
+sha256="fb3197f17a99eb44d22a3a1a71f755f9622dd963e66acfdea1a45120951b02ed"
+srcdir="kbd-2.9.0"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.gnu.bison io.github.westes.flex"
+
+build() {
+	./configure --prefix=/usr --bindir=/usr/bin --sbindir=/usr/bin --sysconfdir=/etc --datadir=/usr/share/kbd \
+		--disable-static --disable-nls --disable-vlock --disable-tests --disable-compress \
+		--without-zlib --without-bzip2 --without-lzma --without-zstd
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

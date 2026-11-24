@@ -1,0 +1,19 @@
+mkkitfs -- the session's FUSE server for Ribbon kit files (docs/MKKITFS.md in the Ribbon tree).
+
+  src/          mkkitfs, in C++: the kit reader (kit.cpp, KIT-FORMAT.md section 11), the FUSE
+                data path (server.cpp: libfuse low-level API, multithreaded, a bounded cache of
+                hash-checked chunks), the command-line tools (main.cpp), and the confinement every
+                command parses kits in (confine.cpp: seccomp allowlist, Landlock, no_new_privs, and
+                the server's unmount guard); kit-swapmount (swapmount.c, C), ribbon-kit's live
+                switch of the merged /usr view
+  tcl/          mkkitfsd, the session server in Tcl (control socket, references, linger, idle
+                exit, configuration, trust policy), and the Tcl package mkkitfs (the client
+                `kit run` uses, and mkkitfs::compose for bubblewrap)
+  tests/        tests/run.sh and what it runs: golden kits, damaged kits, confine-test.cpp, fuzz.py, fuse.tcl,
+                trust.tcl, reads.py (concurrent reads, benchmark), startup.tcl, compose.tcl,
+                alternatives.sh (extract, erofs, squashfuse), allocs.c (allocation counter)
+  services/     the dinit user service mkkitfs (/usr/lib/dinit.d/user/mkkitfs)
+
+Build: make METAKIT=<the Metakit fork, branch kit-fixes> [O=builddir]
+Needs libfuse3, libdeflate, libcrypto (OpenSSL), a C++17 compiler; at run time Tcl with
+unix_sockets, and fusermount3 for an unprivileged mount.

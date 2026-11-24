@@ -1,0 +1,23 @@
+# kmod: loads and lists kernel modules (modprobe, insmod, lsmod, rmmod, modinfo, depmod, all links to kmod), with xz
+# and zlib compressed modules and their signatures (openssl). Without zstd (D38), its manual pages (scdoc) and its
+# shell completions.
+name=kmod
+kit=org.kernel.kmod
+version=34.2
+revision=1
+summary="Kernel module tools"
+license="LGPL-2.1-or-later AND GPL-2.0-or-later"
+source="https://cdn.kernel.org/pub/linux/utils/kernel/kmod/kmod-34.2.tar.xz"
+sha256="5a5d5073070cc7e0c7a7a3c6ec2a0e1780850c8b47b3e3892226b93ffcb9cb54"
+srcdir="kmod-34.2"
+needs="org.gnu.glibc org.tukaani.xz net.zlib.zlib org.openssl.openssl"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python org.tukaani.xz net.zlib.zlib org.openssl.openssl"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --sbindir=bin --sysconfdir=/etc --buildtype=plain --wrap-mode=nodownload \
+		-Dxz=enabled -Dzlib=enabled -Dopenssl=enabled -Dzstd=disabled -Dmanpages=false -Ddocs=false \
+		-Dbashcompletiondir=no -Dfishcompletiondir=no -Dzshcompletiondir=no -Dbuild-tests=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

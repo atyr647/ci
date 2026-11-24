@@ -1,0 +1,6 @@
+# Live ISO only: the CI boot test's probe (build/ci/boot-test.sh). It does nothing unless the kernel command line
+# has ribbon.ci=1.
+type = process
+command = /usr/lib/ribbon/ci-probe
+restart = false
+depends-on: loginready

@@ -1,0 +1,24 @@
+# elfutils: libelf and libdw, and the eu- tools. The kernel's objtool and pahole read objects with libelf. Without
+# debuginfod (a network service) and without bzip2 and zstd compressed sections.
+name=elfutils
+kit=org.sourceware.elfutils
+version=0.195
+revision=1
+summary="ELF and DWARF libraries and tools"
+license="GPL-3.0-or-later AND (GPL-2.0-or-later OR LGPL-3.0-or-later)"
+source="https://sourceware.org/pub/elfutils/0.195/elfutils-0.195.tar.bz2"
+sha256="37629fdf7f1f3dc2818e138fca2b8094177d6c2d0f701d3bb650a561218dc026"
+srcdir="elfutils-0.195"
+needs="org.gnu.glibc net.zlib.zlib org.tukaani.xz org.gnu.gcc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.gnu.m4 net.zlib.zlib"
+
+build() {
+	./configure --prefix=/usr --program-prefix=eu- --disable-debuginfod --disable-libdebuginfod --disable-nls \
+		--with-zlib --with-lzma --without-bzlib --without-zstd
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	rm -f "$DESTDIR"/usr/lib/*.a
+}

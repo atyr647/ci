@@ -1,0 +1,7 @@
+# runit service name -> dinit service name, for dependency translation.
+# Names that are identical on both sides don't need to be listed.
+dbus        dbus
+udevd       udevd
+elogind     elogind
+turnstiled  turnstiled
+greetd      greetd

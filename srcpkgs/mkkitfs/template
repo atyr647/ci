@@ -1,0 +1,41 @@
+# Template file for 'mkkitfs'
+# The session's FUSE server for .kit files (docs/MKKITFS.md, docs/KIT-FORMAT.md):
+# mkkitfs, in C++ (Metakit, libfuse3, libdeflate, libcrypto), is the data path: it
+# checks each kit's seal before Metakit parses it, rebuilds the index and its root,
+# and serves the tree with every chunk hashed on read; mkkitfsd and the Tcl package
+# mkkitfs hold the control socket, the references and the policy, and are what
+# `kit run` talks to. The source lives in files/; Metakit's C++ library is compiled
+# in from the fork's kit-fixes branch (Void has no Metakit package).
+pkgname=mkkitfs
+version=1.0.0
+revision=1
+_mkcommit=bfab99245cc381b961bdf483997d2c5a5595309d
+hostmakedepends="pkg-config"
+makedepends="fuse3-devel libdeflate-devel openssl-devel"
+depends="fuse3 tcl tcl-unix-sockets"
+checkdepends="python3"
+short_desc="FUSE server for Ribbon kit files, one per session"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="MIT"
+homepage="https://github.com/atyr647/ribbon"
+# the kit-fixes branch of the Metakit fork, at the commit mkkitfs is tested with
+distfiles="https://github.com/atyr647/metakit/archive/${_mkcommit}.tar.gz"
+checksum=e49d7448221b5a666a53fd8f4c6aba2af420bb1409c69314507b67e4ffc4d118
+wrksrc="metakit-${_mkcommit}"
+
+do_build() {
+	make -C "${FILESDIR}" METAKIT="${wrksrc}" O="${wrksrc}/mkkitfs-build" \
+		CXX="${CXX}" CXXFLAGS="${CXXFLAGS}" LDFLAGS="${LDFLAGS}"
+}
+
+do_check() {
+	# the golden kits live in the Ribbon tree, and FUSE is not usable in the build
+	# chroot: what can run here runs (tests/run.sh skips the rest and says so)
+	MKKITFS="${wrksrc}/mkkitfs-build/mkkitfs" METAKIT="${wrksrc}" sh "${FILESDIR}/tests/run.sh"
+}
+
+do_install() {
+	make -C "${FILESDIR}" O="${wrksrc}/mkkitfs-build" DESTDIR="${DESTDIR}" install
+	vlicense "${FILESDIR}/LICENSE"
+	vdoc "${FILESDIR}/README"
+}

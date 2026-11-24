@@ -1,0 +1,12 @@
+#!/bin/sh
+conf=/etc/greetd/ribbon.toml
+[ -r "$conf" ] || conf=/usr/share/ribbon/greetd/config.toml
+# Configs from before the Tcl/Tk login screen (an upgraded system, or one
+# written by ribbon-postinstall's autologin step) still start gtkgreet in
+# cage, which is gone: run them with ribbon-greeter instead (/etc untouched).
+if grep -q '^[[:space:]]*command[[:space:]]*=.*gtkgreet' "$conf" 2>/dev/null; then
+	mkdir -p /run/ribbon
+	sed 's|^\([[:space:]]*command[[:space:]]*=[[:space:]]*\)"[^"]*gtkgreet[^"]*"|\1"ribbon-greeter"|' "$conf" > /run/ribbon/greetd.toml
+	conf=/run/ribbon/greetd.toml
+fi
+exec /usr/bin/greetd --config "$conf"

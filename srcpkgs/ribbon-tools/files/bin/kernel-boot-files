@@ -1,0 +1,61 @@
+#!/bin/sh
+# /usr/lib/ribbon/kernel-boot-files install VERSION - make a kernel that is in /usr/lib/modules bootable, on any base.
+# A kernel kit, or a base whose kernel package keeps the image beside its modules (Arch, Fedora, a Ribbon system kit),
+# has /usr/lib/modules/VERSION/vmlinuz and nothing on /boot; ribbon-limine lists only kernels that have both
+# /boot/vmlinuz-VERSION and /boot/initramfs-VERSION.img. This is the step that Void's kernel hooks do on Void
+# (the package puts the image on /boot, 20-dracut builds the initramfs), the same for every other source:
+#   1. /usr/lib/modules/VERSION/vmlinuz is copied to /boot/vmlinuz-VERSION (beside it first, then renamed in: a
+#      power cut leaves no half-written kernel for the menu to list); an image that is there already and the same is
+#      left alone;
+#   2. the initramfs /boot/initramfs-VERSION.img is built with dracut when it is missing;
+#   3. kernel-changed install VERSION: the boot menu, and "a restart finishes the update".
+# The running kernel's files are never touched by this (it only adds), and a kernel it cannot finish leaves nothing
+# on /boot for the menu to list. Exit 0 done or nothing to do, 1 it could not be done (it says why).
+# Tests: RIBBON_ROOT (a fake root), RIBBON_DRACUT, RIBBON_KERNEL_CHANGED (stand-ins for dracut and kernel-changed).
+R=${RIBBON_ROOT:-}
+BOOT=$R/boot
+MODS=$R/usr/lib/modules
+DRACUT=${RIBBON_DRACUT:-dracut}
+KC=${RIBBON_KERNEL_CHANGED:-/usr/lib/ribbon/kernel-changed}
+say() { echo "kernel-boot-files: $*" >&2; }
+
+[ "${1:-}" = install ] && [ $# -eq 2 ] || { echo "usage: kernel-boot-files install VERSION" >&2; exit 2; }
+ver=$2
+case $ver in
+	''|.*|*[!A-Za-z0-9._+~-]*) say "'$ver' is not a kernel version"; exit 2 ;;
+esac
+img=$MODS/$ver/vmlinuz
+[ -f "$img" ] || { say "no kernel image at /usr/lib/modules/$ver/vmlinuz"; exit 1; }
+[ -d "$BOOT" ] || { say "$BOOT is missing (the boot partition is not mounted?)"; exit 1; }
+
+tmp=$BOOT/.vmlinuz-$ver.new
+if [ -e "$BOOT/vmlinuz-$ver" ] && cmp -s "$img" "$BOOT/vmlinuz-$ver"; then
+	copied=
+else
+	cp -- "$img" "$tmp" 2>/dev/null && mv -f -- "$tmp" "$BOOT/vmlinuz-$ver" || {
+		rm -f -- "$tmp"
+		say "could not put $ver on $BOOT (is it full?)"
+		exit 1
+	}
+	copied=1
+fi
+
+if [ ! -e "$BOOT/initramfs-$ver.img" ]; then
+	# in a target root (the installer's chroot) dracut runs inside it and sees /boot; a stand-in sees the real path
+	if [ -n "$R" ] && [ -z "${RIBBON_DRACUT:-}" ]; then run="chroot $R $DRACUT" out=/boot/.initramfs-$ver.new; else run=$DRACUT out=$BOOT/.initramfs-$ver.new; fi
+	# the image is written beside its name and renamed in, as the kernel was
+	# shellcheck disable=SC2086
+	if $run -q --force "$out" "$ver" >/dev/null 2>&1 && [ -s "$BOOT/.initramfs-$ver.new" ]; then
+		mv -f -- "$BOOT/.initramfs-$ver.new" "$BOOT/initramfs-$ver.img"
+	else
+		rm -f -- "$BOOT/.initramfs-$ver.new"
+		# nothing half-made is left for the menu: the kernel image this call added goes again
+		[ -z "$copied" ] || rm -f -- "$BOOT/vmlinuz-$ver"
+		say "the initramfs for $ver could not be built (dracut --force /boot/initramfs-$ver.img $ver)"
+		exit 1
+	fi
+fi
+
+[ -x "$KC" ] || { say "$KC is missing: the boot menu was not rewritten (run: sudo ribbon boot update)"; exit 0; }
+"$KC" install "$ver" || :
+exit 0

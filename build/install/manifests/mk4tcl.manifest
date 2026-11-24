@@ -1,0 +1,8 @@
+# mk4tcl: srcpkgs/mk4tcl/template's do_install (the library, the pkgIndex.tcl it writes, vlicense license.terms).
+# Mk4tcl is third-party (Ribbon's Metakit fork) and make build does not compile it (decision 15): it is built from
+# the template's checked distfile by build/ci/build-mk4tcl.sh TARBALL O/mk4tcl (CI does this), and make install then
+# installs it, so that kit runs on a base that has no Mk4tcl. Without that build the package is skipped.
+needs METAKIT
+file 755 usr/lib/Mk4tcl2.4.9.7 @build/libMk4tcl2.4.9.7.so
+file 644 usr/lib/Mk4tcl2.4.9.7 @build/pkgIndex.tcl
+license @build/license.terms

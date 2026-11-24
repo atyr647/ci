@@ -1,0 +1,11 @@
+#!/bin/sh
+# Split one module's debug info into usr/lib/debug, strip and sign the module, and compress it with xz the way the
+# kernel's own modules_install does (CRC32 check, 1 MiB dictionary: what the in-kernel decompressor reads).
+# From Void's linux6.18 (void-packages, BSD-2-Clause); Ribbon compresses with xz instead of zstd (no zstd in kits, D38).
+mod=$1
+mkdir -p usr/lib/debug/${mod%/*}
+$OBJCOPY --only-keep-debug --compress-debug-sections $mod usr/lib/debug/$mod
+$OBJCOPY --add-gnu-debuglink=${DESTDIR}/usr/lib/debug/$mod $mod
+/usr/bin/$STRIP --strip-debug $mod
+$SIGN_FILE $mod
+xz --check=crc32 --lzma2=dict=1MiB -T1 -f -q $mod

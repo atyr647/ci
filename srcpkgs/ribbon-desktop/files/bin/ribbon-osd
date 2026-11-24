@@ -1,0 +1,38 @@
+#!/bin/sh
+# ribbon-osd - the volume and brightness keys (xdg/labwc/rc.xml): change the level and show it on screen
+# (boards OSD-1 to OSD-3, design/tools/gen_lock_osd.py).
+#   ribbon-osd volume +N | -N | mute      the default output (wpctl): up or down N %, or mute on and off
+#   ribbon-osd brightness +N | -N         the screen's backlight (brightnessctl), never under 1 %
+# The running shell does both and draws the pill (shell/mod-osd.tcl, through "ribbon-shell-ctl osd ...").
+# Without a shell the level is still changed here, the same way, with nothing drawn.
+set -u
+case ${1:-} in
+	volume) case ${2:-} in mute|[+-][0-9]|[+-][0-9][0-9]) ;; *) echo "usage: ribbon-osd volume +N|-N|mute" >&2; exit 2;; esac ;;
+	brightness) case ${2:-} in [+-][0-9]|[+-][0-9][0-9]) ;; *) echo "usage: ribbon-osd brightness +N|-N" >&2; exit 2;; esac ;;
+	*) echo "usage: ribbon-osd volume +N|-N|mute | brightness +N|-N" >&2; exit 2 ;;
+esac
+ribbon-shell-ctl osd "$1" "$2" 2>/dev/null && exit 0
+
+n=${2#[+-]}
+case $1 in
+	volume)
+		sink=@DEFAULT_AUDIO_SINK@
+		if [ "$2" = mute ]; then exec wpctl set-mute "$sink" toggle; fi
+		# Settings → Sound, Louder than 100% (sound.conf OVER): the most a key turns it up to
+		lim=1.0
+		grep -q '^OVER=yes' "${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}/ribbon/sound.conf" 2>/dev/null && lim=1.5
+		# wpctl's limit brings a level over it down to it: a level already over it is the limit instead
+		cur=$(wpctl get-volume "$sink" 2>/dev/null | sed -n 's/^Volume: *\([0-9.]*\).*/\1/p')
+		lim=$(awk -v l="$lim" -v c="${cur:-0}" 'BEGIN { print (c + 0 > l + 0) ? c : l }')
+		case $2 in
+			+*) wpctl set-mute "$sink" 0; exec wpctl set-volume -l "$lim" "$sink" "$n%+" ;;
+			*) exec wpctl set-volume "$sink" "$n%-" ;;
+		esac ;;
+	brightness)
+		cur=$(brightnessctl -m 2>/dev/null | sed -n 's/^[^,]*,backlight,[0-9]*,\([0-9]*\)%.*/\1/p' | head -n 1)
+		[ -n "$cur" ] || exit 1
+		case $2 in +*) new=$((cur + n)) ;; *) new=$((cur - n)) ;; esac
+		[ "$new" -gt 100 ] && new=100
+		[ "$new" -lt 1 ] && new=1
+		exec brightnessctl -q set "$new%" ;;
+esac

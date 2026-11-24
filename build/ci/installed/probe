@@ -1,0 +1,177 @@
+#!/bin/bash
+# probe - the installed system's half of the installed-image test (build/ci/installed-test.sh): a dinit service that
+# the CI install (build/ci/installed/install) put in a system installed by the real ribbon-install. Never shipped.
+#   phase 1 (the first boot): what postinstall set up, ribbon-swap, ribbon-reserve, ribbon-doctor, then ribbon-update
+#           for real (snapshot first, the repositories, the boot menu); then a restart
+#   phase 2 (the boot after the update): the updated system comes up and ribbon-boot-ok marks the boot good
+# One line per check on the serial console: "RIBBON-CI ok|FAIL|info [area] ...", then "RIBBON-CI done". Areas:
+# boot, postinstall, swap, reserve, doctor, update, after-update (installed-test.sh makes one RESULT line of each).
+set -u
+# (ok, bad and info always succeed, so A && ok || bad is an if; the single-quoted scripts run in sh -c)
+# shellcheck disable=SC2015,SC2016
+OUT=/dev/ttyS0
+[ -w "$OUT" ] || OUT=/dev/console
+say() { echo "RIBBON-CI $*" > "$OUT"; }
+A=boot
+ok() { say "ok   [$A] $*"; }
+bad() { say "FAIL [$A] $*"; }
+info() { say "info [$A] $*"; }
+lines() { while IFS= read -r l; do info "| $l"; done; }   # a command's output, as info lines
+check() { # WHAT COMMAND...: ok when COMMAND succeeds
+	local what=$1; shift
+	if "$@" >/dev/null 2>&1; then ok "$what"; else bad "$what"; fi
+}
+waitfor() { # WHAT SECONDS COMMAND...: ok as soon as COMMAND succeeds
+	local what=$1 secs=$2 t=0; shift 2
+	while [ $t -lt "$secs" ]; do
+		if "$@" >/dev/null 2>&1; then ok "$what (after $t s)"; return 0; fi
+		sleep 2; t=$((t + 2))
+	done
+	bad "$what (not within $secs s)"; return 1
+}
+STATE=/var/lib/ribbon-ci
+PHASE=$(cat "$STATE/phase" 2>/dev/null || echo 1)
+USER_=tester
+conf() { sed -n "s/^$2=//p" "$1" 2>/dev/null | tail -n1 | tr -d '"'; }
+svc_started() { dinitctl is-started "$1" >/dev/null 2>&1 || dinitctl status "$1" 2>/dev/null | grep -qi 'state: *started'; }
+# update_snap CSV: snapper's newest snapshot (number,type,description) is the one ribbon-update takes first:
+# ribbon-snapshot pre makes a single snapshot "ribbon update <date>"
+update_snap() { case $1 in *,single,"ribbon update "*) return 0 ;; esac; return 1; }
+done_() { say "done"; sync; [ "${1:-}" = reboot ] && { reboot; exit 0; }; poweroff; exit 0; }
+
+info "probe phase $PHASE; kernel $(uname -r); $(cat /proc/cmdline)"
+A=boot
+check "dinit is PID 1" sh -c '[ "$(cat /proc/1/comm)" = dinit ]'
+check "booted by UEFI" test -d /sys/firmware/efi
+waitfor "greetd (the login screen) is running" 120 pgrep -x greetd
+waitfor "elogind is running" 60 pgrep -x elogind
+
+if [ "$PHASE" = 2 ]; then
+	A="after-update"
+	info "kernel $(uname -r); last update: $(cat "$STATE/update-done" 2>/dev/null)"
+	waitfor "ribbon-boot-ok marked the updated system's boot good" 400 sh -c 'dmesg | grep -q "boot marked good"'
+	dmesg | grep 'ribbon-boot' | lines
+	check "the boot try counter is cleared" sh -c '! grep -q "^state=trying" /boot/ribbon/trying 2>/dev/null'
+	check "the last good boot is recorded" test -s /var/lib/ribbon/last-good
+	n=$(dinitctl list 2>/dev/null | grep -c '{X}' || :)
+	[ "${n:-0}" -eq 0 ] && ok "no dinit service failed" || { bad "$n dinit service(s) failed"; dinitctl list | grep '{X}' | lines; }
+	done_
+fi
+
+# ---- postinstall: what the installer's shared steps left on the system --------------------------------------
+A=postinstall
+[ "$(conf /etc/default/ribbon-boot BOOTLOADER)" = limine ] && ok "boot-choice: BOOTLOADER=limine" || bad "boot-choice: BOOTLOADER is '$(conf /etc/default/ribbon-boot BOOTLOADER)'"
+check "live-cleanup: no live-session marker or autologin left" sh -c '[ ! -e /etc/ribbon/live ] && [ ! -e /etc/greetd/ribbon.toml ] && [ ! -e /etc/sudoers.d/99-ribbon-live ] && [ ! -e /etc/xdg/autostart/ribbon-install.desktop ] && [ ! -e /etc/xdg/labwc/autostart ] && ! grep -q "Live system" /etc/issue'
+for s in greetd NetworkManager ribbon-boot-ok ribbon-reserve nftables; do
+	if [ -L "/etc/dinit.d/boot.d/$s" ]; then ok "services: $s is enabled"; else bad "services: $s is not enabled (/etc/dinit.d/boot.d)"; fi
+done
+for s in greetd NetworkManager ribbon-reserve; do
+	waitfor "services: $s is started" 60 svc_started "$s"
+done
+check "security: Ribbon's nftables ruleset is /etc/nftables.conf" cmp -s /usr/share/ribbon/nftables.conf /etc/nftables.conf
+if nft list ruleset 2>/dev/null | grep -q 'hook input.*policy drop'; then ok "security: the firewall is loaded (input policy drop)"; else bad "security: no input hook with policy drop in the loaded ruleset"; nft list ruleset 2>&1 | head -n 20 | lines; fi
+check "security: AppArmor on the kernel command line" sh -c 'grep -qw apparmor=1 /proc/cmdline && grep -qw security=apparmor /proc/cmdline'
+check "bootloader: /boot/limine.conf has a menu entry for the running kernel" grep -q "vmlinuz-$(uname -r)\$" /boot/limine.conf
+check "bootloader: Limine's EFI binary is on the EFI partition" test -e /boot/EFI/limine/BOOTX64.EFI
+if command -v efibootmgr >/dev/null 2>&1; then check "bootloader: the firmware has a 'Ribbon OS (Limine)' entry" sh -c 'efibootmgr | grep -q "Ribbon OS (Limine)"'; fi
+check "snapshots: snapper's root config lists snapshots" snapper --no-dbus -c root list
+check "snapshots: /.snapshots is the @snapshots subvolume" sh -c 'findmnt -no OPTIONS /.snapshots | grep -q "subvol=/@snapshots"'
+for m in /home /swap /.snapshots /boot; do check "fstab: $m is mounted" findmnt "$m"; done
+check "account: $USER_ is an administrator (wheel)" sh -c "id -nG $USER_ | grep -qw wheel"
+check "account: root is locked" sh -c 'passwd -S root | grep -q " L "'
+[ "$(cat /etc/hostname)" = ribbon-ci ] && ok "hostname ribbon-ci" || bad "hostname is $(cat /etc/hostname)"
+
+# ---- ribbon-swap ------------------------------------------------------------------------------------------------
+A=swap
+waitfor "zram swap is on at boot (ribbon-swap boot)" 30 sh -c 'swapon --show=NAME --noheadings | grep -q zram'
+[ "$(conf /etc/ribbon/swap.conf ZRAM_SIZE)" = 50% ] && ok "swap.conf: ZRAM_SIZE=50% (the installer's zram choice)" || bad "swap.conf: ZRAM_SIZE=$(conf /etc/ribbon/swap.conf ZRAM_SIZE)"
+[ "$(sysctl -n vm.swappiness)" = 180 ] && ok "vm.swappiness is 180 for zram" || bad "vm.swappiness is $(sysctl -n vm.swappiness)"
+if ribbon-swap set zram=50% file=256M > /tmp/swap.log 2>&1; then ok "ribbon-swap set file=256M"; else bad "ribbon-swap set file=256M"; lines < /tmp/swap.log; fi
+check "  /swap/swapfile is on" sh -c 'swapon --show=NAME --noheadings | grep -qx /swap/swapfile'
+check "  and in /etc/fstab" grep -q '^/swap/swapfile none swap' /etc/fstab
+check "  and NOCOW in @swap (btrfs filesystem mkswapfile)" sh -c 'lsattr /swap/swapfile | cut -c1-20 | grep -q C'
+if ribbon-swap set zram=50% file=off > /tmp/swap.log 2>&1; then ok "ribbon-swap set file=off"; else bad "ribbon-swap set file=off"; lines < /tmp/swap.log; fi
+check "  the swap file is off, gone and out of /etc/fstab" sh -c '! swapon --show=NAME --noheadings | grep -q /swap/swapfile && [ ! -e /swap/swapfile ] && ! grep -q /swap/swapfile /etc/fstab'
+check "  zram is still on" sh -c 'swapon --show=NAME --noheadings | grep -q zram'
+ribbon-swap status 2>&1 | lines
+
+# ---- ribbon-reserve ---------------------------------------------------------------------------------------------
+A=reserve
+RS=/run/ribbon/reserve
+waitfor "the service wrote its state ($RS)" 90 test -s "$RS"
+st() { sed -n "s/^$1=//p" "$RS" 2>/dev/null | tail -n1; }
+spare=$(conf /etc/ribbon/ribbon.conf RESERVE_SPARE); spare=${spare:-2G}
+want=$(( ${spare%G} * 1024 * 1024 * 1024 ))
+[ "$(st spare)" = present ] && ok "state: the spare is present" || bad "state: spare=$(st spare)"
+[ "$(stat -c %s /swap/ribbon-spare 2>/dev/null)" = "$want" ] && ok "the spare file /swap/ribbon-spare holds $spare" || bad "the spare file: $(ls -l /swap/ribbon-spare 2>&1)"
+check "btrfs simple quotas are on" sh -c 'btrfs quota status / 2>/dev/null | grep -qi simple || btrfs qgroup show / >/dev/null'
+hid=$(btrfs inspect-internal rootid /home 2>/dev/null)
+# (columns: qgroupid, referenced, exclusive, max referenced, path)
+lim=$(btrfs qgroup show --raw -r /home 2>/dev/null | awk -v id="0/$hid" '$1 == id { print $4 }')
+case $lim in ''|none) bad "the @home qgroup (0/$hid) has no limit: $(btrfs qgroup show -r /home 2>&1 | tr '\n' ' ')" ;; *) ok "@home is capped (qgroup 0/$hid, limit $lim bytes)" ;; esac
+ribbon-reserve status 2>&1 | lines
+ribbon-reserve status 2>/dev/null | grep -q '^For your files:' && ok "ribbon-reserve status reports the room left" || bad "ribbon-reserve status"
+# the cap, for real: a file of the user's that would eat into the reserve is refused, a small one is not
+uf=$(st user_free)
+if [ -n "$uf" ] && [ "$uf" -gt 0 ]; then
+	h=$(getent passwd "$USER_" | cut -d: -f6)
+	if su "$USER_" -s /bin/sh -c "fallocate -l 64M '$h/ci-small'" 2>/tmp/fa.err; then ok "the user may still write (64 MiB in their home)"; else bad "the user cannot write 64 MiB: $(cat /tmp/fa.err)"; fi
+	big=$(( uf + 1024 * 1024 * 1024 ))
+	if su "$USER_" -s /bin/sh -c "fallocate -l $big '$h/ci-big'" 2>/tmp/fa.err; then
+		bad "the user could take $big bytes, past the room left for their files ($uf), into the reserve"
+	elif grep -qi 'quota' /tmp/fa.err; then ok "a user file reaching into the reserve is refused ($(cat /tmp/fa.err))"
+	else bad "the big file failed, but not on the quota: $(cat /tmp/fa.err)"; fi
+	rm -f "$h/ci-small" "$h/ci-big"
+	free_now=$(stat -f -c '%f %S' / | awk '{ printf "%d\n", $1 * $2 }')
+	[ "$free_now" -gt "$big" ] && ok "  (the disk itself had room for it: $free_now bytes free)" || info "the disk had only $free_now bytes free"
+else
+	bad "state: no user_free ($(tr '\n' ' ' < "$RS"))"
+fi
+# (the service would make the spare again within 30 s: it is stopped for these two)
+dinitctl stop ribbon-reserve >/dev/null 2>&1
+if ribbon-reserve release >/dev/null 2>&1 && [ ! -e /swap/ribbon-spare ] && [ "$(st spare)" = released ] && [ "$(st state)" = critical ]; then
+	ok "release: the spare is deleted and the state says released, critical"
+else bad "release: spare file $(ls /swap/ribbon-spare 2>&1); $(tr '\n' ' ' < "$RS")"; fi
+if ribbon-reserve apply >/dev/null 2>&1 && [ -e /swap/ribbon-spare ] && [ "$(st spare)" = present ]; then ok "apply: the spare is made again"; else bad "apply: $(tr '\n' ' ' < "$RS")"; fi
+dinitctl start ribbon-reserve >/dev/null 2>&1 && ok "the service starts again" || bad "the service does not start again"
+
+# ---- ribbon-doctor ------------------------------------------------------------------------------------------------
+A=doctor
+ribbon-doctor > /tmp/doctor.log 2>&1; dst=$?
+sed 's/\x1b\[[0-9;]*m//g' /tmp/doctor.log > /tmp/doctor.txt
+lines < /tmp/doctor.txt
+nerr=$(grep -c '^error' /tmp/doctor.txt || :)
+nerr=$(( nerr > 0 ? nerr - 1 : 0 ))   # (the last error line is the count, when there are problems)
+[ "$dst" -eq "$nerr" ] && ok "its exit status ($dst) is the number of problems it reports" || bad "exit status $dst, $nerr problems reported"
+grep -q 'dinit is PID 1' /tmp/doctor.txt && ok "it finds dinit as PID 1" || bad "it does not find dinit as PID 1"
+grep -q 'no failed services' /tmp/doctor.txt && ok "it finds no failed service" || bad "it reports failed services"
+grep -q 'snapshot backend: btrfs' /tmp/doctor.txt && ok "it finds the btrfs snapshots" || bad "no snapshot backend"
+grep -q 'Limine menu:' /tmp/doctor.txt && ok "it reads the Limine menu" || bad "it does not read the Limine menu"
+grep -q 'swap: ' /tmp/doctor.txt && ok "it sees the swap" || bad "it sees no swap"
+# a fresh install has one kernel: the one problem it may report
+other=$(grep '^error' /tmp/doctor.txt | grep -v -e 'kernel in /boot; no fallback' -e 'problem(s) found' || :)
+[ -z "$other" ] && ok "no problem beyond a fresh install's single kernel" || bad "problems: $(echo "$other" | tr '\n' ';')"
+
+# ---- ribbon-update --------------------------------------------------------------------------------------------------
+A=update
+if waitfor "the network is up (for the repositories)" 120 sh -c 'ip route | grep -q "^default" && getent hosts repo-default.voidlinux.org'; then
+	before=$(snapper --no-dbus -c root --csvout --no-headers list --columns number 2>/dev/null | tail -n1)
+	start=$(date +%s)
+	timeout 1500 ribbon-update -y > /tmp/update.log 2>&1; ust=$?
+	sed 's/\x1b\[[0-9;]*m//g' /tmp/update.log | tail -n 80 | lines
+	[ "$ust" -eq 0 ] && ok "ribbon-update -y finished in $(( $(date +%s) - start )) s" || bad "ribbon-update -y exited $ust"
+	after=$(snapper --no-dbus -c root --csvout --no-headers list --columns number,type,description 2>/dev/null | tail -n1)
+	if update_snap "$after"; then ok "it took a snapshot first ($after; the newest before was ${before:-none})"; else bad "no pre-update snapshot (newest: ${after:-none})"; fi
+	# ribbon-snapshot pre armed the boot fallback with it: the next boot is a try, which ribbon-boot-ok then clears
+	[ "$(sed -n 's/^state=//p' /boot/ribbon/trying 2>/dev/null)" = trying ] && ok "the boot fallback is armed (/boot/ribbon/trying: $(tr '\n' ' ' < /boot/ribbon/trying))" || bad "the boot fallback is not armed (no state=trying in /boot/ribbon/trying)"
+	# the package seam syncs the base's runit services into dinit inside pkg_upgrade, quietly (since 1367b5a; this
+	# looked for a message it no longer prints): what it leaves is checked instead
+	ribbon-sv2dinit --check >/dev/null 2>&1 && ok "every runit service has its dinit service after the update" || bad "after the update ribbon-sv2dinit --check fails"
+	grep -q "vmlinuz-" /boot/limine.conf && ok "the boot menu still has its kernels" || bad "the boot menu lost its kernels"
+	grep -q '^//' /boot/limine.conf && ok "the boot menu lists the snapshots" || info "the boot menu lists no snapshots"
+	date +%F > "$STATE/update-done"
+else
+	bad "ribbon-update not run: no network"
+fi
+echo 2 > "$STATE/phase"
+done_ reboot

@@ -1,0 +1,19 @@
+#!/usr/bin/env tclsh
+# ribbon-wallpaper - draw the Ribbon wallpaper as SVG at an exact size.
+#   ribbon-wallpaper PALETTE.conf WIDTHxHEIGHT > wallpaper.svg
+# Same geometry the Ribbon shell paints behind its bars (shell/wall.tcl).
+set here [file dirname [file normalize [info script]]]
+foreach d [list /usr/lib/ribbon/shell [file join $here .. shell]] {
+	if {[file exists $d/wall.tcl]} { source -encoding utf-8 $d/wall.tcl; break }
+}
+lassign $argv palf size
+if {![regexp {^(\d+)x(\d+)$} $size -> W H]} {
+	puts stderr "usage: ribbon-wallpaper PALETTE.conf WIDTHxHEIGHT"; exit 2
+}
+set pal {DESK_TOP #2B2825 DESK_BOTTOM #121110 DESK_STRIPE #FFFFFF DESK_STRIPE_ALPHA 0.03 DESK_MARK #FFFFFF DESK_MARK_ALPHA 0.065}
+set fh [open $palf]
+foreach line [split [read $fh] \n] {
+	if {[regexp {^\s*([A-Z_0-9]+)=(.*)$} $line -> k v]} { dict set pal $k [string trim [string trim $v] \"'] }
+}
+close $fh
+puts -nonewline [wall::svg $pal $W $H]

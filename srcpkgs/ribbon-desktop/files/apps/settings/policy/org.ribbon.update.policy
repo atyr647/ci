@@ -1,0 +1,21 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE policyconfig PUBLIC "-//freedesktop//DTD PolicyKit Policy Configuration 1.0//EN"
+ "http://www.freedesktop.org/standards/PolicyKit/1/policyconfig.dtd">
+<!-- Settings → Updates and the bar's updates panel: the system's own packages. pkexec runs /usr/bin/ribbon-update
+     (ribbon-tools) as root to do the update the page showed: a snapshot first, then the base's packages. It takes
+     no package names, so it can only bring the system up to date; pkexec clears the environment it is given. An admin's password, kept for a few minutes. No
+     .rules file: a person at the machine is asked, as anyone else is. -->
+<policyconfig>
+  <vendor>Ribbon OS</vendor>
+  <action id="org.ribbon.update">
+    <description>Update the system</description>
+    <message>Authentication is required to update this computer's system</message>
+    <icon_name>system-software-update</icon_name>
+    <defaults>
+      <allow_any>auth_admin</allow_any>
+      <allow_inactive>auth_admin</allow_inactive>
+      <allow_active>auth_admin_keep</allow_active>
+    </defaults>
+    <annotate key="org.freedesktop.policykit.exec.path">/usr/bin/ribbon-update</annotate>
+  </action>
+</policyconfig>

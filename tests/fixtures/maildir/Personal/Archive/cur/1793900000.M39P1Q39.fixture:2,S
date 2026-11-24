@@ -1,0 +1,18 @@
+From: Signed <signed@example.org>
+Subject: signed
+Date: Thu, 5 Nov 2026 10:06:00 +0100
+Message-ID: <signed@example.org>
+MIME-Version: 1.0
+Content-Type: multipart/signed; boundary="s"; protocol="application/pgp-signature"
+
+--s
+Content-Type: text/plain
+
+signed text
+--s
+Content-Type: application/pgp-signature; name="signature.asc"
+
+-----BEGIN PGP SIGNATURE-----
+xyz
+-----END PGP SIGNATURE-----
+--s--

@@ -1,0 +1,143 @@
+#!/bin/sh
+# ribbon-lock - lock the session: swaylock in the active palette's colours (boards Lock-1 to Lock-4,
+# design/tools/gen_lock_osd.py; docs/STACK.md S9, option 1).
+#   ribbon-lock             lock now; returns once the screen is locked (swaylock -f), so it serves
+#                           swayidle's before-sleep as well as the power menu, Super+L and the idle timer
+#   ribbon-lock --config    print the swaylock config it would use, and lock nothing
+#
+# The config is written at every lock, from what is active then, to $XDG_RUNTIME_DIR/ribbon-swaylock.conf
+# (swaylock -C), so a palette or wallpaper change needs no other step and your own ~/.config/swaylock/config
+# is never written over. When you have one (there or in ~/.swaylock/config, a file ribbon-lock did not write),
+# swaylock reads it instead, as it would without Ribbon.
+#   colours     ~/.config/ribbon/palette.conf (written by ribbon-theme apply), else the system's default palette:
+#               inside BAR, ring PILL, a key press ACCENT (backspace MUTED), verifying FG, wrong ACCENT, text FG,
+#               no border lines
+#   background  ~/.config/ribbon/wallpaper.conf: the picture shown on the desktop (IMAGE, laid out as FIT says)
+#               for a picture, slideshow or video; the plain colour (COLOUR) for a colour; else DESK_BOTTOM
+#               (the drawn pattern is no picture swaylock can load)
+#   indicator   always shown, radius 56, ring 6, Inter 15: the boards' (gen_lock_osd.py's R, T, FS)
+set -u
+
+cfg=${XDG_CONFIG_HOME:-${HOME:-/tmp}/.config}
+sys=${RIBBON_THEMES:-/usr/share/ribbon/themes}
+
+# the value of KEY in FILE (KEY=VALUE lines, the last one wins, quotes taken off), or nothing
+val() {
+	[ -r "$2" ] || return 0
+	sed -n "s/^[[:space:]]*$1=//p" "$2" | tail -n 1 | sed "s/^[\"']//; s/[\"'][[:space:]]*\$//; s/[[:space:]]*\$//"
+}
+
+pal=$cfg/ribbon/palette.conf
+[ -r "$pal" ] || pal=$sys/palettes/ribbon.conf
+
+# a palette colour as swaylock writes it (RRGGBB, no #); Graphite's when the palette lacks it or it is malformed
+colour() {
+	v=$(val "$1" "$pal")
+	case $v in
+		\#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) printf '%s' "${v#\#}" ;;
+		*) printf '%s' "$2" ;;
+	esac
+}
+BAR=$(colour BAR 1D1C1B)
+PILL=$(colour PILL 36302C)
+FG=$(colour FG EEE9E3)
+MUTED=$(colour MUTED A49D95)
+ACCENT=$(colour ACCENT FF7A59)
+BOTTOM=$(colour DESK_BOTTOM 121110)
+NONE=00000000
+
+# the background
+wp=$cfg/ribbon/wallpaper.conf
+mode=$(val MODE "$wp")
+image=$(val IMAGE "$wp")
+fit=$(val FIT "$wp")
+plain=$(val COLOUR "$wp")
+case $plain in \#[0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f][0-9A-Fa-f]) plain=${plain#\#} ;; *) plain= ;; esac
+bg=$BOTTOM
+img=
+case $mode in
+	colour) [ -n "$plain" ] && bg=$plain ;;
+	pattern) ;;
+	*)
+		if [ -n "$image" ] && [ -f "$image" ] && [ -r "$image" ]; then
+			img=$image
+			[ -n "$plain" ] && bg=$plain
+		fi ;;
+esac
+case $fit in fit) scaling=fit ;; centre) scaling=center ;; tile) scaling=tile ;; *) scaling=fill ;; esac
+
+config() {
+	cat <<EOF
+# Written by ribbon-lock at every lock, from $(basename "$pal" .conf) and wallpaper.conf. Edits are lost.
+color=$bg
+EOF
+	[ -n "$img" ] && printf 'image=:%s\nscaling=%s\n' "$img" "$scaling"
+	cat <<EOF
+indicator-idle-visible
+indicator-radius=56
+indicator-thickness=6
+font=Inter
+font-size=15
+inside-color=$BAR
+inside-clear-color=$BAR
+inside-caps-lock-color=$BAR
+inside-ver-color=$BAR
+inside-wrong-color=$BAR
+ring-color=$PILL
+ring-clear-color=$PILL
+ring-caps-lock-color=$PILL
+ring-ver-color=$FG
+ring-wrong-color=$ACCENT
+line-color=$NONE
+line-clear-color=$NONE
+line-caps-lock-color=$NONE
+line-ver-color=$NONE
+line-wrong-color=$NONE
+separator-color=$NONE
+key-hl-color=$ACCENT
+bs-hl-color=$MUTED
+caps-lock-key-hl-color=$ACCENT
+caps-lock-bs-hl-color=$MUTED
+text-color=$FG
+text-clear-color=$FG
+text-caps-lock-color=$FG
+text-ver-color=$FG
+text-wrong-color=$ACCENT
+layout-bg-color=$BAR
+layout-border-color=$NONE
+layout-text-color=$FG
+EOF
+}
+
+if [ "${1:-}" = --config ]; then
+	config
+	exit 0
+fi
+
+# your own swaylock config wins (swaylock reads ~/.swaylock/config first, then $XDG_CONFIG_HOME/swaylock/config)
+for own in "${HOME:-/nonexistent}/.swaylock/config" "$cfg/swaylock/config"; do
+	if [ -f "$own" ] && ! head -n 1 "$own" | grep -q '^# Written by ribbon-lock'; then
+		exec swaylock -f
+	fi
+done
+
+run=${XDG_RUNTIME_DIR:-}
+if [ -z "$run" ] || [ ! -d "$run" ] || [ ! -w "$run" ]; then
+	run=$(mktemp -d) || exec swaylock -f
+fi
+conf=$run/ribbon-swaylock.conf
+# swaylock runs the picture's path through wordexp (spaces split it, $ and backquotes are expanded), so it is
+# given a link of a plain name to the picture instead
+if [ -n "$img" ]; then
+	case $run in
+		*[!A-Za-z0-9._/-]*) img= ;;
+		*) ln -sfn -- "$img" "$run/ribbon-lock-background" && img=$run/ribbon-lock-background || img= ;;
+	esac
+fi
+# written whole, then moved in place: a lock that starts while another writes still reads a complete file
+if (umask 077 && config >"$conf.$$") && mv -f "$conf.$$" "$conf"; then
+	exec swaylock -f -C "$conf"
+fi
+rm -f "$conf.$$"
+# the config could not be written: lock all the same, with swaylock's own colours
+exec swaylock -f

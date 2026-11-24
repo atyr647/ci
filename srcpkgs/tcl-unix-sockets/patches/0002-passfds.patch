@@ -1,0 +1,896 @@
+From 0000000000000000000000000000000000000000 Mon Sep 17 00:00:00 2001
+From: Ribbon OS maintainers <ribbon@localhost>
+Date: Fri, 6 Nov 2026 23:59:00 +0000
+Subject: [PATCH 2/2] Add -passfds: receive file descriptors passed with
+ SCM_RIGHTS
+
+A descriptor passed with SCM_RIGHTS travels with the bytes of the
+sendmsg that carried it, and the kernel hands it to the first read that
+takes some of those bytes. inputProc reads with read(), which can't take
+it, so the kernel closes it. Tcl reads ahead, so a gets or a readable
+event can lose descriptors that came with bytes the script hasn't looked
+at yet.
+
+unix_sockets::connect path ?-passfds bool? and
+unix_sockets::listen path handler ?-passfds bool? make the connection
+read with recvmsg instead. Each message's descriptors are queued on the
+channel, tagged with the stream offset where the message that carried
+them ended. That offset is exact, because the kernel ends a read right
+after a message that carries descriptors.
+
+unix_sockets::fds chan ?-all? ?-messages? hands out the descriptors of
+messages the script has read (or, with -all, all received) as new
+channels, so gets, read and chan event work as before. Descriptors never
+taken are closed with the channel. If the open file limit made the
+kernel drop some, fds fails once with UNIX_SOCKETS CTRUNC instead of
+losing them silently.
+
+It is an option at creation, not a settable channel option, because
+descriptors read before it was turned on would already be gone.
+chan configure shows two read-only options: -passfds, and -fdqueue (the
+received byte count and the queue, with fd numbers that stay owned by
+the channel). -fdqueue lets another extension take the connection over
+by duplicating the queued descriptors, without linking against this one.
+
+The default is unchanged. Tests uds-8.* use python3's socket.send_fds as
+the sending peer, and are skipped without it.
+---
+ README.md              |  17 +++
+ doc/unix_sockets.md.in |  90 +++++++++++-
+ generic/main.c         | 318 ++++++++++++++++++++++++++++++++++++++++-
+ tests/uds.test         | 242 +++++++++++++++++++++++++++++++
+ 4 files changed, 657 insertions(+), 10 deletions(-)
+
+diff --git a/README.md b/README.md
+index 85ee722..2aa4475 100644
+--- a/README.md
++++ b/README.md
+@@ -27,6 +27,23 @@ set listen  [unix_sockets::listen /tmp/.bar accept]
+ vwait ::forever
+ ~~~
+ 
++Passing file descriptors
++------------------------
++
++Connections opened with `-passfds 1` keep file descriptors passed with
++SCM_RIGHTS instead of letting the kernel discard them when Tcl reads,
++and hand them out with `unix_sockets::fds` once the script has read the
++message they came with:
++
++~~~tcl
++set chan    [unix_sockets::connect /tmp/.foo -passfds 1]
++gets $chan line
++set files   [unix_sockets::fds $chan]
++~~~
++
++`unix_sockets::listen path accept -passfds 1` does the same for every
++accepted connection.  The default is unchanged.
++
+ License
+ -------
+ 
+diff --git a/doc/unix_sockets.md.in b/doc/unix_sockets.md.in
+index abc6956..688d8f8 100644
+--- a/doc/unix_sockets.md.in
++++ b/doc/unix_sockets.md.in
+@@ -12,8 +12,9 @@
+ 
+ **package require @PACKAGE_NAME@** ?@PACKAGE_VERSION@?
+ 
+-**unix_sockets::listen** *path* *accept_handler*\
+-**unix_sockets::connect** *path*
++**unix_sockets::listen** *path* *accept_handler* ?**-passfds** *bool*?\
++**unix_sockets::connect** *path* ?**-passfds** *bool*?\
++**unix_sockets::fds** *channel* ?**-all**? ?**-messages**?
+ 
+ 
+ ## DESCRIPTION
+@@ -26,18 +27,83 @@ The channels returned by these commands support the standard Tcl channel
+ operations: **read**, **puts**, **gets**, **flush**, **close**,
+ **chan configure**, **chan event**, etc.
+ 
+-**unix_sockets::listen** *path* *accept_handler*
++**unix_sockets::listen** *path* *accept_handler* ?**-passfds** *bool*?
+ 
+ :   Open a listening socket at *path*.  If *path* already exists, it is
+     unlinked first.  You must have permission to create *path* in its
+     parent directory.  When a client connects, *accept_handler* is
+     invoked with the channel handle of the new client connection
+     appended.  Returns the channel handle of the listening socket.
++    With **-passfds 1**, every accepted connection receives passed file
++    descriptors (see **PASSING FILE DESCRIPTORS**).
+ 
+-**unix_sockets::connect** *path*
++**unix_sockets::connect** *path* ?**-passfds** *bool*?
+ 
+ :   Connect as a client to the unix domain socket at *path*.  Returns
+-    the channel handle for the new connection.
++    the channel handle for the new connection.  With **-passfds 1** it
++    receives passed file descriptors.
++
++**unix_sockets::fds** *channel* ?**-all**? ?**-messages**?
++
++:   Take the file descriptors queued on a connection opened with
++    **-passfds 1** and return a new channel for each, in the order they
++    were sent.  Without **-all**, only those of messages the script has
++    read in full; with **-all**, every one received so far, including
++    those of a message still in Tcl's input buffer.  With **-messages**
++    the result is a list of *offset* {*channel* ...} pairs, one per
++    message, instead of a flat list of channels.  Returns an empty list
++    when nothing is queued; it never blocks or reads.
++
++
++## PASSING FILE DESCRIPTORS
++
++A process can send open file descriptors over a unix socket with
++**sendmsg**(2) and **SCM_RIGHTS**.  They travel with the bytes of that
++**sendmsg**, and the kernel hands them to the first read that takes some
++of those bytes.  A plain **read**(2) can't take them, so the kernel
++closes them.  That is what happens by default, because Tcl reads ahead
++into its buffer: a **gets** or a readable event can discard descriptors
++sent with bytes the script has not even looked at.
++
++The **-passfds 1** option makes the channel read with **recvmsg**(2)
++instead, so no descriptor is discarded.  Each message's descriptors are
++queued on the channel, tagged with the stream offset (bytes since the
++connection was made) where the message that carried them ended.  The
++kernel ends a read right after a message that carries descriptors, so the
++offset is exact, unless the message is larger than the channel's
++**-buffersize**: then its descriptors arrive with its first part, and the
++offset is where that part ended.
++
++So **gets**, **read** and **chan event** work as usual, and
++**unix_sockets::fds** hands the descriptors out once the script has read
++the message they came with.  A protocol that knows how many descriptors a
++message carries (Wayland, D-Bus) can just as well take them in order.
++Received descriptors are close-on-exec, and descriptors that are never
++taken are closed with the channel.  If the kernel could not pass all of a
++message's descriptors (the open file limit was reached), the first
++**unix_sockets::fds** that reaches that message fails once with
++errorCode {UNIX_SOCKETS CTRUNC}, and the next call returns those that did
++arrive.  On a channel without **-passfds 1** it fails with errorCode
++{UNIX_SOCKETS PASSFDS}.
++
++Without the option nothing changes.  The option can't be changed later
++(**-passfds** is read-only in **chan configure**), since descriptors read
++before it was turned on would already be lost.
++
++These channels have two read-only options:
++
++**-passfds**
++
++:   1 if the channel receives passed descriptors, else 0.  On a listening
++    socket, whether the connections it accepts do.
++
++**-fdqueue**
++
++:   For other extensions that take a connection over (they duplicate the
++    descriptors, which stay owned by this channel).  Empty without
++    **-passfds 1**, otherwise a list: the number of bytes read from the
++    socket so far, then one {*offset* *lost* {*fd* ...}} element per
++    queued message, oldest first.
+ 
+ 
+ ## EXAMPLES
+@@ -79,10 +145,22 @@ vwait ::done
+ ```
+ 
+ 
++A client of a server that answers "OPEN *name*" with a line, sent with
++the opened file's descriptor:
++
++```tcl
++set con [unix_sockets::connect /tmp/files.socket -passfds 1]
++puts $con "OPEN image.squashfs"
++flush $con
++gets $con status
++set image [lindex [unix_sockets::fds $con] 0]
++```
++
++
+ ## SEE ALSO
+ 
+ close(n), chan(n), socket(n), read(n), puts(n), eof(n), fblocked(n),
+-flush(n)
++flush(n), unix(7), recvmsg(2)
+ 
+ 
+ ## KEYWORDS
+diff --git a/generic/main.c b/generic/main.c
+index 93ef244..9098cb8 100644
+--- a/generic/main.c
++++ b/generic/main.c
+@@ -11,6 +11,8 @@
+ #include <unistd.h>
+ #include <fcntl.h>
+ #include <errno.h>
++#include <stdint.h>
++#include <stdio.h>
+ 
+ /* Tcl_Size compat for Tcl 8 builds without tclconfig support */
+ #ifndef TCL_SIZE_MAX
+@@ -21,12 +23,33 @@ typedef int Tcl_Size;
+ 
+ #define MAX_UDS_PATH	(sizeof(((struct sockaddr_un*)0)->sun_path) - 1)
+ 
++// The most descriptors one SCM_RIGHTS message can carry (Linux SCM_MAX_FD)
++#define MAX_PASSFDS		253
++
++
++// With -passfds: the descriptors that arrived with one message, queued on
++// the channel until unix_sockets::fds takes them
++struct fd_msg {
++	struct fd_msg*	next;
++	Tcl_WideInt		end;	// stream offset just past the bytes they came with
++	int				lost;	// MSG_CTRUNC: the kernel could not pass them all
++	int				nfd;
++	int				fds[];
++};
+ 
+ typedef struct uds_state {
+ 	Tcl_Channel	channel;
+ 	int			fd;
+ 	Tcl_Obj*	path;
+ 
++	// -passfds: read with recvmsg and queue the descriptors passed with
++	// SCM_RIGHTS, instead of letting read() discard them (see recv_passfds).
++	// On a listening socket, whether the accepted channels get it.
++	int				passfds;
++	Tcl_WideInt		received;	// bytes read from the socket so far
++	struct fd_msg*	fds_head;
++	struct fd_msg*	fds_tail;
++
+ 	// Set if this is an accept handler (listening socket), so that we know
+ 	// whether to unlink the socket file on close, and whether to unlink from
+ 	// the interp_cx accept handlers list on close. If this is not an accept
+@@ -42,6 +65,17 @@ struct interp_cx {
+ 	struct uds_state*	accept_handlers_head;
+ };
+ 
++static void free_fd_msg(struct fd_msg* m) //<<<
++{
++	int		i;
++
++	for (i=0; i<m->nfd; i++)
++		close(m->fds[i]);
++
++	ckfree(m);
++}
++
++//>>>
+ static int close2Proc(ClientData cdata, Tcl_Interp* interp, int flags) //<<<
+ {
+ 	uds_state*	con = cdata;
+@@ -72,6 +106,14 @@ static int close2Proc(ClientData cdata, Tcl_Interp* interp, int flags) //<<<
+ 		}
+ 	}
+ 
++	// Descriptors that were never taken are closed with the channel
++	while (con->fds_head) {
++		struct fd_msg*	m = con->fds_head;
++		con->fds_head = m->next;
++		free_fd_msg(m);
++	}
++	con->fds_tail = NULL;
++
+ 	replace_tclobj(&con->accept_handler,	NULL);
+ 	replace_tclobj(&con->path,				NULL);
+ 
+@@ -83,12 +125,88 @@ static int close2Proc(ClientData cdata, Tcl_Interp* interp, int flags) //<<<
+ 	return 0;
+ }
+ 
++//>>>
++/*
++ * A descriptor passed with SCM_RIGHTS travels with the bytes of the sendmsg
++ * that carried it, and the kernel hands it to the first read that takes some
++ * of those bytes.  A plain read() can't take it, so the kernel closes it.
++ * With -passfds every read is a recvmsg, and each message's descriptors are
++ * queued in order, tagged with the stream offset just past the bytes they
++ * came with.  The kernel ends a read right after a message that carries
++ * descriptors, so that is where the message ended (unless it was larger than
++ * the read, then it is a point inside it).  Where the message began can't be
++ * known: the read may start with earlier bytes.
++ */
++static int recv_passfds(uds_state* con, char* buf, int bufSize, int* errorCodePtr) //<<<
++{
++	union {
++		struct cmsghdr	align;
++		char			buf[CMSG_SPACE(MAX_PASSFDS * sizeof(int))];
++	}					ctl;
++	struct iovec		iov = {.iov_base = buf, .iov_len = (size_t)bufSize};
++	struct msghdr		msg = {
++		.msg_iov		= &iov,
++		.msg_iovlen		= 1,
++		.msg_control	= ctl.buf,
++		.msg_controllen	= sizeof(ctl.buf),
++	};
++	struct cmsghdr*		cmsg;
++	struct fd_msg*		m;
++	ssize_t				got;
++	int					flags = 0, nfd = 0;
++
++#ifdef MSG_CMSG_CLOEXEC
++	flags |= MSG_CMSG_CLOEXEC;
++#endif
++	got = recvmsg(con->fd, &msg, flags);
++	if (got == -1) {
++		*errorCodePtr = Tcl_GetErrno();
++		return -1;
++	}
++	con->received += got;
++
++	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg))
++		if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS)
++			nfd += (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
++
++	if (nfd == 0 && !(msg.msg_flags & MSG_CTRUNC))
++		return (int)got;
++
++	m = (struct fd_msg*)ckalloc(offsetof(struct fd_msg, fds) + (nfd ? nfd : 1) * sizeof(int));
++	*m = (struct fd_msg){
++		.end	= con->received,
++		.lost	= (msg.msg_flags & MSG_CTRUNC) != 0,
++	};
++	for (cmsg = CMSG_FIRSTHDR(&msg); cmsg; cmsg = CMSG_NXTHDR(&msg, cmsg)) {
++		if (cmsg->cmsg_level == SOL_SOCKET && cmsg->cmsg_type == SCM_RIGHTS) {
++			int		c = (cmsg->cmsg_len - CMSG_LEN(0)) / sizeof(int);
++			memcpy(m->fds + m->nfd, CMSG_DATA(cmsg), c * sizeof(int));
++			m->nfd += c;
++		}
++	}
++#ifndef MSG_CMSG_CLOEXEC
++	for (int i=0; i<m->nfd; i++)
++		(void)fcntl(m->fds[i], F_SETFD, FD_CLOEXEC);
++#endif
++
++	if (con->fds_tail)
++		con->fds_tail->next = m;
++	else
++		con->fds_head = m;
++	con->fds_tail = m;
++
++	return (int)got;
++}
++
+ //>>>
+ static int inputProc(ClientData cdata, char* buf, int bufSize, int *errorCodePtr) //<<<
+ {
+ 	uds_state*	con = cdata;
+ 	int			got;
+ 
++	if (con->passfds)
++		return recv_passfds(con, buf, bufSize, errorCodePtr);
++
+ 	got = read(con->fd, buf, bufSize);
+ 
+ 	if (got == -1)
+@@ -158,6 +276,55 @@ static int getHandleProc(ClientData cdata, int direction, ClientData* handlePtr)
+ 	return TCL_OK;
+ }
+ 
++//>>>
++static int getOptionProc(ClientData cdata, Tcl_Interp* interp, const char* optionName, Tcl_DString* dsPtr) //<<<
++{
++	uds_state*		con = cdata;
++	size_t			len = optionName ? strlen(optionName) : 0;
++	struct fd_msg*	m;
++	char			num[TCL_INTEGER_SPACE + 2];
++
++	// -passfds: read-only, set by unix_sockets::connect and ::listen
++	if (len == 0 || (len > 1 && strncmp(optionName, "-passfds", len) == 0)) {
++		if (len == 0) Tcl_DStringAppendElement(dsPtr, "-passfds");
++		Tcl_DStringAppendElement(dsPtr, con->passfds ? "1" : "0");
++		if (len) return TCL_OK;
++	}
++
++	// -fdqueue: read-only.  For other extensions that take the connection
++	// over (they dup the descriptors, which stay owned by this channel):
++	// {} without -passfds, else the bytes read from the socket so far,
++	// then {offset lost {fd ...}} for each queued message, oldest first.
++	if (len == 0 || (len > 1 && strncmp(optionName, "-fdqueue", len) == 0)) {
++		if (len == 0) {
++			Tcl_DStringAppendElement(dsPtr, "-fdqueue");
++			Tcl_DStringStartSublist(dsPtr);
++		}
++		if (con->passfds && con->accept_handler == NULL) {
++			snprintf(num, sizeof(num), "%" TCL_LL_MODIFIER "d", (Tcl_WideInt)con->received);
++			Tcl_DStringAppendElement(dsPtr, num);
++			for (m = con->fds_head; m; m = m->next) {
++				Tcl_DStringStartSublist(dsPtr);
++				snprintf(num, sizeof(num), "%" TCL_LL_MODIFIER "d", (Tcl_WideInt)m->end);
++				Tcl_DStringAppendElement(dsPtr, num);
++				Tcl_DStringAppendElement(dsPtr, m->lost ? "1" : "0");
++				Tcl_DStringStartSublist(dsPtr);
++				for (int i=0; i<m->nfd; i++) {
++					snprintf(num, sizeof(num), "%d", m->fds[i]);
++					Tcl_DStringAppendElement(dsPtr, num);
++				}
++				Tcl_DStringEndSublist(dsPtr);
++				Tcl_DStringEndSublist(dsPtr);
++			}
++		}
++		if (len == 0) Tcl_DStringEndSublist(dsPtr);
++		else return TCL_OK;
++	}
++
++	if (len == 0) return TCL_OK;
++	return Tcl_BadChannelOption(interp, optionName, "fdqueue passfds");
++}
++
+ //>>>
+ 
+ static Tcl_ChannelType unix_socket_channel_type = {
+@@ -172,6 +339,7 @@ static Tcl_ChannelType unix_socket_channel_type = {
+ 	.getHandleProc	= getHandleProc,
+ 	.close2Proc		= close2Proc,
+ 	.blockModeProc	= blockModeProc,
++	.getOptionProc	= getOptionProc,
+ };
+ 
+ 
+@@ -211,7 +379,8 @@ static void accept_dispatcher(ClientData cdata, int mask) //<<<
+ 
+ 	con = (uds_state*)ckalloc(sizeof(uds_state));
+ 	*con = (uds_state){
+-		.fd		= client_sockfd,
++		.fd			= client_sockfd,
++		.passfds	= state->passfds,
+ 	};
+ 
+ 	replace_tclobj(&channel_name, Tcl_ObjPrintf("unix_socket%d", client_sockfd));
+@@ -243,6 +412,27 @@ finally:
+ 	Tcl_Release(interp);
+ }
+ 
++//>>>
++static int parse_options(Tcl_Interp* interp, int objc, Tcl_Obj *const objv[], int* passfds) //<<<
++{
++	static const char* options[] = {"-passfds", NULL};
++	enum {OPT_PASSFDS};
++	int		i, idx;
++
++	for (i=0; i+1<objc; i+=2) {
++		if (Tcl_GetIndexFromObj(interp, objv[i], options, "option", 0, &idx) != TCL_OK)
++			return TCL_ERROR;
++		switch (idx) {
++			case OPT_PASSFDS:
++				if (Tcl_GetBooleanFromObj(interp, objv[i+1], passfds) != TCL_OK)
++					return TCL_ERROR;
++				break;
++		}
++	}
++
++	return TCL_OK;
++}
++
+ //>>>
+ static OBJCMD(glue_listen) //<<<
+ {
+@@ -255,10 +445,16 @@ static OBJCMD(glue_listen) //<<<
+ 	Tcl_Obj*			channel_name = NULL;
+ 	Tcl_Channel			channel;
+ 	struct interp_cx*	cx = Tcl_GetAssocData(interp, PACKAGE_NAME, NULL);
++	int					passfds = 0;
+ 	(void)cdata;
+ 
+ 	enum {A_cmd, A_PATH, A_HANDLER, A_objc};
+-	CHECK_ARGS_LABEL(finally, code, "path accept_handler");
++	if (objc < A_objc || (objc - A_objc) % 2) {
++		Tcl_WrongNumArgs(interp, A_cmd+1, objv, "path accept_handler ?-passfds bool?");
++		code = TCL_ERROR;
++		goto finally;
++	}
++	TEST_OK_LABEL(finally, code, parse_options(interp, objc-A_objc, objv+A_objc, &passfds));
+ 
+ 	path = Tcl_GetStringFromObj(objv[A_PATH], &path_len);
+ 	if (path_len > (Tcl_Size)MAX_UDS_PATH)
+@@ -285,6 +481,7 @@ static OBJCMD(glue_listen) //<<<
+ 	state = (uds_state*)ckalloc(sizeof(uds_state));
+ 	*state = (uds_state){
+ 		.fd			= server_sockfd,
++		.passfds	= passfds,
+ 
+ 		// We store a ref to this interp, so hook this into the linked list to
+ 		// clear .interp when the interp is being deleted
+@@ -326,10 +523,16 @@ static OBJCMD(glue_connect) //<<<
+ 	Tcl_Size			path_len;
+ 	struct sockaddr_un	address;
+ 	uds_state*			con;
++	int					passfds = 0;
+ 	(void)cdata;
+ 
+ 	enum {A_cmd, A_PATH, A_objc};
+-	CHECK_ARGS_LABEL(finally, code, "path");
++	if (objc < A_objc || (objc - A_objc) % 2) {
++		Tcl_WrongNumArgs(interp, A_cmd+1, objv, "path ?-passfds bool?");
++		code = TCL_ERROR;
++		goto finally;
++	}
++	TEST_OK_LABEL(finally, code, parse_options(interp, objc-A_objc, objv+A_objc, &passfds));
+ 
+ 	path = Tcl_GetStringFromObj(objv[A_PATH], &path_len);
+ 	if (path_len > (Tcl_Size)MAX_UDS_PATH)
+@@ -352,7 +555,8 @@ static OBJCMD(glue_connect) //<<<
+ 
+ 	con = (uds_state*)ckalloc(sizeof(uds_state));
+ 	*con = (uds_state){
+-		.fd		= fd,
++		.fd			= fd,
++		.passfds	= passfds,
+ 	};
+ 	fd = -1; // con now owns this fd
+ 
+@@ -372,6 +576,111 @@ finally:
+ 	return code;
+ }
+ 
++//>>>
++static Tcl_Obj* fd_channel(Tcl_Interp* interp, int fd) //<<<
++{
++	// A Tcl channel for a received descriptor, readable and/or writable as it
++	// was opened, and in the blocking mode it shares with the sender
++	int				fl = fcntl(fd, F_GETFL);
++	int				mode;
++	Tcl_Channel		channel;
++
++	switch (fl & O_ACCMODE) {
++		case O_RDONLY:	mode = TCL_READABLE;					break;
++		case O_WRONLY:	mode = TCL_WRITABLE;					break;
++		default:		mode = TCL_READABLE | TCL_WRITABLE;		break;
++	}
++
++	channel = Tcl_MakeFileChannel((ClientData)(intptr_t)fd, mode);
++	if (channel == NULL) {
++		close(fd);
++		return NULL;
++	}
++	Tcl_RegisterChannel(interp, channel);
++	if (fl != -1 && (fl & O_NONBLOCK))
++		(void)Tcl_SetChannelOption(NULL, channel, "-blocking", "0");
++
++	return Tcl_NewStringObj(Tcl_GetChannelName(channel), -1);
++}
++
++//>>>
++static OBJCMD(glue_fds) //<<<
++{
++	int					code = TCL_OK;
++	static const char*	options[] = {"-all", "-messages", NULL};
++	enum {OPT_ALL, OPT_MESSAGES};
++	int					all = 0, messages = 0, idx;
++	Tcl_Channel			channel, top;
++	uds_state*			con;
++	Tcl_WideInt			upto;
++	struct fd_msg*		m;
++	Tcl_Obj*			res = NULL;
++	(void)cdata;
++
++	enum {A_cmd, A_CHANNEL, A_args, A_objc=A_args+2};
++	CHECK_RANGE_ARGS_LABEL(finally, code, "channel ?-all? ?-messages?");
++
++	for (int i=A_args; i<objc; i++) {
++		TEST_OK_LABEL(finally, code, Tcl_GetIndexFromObj(interp, objv[i], options, "option", 0, &idx));
++		switch (idx) {
++			case OPT_ALL:		all = 1;		break;
++			case OPT_MESSAGES:	messages = 1;	break;
++		}
++	}
++
++	// Tcl_GetChannel gives the bottom of a stack of transforms
++	if (NULL == (channel = Tcl_GetChannel(interp, Tcl_GetString(objv[A_CHANNEL]), NULL))) {
++		code = TCL_ERROR;
++		goto finally;
++	}
++	con = Tcl_GetChannelInstanceData(channel);
++	if (Tcl_GetChannelType(channel) != &unix_socket_channel_type || !con->passfds || con->accept_handler) {
++		Tcl_SetErrorCode(interp, "UNIX_SOCKETS", "PASSFDS", NULL);
++		THROW_PRINTF_LABEL(finally, code, "channel \"%s\" is not a unix_sockets connection opened with -passfds 1",
++				Tcl_GetString(objv[A_CHANNEL]));
++	}
++
++	// The bytes the script has read: under a transform, all that was read
++	top = Tcl_GetTopChannel(channel);
++	upto = con->received - (top == channel ? Tcl_InputBuffered(channel) : 0);
++
++	for (m = con->fds_head; m && (all || m->end <= upto); m = m->next) {
++		if (m->lost) {
++			// Report it once; the descriptors that did arrive stay queued
++			m->lost = 0;
++			Tcl_SetErrorCode(interp, "UNIX_SOCKETS", "CTRUNC", NULL);
++			THROW_PRINTF_LABEL(finally, code, "file descriptors sent with the message ending at offset %"
++					TCL_LL_MODIFIER "d were lost: the kernel could not pass them all (the open file limit?)",
++					(Tcl_WideInt)m->end);
++		}
++	}
++
++	replace_tclobj(&res, Tcl_NewListObj(0, NULL));
++	while ((m = con->fds_head) && (all || m->end <= upto)) {
++		Tcl_Obj*	channels = messages ? Tcl_NewListObj(0, NULL) : res;
++
++		for (int i=0; i<m->nfd; i++) {
++			Tcl_Obj*	name = fd_channel(interp, m->fds[i]);
++			if (name) Tcl_ListObjAppendElement(NULL, channels, name);
++		}
++		m->nfd = 0;		// now owned by their channels
++		if (messages) {
++			Tcl_Obj*	pair[2] = {Tcl_NewWideIntObj(m->end), channels};
++			Tcl_ListObjAppendElement(NULL, res, Tcl_NewListObj(2, pair));
++		}
++
++		if (NULL == (con->fds_head = m->next))
++			con->fds_tail = NULL;
++		free_fd_msg(m);
++	}
++
++	Tcl_SetObjResult(interp, res);
++
++finally:
++	replace_tclobj(&res, NULL);
++	return code;
++}
++
+ //>>>
+ void delete_interp_cx(void* cdata, Tcl_Interp* interp) //<<<
+ {
+@@ -407,6 +716,7 @@ int Unix_sockets_Init(Tcl_Interp* interp) //<<<
+ 
+ 	NEW_CMD("::" PACKAGE_NAME "::listen",	glue_listen);
+ 	NEW_CMD("::" PACKAGE_NAME "::connect",	glue_connect);
++	NEW_CMD("::" PACKAGE_NAME "::fds",		glue_fds);
+ 
+ 	TEST_OK(Tcl_PkgProvide(interp, PACKAGE_NAME, PACKAGE_VERSION));
+ 
+diff --git a/tests/uds.test b/tests/uds.test
+index ef3c5cd..915387e 100644
+--- a/tests/uds.test
++++ b/tests/uds.test
+@@ -411,6 +411,248 @@ test uds-7.3 {multiple listen sockets survive interp deletion} -body { #<<<
+ #>>>
+ # uds-7.*: Interp deletion defenses >>>
+ 
++# uds-8.*: Passing descriptors (-passfds) <<<
++# The sending side is a python3 peer (socket.send_fds).  Each step is
++# hexdata:tag,tag - one sendmsg of those bytes carrying the read end of a
++# pipe per tag, which reads back as the tag - or sleep:seconds.  In "serve"
++# mode it listens on path and prints "ready", otherwise it connects to path.
++::tcltest::testConstraint sendfds [expr {
++	![catch {exec python3 -c {import socket; socket.send_fds}}]
++}]
++
++set fdpeer {
++import os, socket, sys, time
++mode, path = sys.argv[1:3]
++s = socket.socket(socket.AF_UNIX)
++if mode == "serve":
++	s.bind(path)
++	s.listen(1)
++	print("ready", flush=True)
++	s = s.accept()[0]
++else:
++	s.connect(path)
++for step in sys.argv[3:]:
++	what, _, arg = step.partition(":")
++	if what == "sleep":
++		time.sleep(float(arg))
++		continue
++	fds = []
++	for tag in filter(None, arg.split(",")):
++		r, w = os.pipe()
++		os.write(w, (tag + "\n").encode())
++		os.close(w)
++		fds.append(r)
++	if fds:
++		socket.send_fds(s, [bytes.fromhex(what)], fds)
++	else:
++		s.sendall(bytes.fromhex(what))
++	for fd in fds:
++		os.close(fd)
++s.close()
++}
++
++proc fdpeer {mode path args} { # Start the peer; close the result to wait for it
++	set peer [open |[list python3 -c $::fdpeer $mode $path {*}$args] r]
++	if {$mode eq "serve"} {gets $peer}
++	set peer
++}
++proc msg {data args} {string cat [binary encode hex $data] : [join $args ,]}
++proc tags chans {lmap c $chans {set tag [gets $c]; close $c; set tag}}
++proc msgtags msgs {lmap m $msgs {list [lindex $m 0] [tags [lindex $m 1]]}}
++proc nfds {} {llength [glob -nocomplain -directory /proc/self/fd *]}
++proc accept_one path { # A -passfds listener, and the first connection to it
++	set ::accepted {}
++	set listen [unix_sockets::listen $path [list apply {con {set ::accepted $con}}] -passfds 1]
++	list $listen
++}
++
++test uds-8.1 {-passfds: descriptors read with gets, none lost, in order} -constraints sendfds -body { #<<<
++	set listen [accept_one [file join $sockdir uds-8.1]]
++	set peer [fdpeer connect [file join $sockdir uds-8.1] \
++		[msg one\n] [msg two\n p1] [msg three\n] [msg four\n p2 p3] [msg five\n p4]]
++	vwait ::accepted
++	chan configure $::accepted -blocking 1
++	set out {}
++	foreach _ {1 2 3 4 5} {
++		lappend out [gets $::accepted] [tags [unix_sockets::fds $::accepted]]
++	}
++	set out
++} -cleanup {
++	catch {close $peer}
++	catch {close $::accepted}
++	catch {close $listen}
++	unset -nocomplain listen peer out ::accepted
++} -result {one {} two p1 three {} four {p2 p3} five p4}
++#>>>
++test uds-8.2 {-passfds: fileevent and non-blocking gets} -constraints sendfds -body { #<<<
++	set listen [accept_one [file join $sockdir uds-8.2]]
++	set peer [fdpeer connect [file join $sockdir uds-8.2] \
++		[msg plain\n] sleep:0.02 [msg x1\n f1] sleep:0.02 \
++		[msg x2\nplain2\n f2 f3] [msg split] sleep:0.02 [msg " line\n" f4]]
++	vwait ::accepted
++	chan configure $::accepted -blocking 0
++	set ::got {}
++	chan event $::accepted readable [list apply {con {
++		while {[gets $con line] >= 0} {
++			lappend ::got $line [tags [unix_sockets::fds $con]]
++		}
++		if {[eof $con]} {set ::done 1}
++	}} $::accepted]
++	set timeout [after 5000 {set ::done timeout}]
++	vwait ::done
++	after cancel $timeout
++	set ::got
++} -cleanup {
++	catch {close $peer}
++	catch {close $::accepted}
++	catch {close $listen}
++	unset -nocomplain listen peer timeout ::accepted ::got ::done
++} -result {plain {} x1 f1 x2 {} plain2 {f2 f3} {split line} f4}
++#>>>
++test uds-8.3 {-passfds: one read, -messages gives where each message ended} -constraints sendfds -body { #<<<
++	set listen [accept_one [file join $sockdir uds-8.3]]
++	set peer [fdpeer connect [file join $sockdir uds-8.3] \
++		[msg head:] [msg A p1 p2] [msg BB p3] [msg tail]]
++	vwait ::accepted
++	chan configure $::accepted -blocking 1
++	close $peer
++	list [read $::accepted] [msgtags [unix_sockets::fds $::accepted -messages]]
++} -cleanup {
++	catch {close $::accepted}
++	catch {close $listen}
++	unset -nocomplain listen peer ::accepted
++} -result {head:ABBtail {{6 {p1 p2}} {8 p3}}}
++#>>>
++test uds-8.4 {connect -passfds: -all also takes those of a message still in Tcl's buffer} -constraints sendfds -body { #<<<
++	set path [file join $sockdir uds-8.4]
++	set peer [fdpeer serve $path [msg "no newline yet" p1]]
++	set client [unix_sockets::connect $path -passfds 1]
++	chan configure $client -blocking 1
++	list [chan configure $client -passfds] [read $client 3] [unix_sockets::fds $client] \
++		[tags [unix_sockets::fds $client -all]] [unix_sockets::fds $client -all] [read $client]
++} -cleanup {
++	catch {close $client}
++	catch {close $peer}
++	unset -nocomplain path peer client
++} -result {1 {no } {} p1 {} {newline yet}}
++#>>>
++test uds-8.5 {-passfds: a message larger than the read buffer} -constraints sendfds -body { #<<<
++	set listen [accept_one [file join $sockdir uds-8.5]]
++	set peer [fdpeer connect [file join $sockdir uds-8.5] [msg [string repeat x 40] p1]]
++	vwait ::accepted
++	chan configure $::accepted -blocking 1 -buffersize 16 -translation binary
++	set data [read $::accepted 40]
++	set m [unix_sockets::fds $::accepted -messages]
++	list [string length $data] [lindex $m 0 0] [tags [lindex $m 0 1]]
++} -cleanup {
++	catch {close $peer}
++	catch {close $::accepted}
++	catch {close $listen}
++	unset -nocomplain listen peer data m ::accepted
++} -result {40 16 p1}
++#>>>
++test uds-8.6 {-passfds: descriptors never taken are closed with the channel} -constraints sendfds -body { #<<<
++	set listen [accept_one [file join $sockdir uds-8.6]]
++	set peer [fdpeer connect [file join $sockdir uds-8.6] [msg x p1 p2] [msg y p3]]
++	set before [nfds]
++	vwait ::accepted
++	chan configure $::accepted -blocking 1
++	read $::accepted 2
++	set queued [expr {[nfds] - $before}]
++	close $::accepted
++	list $queued [expr {[nfds] - $before}]
++} -cleanup {
++	catch {close $peer}
++	catch {close $::accepted}
++	catch {close $listen}
++	unset -nocomplain listen peer before queued ::accepted
++} -result {4 0}
++#>>>
++test uds-8.7 {-fdqueue shows the queue without taking from it} -constraints sendfds -body { #<<<
++	set listen [accept_one [file join $sockdir uds-8.7]]
++	set peer [fdpeer connect [file join $sockdir uds-8.7] [msg ab] [msg c p1 p2]]
++	vwait ::accepted
++	chan configure $::accepted -blocking 1
++	set data [read $::accepted 3]
++	set q [chan configure $::accepted -fdqueue]
++	list $data [regexp {^3 \{3 0 \{[0-9]+ [0-9]+\}\}$} $q] [tags [unix_sockets::fds $::accepted]] \
++		[chan configure $::accepted -fdqueue] [dict get [chan configure $::accepted] -passfds]
++} -cleanup {
++	catch {close $peer}
++	catch {close $::accepted}
++	catch {close $listen}
++	unset -nocomplain listen peer data q ::accepted
++} -result {abc 1 {p1 p2} 3 1}
++#>>>
++test uds-8.8 {without -passfds nothing changes: the kernel discards the descriptors} -constraints sendfds -body { #<<<
++	set ::accepted {}
++	set listen [unix_sockets::listen [file join $sockdir uds-8.8] [list apply {con {set ::accepted $con}}]]
++	set peer [fdpeer connect [file join $sockdir uds-8.8] [msg data\n p1]]
++	set before [nfds]
++	vwait ::accepted
++	chan configure $::accepted -blocking 1
++	list [gets $::accepted] [expr {[nfds] - $before}] [chan configure $::accepted -passfds] \
++		[chan configure $::accepted -fdqueue] [catch {unix_sockets::fds $::accepted} msg] $msg $::errorCode
++} -cleanup {
++	catch {close $peer}
++	catch {close $::accepted}
++	catch {close $listen}
++	unset -nocomplain listen peer before msg ::accepted
++} -match glob -result {data 1 0 {} 1 {channel "unix_socket*" is not a unix_sockets connection opened with -passfds 1} {UNIX_SOCKETS PASSFDS}}
++#>>>
++test uds-8.9 {-passfds: the queue moves with the channel to another interp} -constraints sendfds -body { #<<<
++	set listen [accept_one [file join $sockdir uds-8.9]]
++	set peer [fdpeer connect [file join $sockdir uds-8.9] [msg one\n p1] [msg two\n p2]]
++	vwait ::accepted
++	chan configure $::accepted -blocking 1
++	gets $::accepted
++	interp create child
++	load {} [string totitle unix_sockets] child
++	interp transfer {} $::accepted child
++	child eval [list apply {con {
++		set first [unix_sockets::fds $con]
++		list [lmap c $first {gets $c}] [gets $con] [lmap c [unix_sockets::fds $con] {gets $c}]
++	}} $::accepted]
++} -cleanup {
++	catch {interp delete child}
++	catch {close $peer}
++	catch {close $listen}
++	unset -nocomplain listen peer ::accepted
++} -result {p1 two p2}
++#>>>
++test uds-8.10 {-passfds: option and argument errors} -body { #<<<
++	set path [file join $sockdir uds-8.10]
++	set listen [unix_sockets::listen $path [list apply {con {close $con}}] -passfds yes]
++	set client [unix_sockets::connect $path]
++	list \
++		[catch {unix_sockets::connect $path -passfds} m1] $m1 [lrange $::errorCode 0 1] \
++		[catch {unix_sockets::connect $path -bogus 1} m2] $m2 \
++		[catch {unix_sockets::connect $path -passfds maybe} m3] $m3 \
++		[catch {unix_sockets::listen $path handler -passfds} m4] $m4 \
++		[catch {unix_sockets::fds stdout} m5] $m5 \
++		[catch {unix_sockets::fds $listen} m6] [lindex $::errorCode 1] \
++		[catch {unix_sockets::fds $client} m7] [lindex $::errorCode 1] \
++		[catch {unix_sockets::fds $client -bogus} m8] $m8 \
++		[catch {unix_sockets::fds} m9] $m9 \
++		[chan configure $listen -passfds] \
++		[catch {chan configure $client -passfds 1} m10] [string match {bad option "-passfds"*} $m10]
++} -cleanup {
++	catch {close $client}
++	catch {close $listen}
++	unset -nocomplain path listen client m1 m2 m3 m4 m5 m6 m7 m8 m9 m10
++} -result [list \
++	1 {wrong # args: should be "unix_sockets::connect path ?-passfds bool?"} {TCL WRONGARGS} \
++	1 {bad option "-bogus": must be -passfds} \
++	1 {expected boolean value but got "maybe"} \
++	1 {wrong # args: should be "unix_sockets::listen path accept_handler ?-passfds bool?"} \
++	1 {channel "stdout" is not a unix_sockets connection opened with -passfds 1} \
++	1 PASSFDS 1 PASSFDS \
++	1 {bad option "-bogus": must be -all or -messages} \
++	1 {wrong # args: should be "unix_sockets::fds channel ?-all? ?-messages?"} \
++	1 1 1]
++#>>>
++# uds-8.*: Passing descriptors (-passfds) >>>
++
+ ::tcltest::cleanupTests
+ return
+ 

@@ -1,0 +1,28 @@
+# The base set: the kits every build's root is made of (the C library, the compiler, a shell, the usual tools). Their
+# recipes need each other in a circle, so kit-set.sh leaves them out and build/kits/bootstrap.sh builds them, in
+# stages (docs/RECIPES.md, "The bootstrap"). One name per line, in the order of the first stage: each is laid over the
+# stand-in system (recipes/bootstrap) as soon as it is built, so a line's recipe is built with the lines above it.
+linux-headers
+zlib
+xz
+m4
+bison
+python3
+glibc
+gmp
+mpfr
+mpc
+binutils
+gcc
+make
+bash
+perl
+coreutils
+sed
+grep
+gawk
+findutils
+diffutils
+tar
+gzip
+patch

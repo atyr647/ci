@@ -1,0 +1,12 @@
+# Keeps disk space for the system (ribbon-reserve): caps your files short of
+# the last RESERVE_SIZE of the disk, holds a spare file it deletes if the
+# disk still runs out, and tells the desktop how much room is left
+# (/run/ribbon/reserve). Wakes every 30 s for a statfs and, on btrfs/zfs,
+# a quota read; it does nothing else.
+type = process
+command = /usr/bin/ribbon-reserve watch
+restart = on-failure
+restart-limit-count = 3
+restart-limit-interval = 60
+logfile = /var/log/dinit/ribbon-reserve.log
+depends-on: system

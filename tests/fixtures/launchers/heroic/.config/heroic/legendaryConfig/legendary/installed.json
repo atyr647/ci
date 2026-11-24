@@ -1,0 +1,9 @@
+{
+  "Ori2": {
+    "app_name": "Ori2",
+    "title": "Ori and the Will of the Wisps",
+    "install_path": "@HOME@/Games/Ori2",
+    "executable": "Ori.exe",
+    "version": "1.0"
+  }
+}

@@ -1,0 +1,3 @@
+#!/bin/sh
+# The fake pactl for Settings → Sound (tests/fixtures/pactl.tcl, the JSON in pactl-json): RIBBON_PACTL points here.
+exec tclsh8.6 "$(dirname "$0")/pactl.tcl" "$@"

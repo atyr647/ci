@@ -1,0 +1,16 @@
+# lz4: the LZ4 compression library and lz4; erofs-utils compresses with it.
+name=lz4
+kit=io.github.lz4.lz4
+version=1.10.0
+revision=1
+summary="The LZ4 compression library and tool"
+license="BSD-2-Clause AND GPL-2.0-or-later"
+source="https://github.com/lz4/lz4/releases/download/v1.10.0/lz4-1.10.0.tar.gz"
+sha256="537512904744b35e232912055ccf8ec66d768639ff3abe5788d90d792ec5f48b"
+srcdir="lz4-1.10.0"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() { make -j"$JOBS" PREFIX=/usr BUILD_STATIC=no; }
+
+stage() { make PREFIX=/usr BUILD_STATIC=no DESTDIR="$DESTDIR" install; }

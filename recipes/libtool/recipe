@@ -1,0 +1,20 @@
+# libtool: libtoolize and its macros, which autoreconf puts into a source tree that builds shared libraries, and
+# libltdl.
+name=libtool
+kit=org.gnu.libtool
+version=2.6.2
+revision=1
+summary="The shared library build helper"
+license="GPL-2.0-or-later"
+source="https://ftp.gnu.org/gnu/libtool/libtool-2.6.2.tar.xz"
+sha256="2ef1067c16c97db930fd740cc9bc3d3ba9a583804ae5ac42cc3e8719e49e191e"
+srcdir="libtool-2.6.2"
+needs="org.gnu.glibc org.gnu.m4"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gnu.m4"
+
+build() {
+	./configure --prefix=/usr --disable-static
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

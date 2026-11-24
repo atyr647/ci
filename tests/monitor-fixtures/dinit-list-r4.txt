@@ -1,0 +1,7 @@
+[{+}     ] boot
+[{+}     ] dbus (pid: 1402)
+[{+}     ] pipewire (pid: 1418)
+[{ }<<   ] wireplumber
+[   >>{ }] foot-server (pid: 1466)
+[     {-}] ribbon-notes-sync
+[     {X}] syncthing (exit status: 1)

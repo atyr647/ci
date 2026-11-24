@@ -1,0 +1,19 @@
+# grep, with egrep and fgrep as upstream ships them. No PCRE (-P) until there is a kit for it.
+name=grep
+kit=org.gnu.grep
+version=3.12
+revision=1
+summary="The GNU grep"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/grep/grep-3.12.tar.xz"
+sha256="2649b27c0e90e632eadcd757be06c6e9a4f48d941de51e7c0f83ff76408a07b9"
+srcdir="grep-3.12"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr --sbindir=/usr/bin
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

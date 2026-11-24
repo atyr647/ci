@@ -1,0 +1,16 @@
+# JetBrains Mono: the monospace face of Ribbon OS (the upstream release's TrueType files).
+name=font-jetbrains-mono
+kit=com.jetbrains.mono
+version=2.304
+revision=1
+summary="JetBrains Mono typeface: the monospace face of Ribbon OS"
+license="OFL-1.1"
+source="https://github.com/JetBrains/JetBrainsMono/releases/download/v2.304/JetBrainsMono-2.304.zip"
+sha256="6f6376c6ed2960ea8a963cd7387ec9d76e3f629125bc33d1fdcd7eb7012f7bbf"
+srcdir="JetBrainsMono-2.304"
+build_needs="org.gnu.coreutils org.gnu.bash org.gnu.findutils"
+
+stage() {
+	for f in fonts/ttf/*.ttf; do install -Dm644 "$f" "$DESTDIR/usr/share/fonts/TTF/$(basename "$f")"; done
+	install -Dm644 OFL.txt "$DESTDIR/usr/share/licenses/font-jetbrains-mono/OFL.txt"
+}

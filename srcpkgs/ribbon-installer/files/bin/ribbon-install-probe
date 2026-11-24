@@ -1,0 +1,68 @@
+#!/usr/bin/env tclsh
+# ribbon-install-probe - what the Tcl/Tk installer needs to know about this
+# computer (docs/INSTALLER-PROTOCOL.md). Runs as root, read-only.
+#
+#   ribbon-install-probe                      the probe dict: machine, disks, drivers
+#   ribbon-install-probe --check-answers FILE prints "ok" or "error <text>"
+#   ribbon-install-probe --windows-ready PART the partition's resize dict
+#                                             {min max safe why}, checked afresh
+#                                             (exit 0 whenever it prints one)
+#   ribbon-install-probe --only machine|disks|drivers   one section (tests, debugging)
+
+proc backend_dir {} {
+    if {[info exists ::env(RIBBON_INSTALLER_BACKEND)]} { return $::env(RIBBON_INSTALLER_BACKEND) }
+    set here [file dirname [file normalize [info script]]]
+    if {[file exists [file join $here .. backend common.tcl]]} { return [file normalize [file join $here .. backend]] }
+    return /usr/lib/ribbon/installer-backend
+}
+set dir [backend_dir]
+foreach f {common.tcl disks.tcl machine.tcl hwdb.tcl answers.tcl} { source [file join $dir $f] }
+fconfigure stdout -encoding utf-8
+
+proc usage {} {
+    puts stderr "usage: ribbon-install-probe \[--check-answers FILE | --windows-ready PART | --only machine|disks|drivers\]"
+    exit 2
+}
+
+proc probe {{only ""}} {
+    set d [dict create version 1]
+    if {$only in {"" machine}} { ::rb::machine::geoip_start }
+    if {$only in {"" disks}} { set disks [::rb::disk::probe [::rb::machine::efi]] }
+    if {$only in {"" machine}} { dict set d machine [::rb::machine::facts] }
+    if {$only in {"" disks}} { dict set d disks $disks }
+    if {$only in {"" drivers}} { dict set d drivers [lmap e [::hw::detect] { ::hw::public $e }] }
+    return $d
+}
+
+switch -- [lindex $argv 0] {
+    "" { puts -nonewline [::rb::pretty [probe]] }
+    --only {
+        if {[lindex $argv 1] ni {machine disks drivers}} usage
+        puts -nonewline [::rb::pretty [probe [lindex $argv 1]]]
+    }
+    --check-answers {
+        set f [lindex $argv 1]
+        if {$f eq ""} usage
+        if {[catch {open $f r} ch]} { puts "error can't read $f"; exit 1 }
+        fconfigure $ch -encoding utf-8
+        set a [read $ch]
+        close $ch
+        if {[catch {dict size $a}]} { puts [list error "the answers file is not a Tcl dict"]; exit 1 }
+        lassign [::ans::check $a] res detail
+        if {$res eq "ok"} { puts ok; exit 0 }
+        puts "error $detail"
+        exit 1
+    }
+    --windows-ready {
+        set part [lindex $argv 1]
+        if {$part eq ""} usage
+        set dp [::rb::disk::find_part [::rb::disk::probe [::rb::machine::efi]] $part]
+        if {$dp eq ""} { puts [list min 0 max 0 safe 0 why "$part not found"]; exit 0 }
+        lassign $dp disk p
+        if {![dict exists $p resize]} { puts [list min 0 max 0 safe 0 why "$part is not a Windows partition"]; exit 0 }
+        puts [dict get $p resize]
+        exit 0
+    }
+    -h - --help { puts [string trim [regsub -all -line {^# ?} [lindex [regexp -inline {(?n)(^#[^!].*\n)+} [::rb::readall [info script]]] 0] ""]] }
+    default usage
+}

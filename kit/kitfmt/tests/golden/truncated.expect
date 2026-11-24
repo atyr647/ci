@@ -1,0 +1,3 @@
+# truncated.kit: damaged on purpose; every reader must refuse it as follows
+open fail TRUNCATED
+probe kit 0

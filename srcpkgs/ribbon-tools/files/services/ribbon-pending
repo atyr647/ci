@@ -1,0 +1,7 @@
+# Finishes installer jobs that needed the internet (NVIDIA driver, Flatpak
+# apps) once a connection is up. Runs in the background; never delays login.
+# Disables itself when nothing is left (see /usr/lib/ribbon/pending).
+type = process
+command = /usr/lib/ribbon/pending run
+restart = false
+depends-on: system

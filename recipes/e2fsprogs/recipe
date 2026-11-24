@@ -1,0 +1,28 @@
+# e2fsprogs: mkfs.ext4, e2fsck, tune2fs, resize2fs and the rest for ext2, ext3 and ext4, with libext2fs, libe2p,
+# libcom_err and libss. libblkid and libuuid are util-linux's, and so is fsck.
+name=e2fsprogs
+kit=org.kernel.e2fsprogs
+version=1.47.2
+revision=1
+summary="Tools for the ext2, ext3 and ext4 filesystems"
+license="GPL-2.0-or-later AND LGPL-2.0-or-later AND BSD-3-Clause AND MIT"
+source="https://cdn.kernel.org/pub/linux/kernel/people/tytso/e2fsprogs/v1.47.2/e2fsprogs-1.47.2.tar.xz"
+sha256="08242e64ca0e8194d9c1caad49762b19209a06318199b63ce74ae4ef2d74e63c"
+srcdir="e2fsprogs-1.47.2"
+needs="org.gnu.glibc org.kernel.util-linux"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.kernel.util-linux"
+
+emake() { make sbindir=/usr/bin root_sbindir=/usr/bin root_libdir=/usr/lib "$@"; }
+build() {
+	mkdir build; cd build
+	../configure --prefix=/usr --sbindir=/usr/bin --sysconfdir=/etc --with-root-prefix=/usr --enable-elf-shlibs \
+		--disable-libblkid --disable-libuuid --disable-uuidd --disable-fsck --disable-nls --disable-fuse2fs \
+		--without-udev-rules-dir --without-crond-dir --without-systemd-unit-dir
+	emake -j"$JOBS"
+}
+
+stage() {
+	cd build
+	emake DESTDIR="$DESTDIR" install
+	rm -f "$DESTDIR"/usr/lib/libcom_err.a "$DESTDIR"/usr/lib/libe2p.a "$DESTDIR"/usr/lib/libext2fs.a "$DESTDIR"/usr/lib/libss.a
+}

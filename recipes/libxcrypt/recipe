@@ -1,0 +1,21 @@
+# libxcrypt: crypt(), the password hashing library (glibc no longer has one); login, su and passwd use it. The strong
+# hashes and glibc's, no obsolete interfaces.
+name=libxcrypt
+kit=io.github.besser82.libxcrypt
+version=4.4.38
+revision=1
+summary="Password hashing library (crypt)"
+license="LGPL-2.1-or-later"
+source="https://github.com/besser82/libxcrypt/releases/download/v4.4.38/libxcrypt-4.4.38.tar.xz"
+sha256="80304b9c306ea799327f01d9a7549bdb28317789182631f1b54f4511b4206dd6"
+srcdir="libxcrypt-4.4.38"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.perl.perl"
+
+build() {
+	./configure --prefix=/usr --enable-hashes=strong,glibc --enable-obsolete-api=no --disable-static \
+		--disable-failure-tokens
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

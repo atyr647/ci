@@ -1,0 +1,22 @@
+# pixman: pixel compositing (cairo's and wlroots' software rendering), with its x86 SIMD paths. Without OpenMP,
+# its tests and demos (GTK, libpng).
+name=pixman
+kit=org.cairographics.pixman
+version=0.46.4
+revision=1
+summary="Low-level pixel manipulation"
+license="MIT"
+source="https://www.cairographics.org/releases/pixman-0.46.4.tar.gz"
+sha256="d09c44ebc3bd5bee7021c79f922fe8fb2fb57f7320f55e97ff9914d2346a591c"
+srcdir="pixman-0.46.4"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf com.mesonbuild.meson io.github.michaelforney.samurai org.python.python"
+
+build() {
+	meson setup build --prefix=/usr --libdir=lib --libexecdir=lib --sbindir=bin --sysconfdir=/etc --localstatedir=/var \
+		--buildtype=plain --wrap-mode=nodownload -Ddefault_library=shared \
+		-Dopenmp=disabled -Dgtk=disabled -Dlibpng=disabled -Dtests=disabled -Ddemos=disabled -Dtimers=false -Dgnuplot=false
+	samu -C build -j"$JOBS"
+}
+
+stage() { DESTDIR="$DESTDIR" meson install -C build --no-rebuild; }

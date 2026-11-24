@@ -1,0 +1,11 @@
+pos:	0
+flags:	02100002
+drm-driver:	i915
+drm-client-id:	7
+drm-pdev:	0000:00:02.0
+drm-engine-render:	5000000 ns
+drm-engine-video:	1000000 ns
+drm-engine-capacity-video:	2
+drm-total-system0:	4096 KiB
+drm-resident-system0:	2048 KiB
+drm-resident-stolen-system0:	0

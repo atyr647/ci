@@ -1,0 +1,16 @@
+#!/bin/sh
+# Started by the session bus when something sends a notification before the
+# Ribbon shell owns org.freedesktop.Notifications (dbus-services/). The bus
+# holds the call while this runs; once the shell has the name, the call goes
+# to it. This starts no shell: it only waits, at most 10 s, and exits.
+i=0
+while [ "$i" -lt 100 ]; do
+	if dbus-send --session --print-reply --dest=org.freedesktop.DBus /org/freedesktop/DBus \
+		org.freedesktop.DBus.NameHasOwner string:org.freedesktop.Notifications 2>/dev/null |
+		grep -q 'boolean true'; then
+		exit 0
+	fi
+	sleep 0.1
+	i=$((i + 1))
+done
+exit 1

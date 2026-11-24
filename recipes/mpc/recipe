@@ -1,0 +1,19 @@
+# mpc: the compiler needs it.
+name=mpc
+kit=org.multiprecision.mpc
+version=1.3.1
+revision=1
+summary="Complex numbers of arbitrary precision"
+license="LGPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/mpc/mpc-1.3.1.tar.gz"
+sha256="ab642492f5cf882b74aa0cb730cd410a81edcdbec895183ce930e706c1c759b8"
+srcdir="mpc-1.3.1"
+needs="org.gnu.glibc org.gmplib.gmp org.mpfr.mpfr"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gmplib.gmp org.mpfr.mpfr"
+
+build() {
+	./configure --prefix=/usr --disable-static
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

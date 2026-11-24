@@ -1,0 +1,25 @@
+#!/bin/sh
+# ribbon-conky - Ribbon's desktop widget (conky).
+#   ribbon-conky                 start it (yours in ~/.config/conky/ribbon.conf wins)
+#   ribbon-conky layout NAME     switch layout: card gaming clock graphs strip calendar
+#   ribbon-conky layouts         list them
+#   ribbon-conky off             stop it (until the next login)
+cfg=${XDG_CONFIG_HOME:-$HOME/.config}
+lay=/usr/share/ribbon/conky/layouts
+case "${1:-}" in
+	layouts) for f in "$lay"/*.conf; do basename "$f" .conf; done; exit 0 ;;
+	layout)
+		[ -r "$lay/${2:-}.conf" ] || { echo "no layout '${2:-}' (see: ribbon-conky layouts)" >&2; exit 2; }
+		mkdir -p "$cfg/ribbon"; printf 'LAYOUT=%s\n' "$2" > "$cfg/ribbon/conky.conf" ;;
+	off) pkill -x -u "$(id -u)" conky; exit 0 ;;
+esac
+pkill -x -u "$(id -u)" conky 2>/dev/null
+conf=$cfg/conky/ribbon.conf
+if [ ! -r "$conf" ]; then
+	name=$(sed -n 's/^LAYOUT=//p' "$cfg/ribbon/conky.conf" 2>/dev/null)
+	conf=$lay/${name:-card}.conf
+	[ -r "$conf" ] || conf=$lay/card.conf
+fi
+RIBBON_SCREEN_W=$(wlr-randr 2>/dev/null | awk '/current/ { split($1, m, "x"); print m[1]; exit }')
+export RIBBON_SCREEN_W
+setsid conky -c "$conf" >/dev/null 2>&1 &

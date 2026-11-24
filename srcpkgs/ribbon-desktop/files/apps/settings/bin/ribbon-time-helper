@@ -1,0 +1,288 @@
+#!/bin/sh
+# ribbon-time-helper - the privileged half of Settings → Date and time: the time zone, the clock, and whether the clock
+# is set from the internet. Runs as root through pkexec (polkit action org.ribbon.time: an admin's password, kept for a
+# few minutes).
+#
+#   pkexec /usr/bin/ribbon-time-helper zone Area/City
+#   pkexec /usr/bin/ribbon-time-helper set YYYY-MM-DD [HH:MM[:SS]]
+#   pkexec /usr/bin/ribbon-time-helper ntp on|off
+#
+# The caller never names a path. Every word is checked whole before anything is touched, and nothing the caller sends
+# is ever evaluated; anything else is refused (exit 2).
+#
+#   zone   The name is letters, digits, "_", "+", "-" and "/" only (so no "." and no ".."), does not start or end with
+#          "/", and must be a readable plain file under /usr/share/zoneinfo that starts with the bytes "TZif" (the
+#          posix/ and right/ copies are not taken), and its links must not lead through /etc/localtime (tzdata's own
+#          zoneinfo/localtime does: that would be a link to itself). /etc/localtime becomes a link to it: the link is made beside it and
+#          renamed over it (rename(2): a reader sees the old zone or the new one). /etc/timezone is rewritten the same
+#          way when it is there as a plain file; it is not created.
+#   set    The date and the time are checked digit by digit and as a calendar date (2000 to 2099, the month's own
+#          length, leap years). The date alone keeps the time of day it is when the clock is set (`date +%H:%M:%S`,
+#          read here and checked the same way: the password prompt before it may have taken a while). Then
+#          `date -s "YYYY-MM-DD HH:MM:SS"` (local time, the zone of /etc/localtime: TZ is
+#          not read) and, where there is a hwclock, `hwclock -w` (the same as --systohc, and the spelling busybox has
+#          too). A machine with no hardware clock still has its time set; the answer says so.
+#   ntp    The time service is the first of chronyd, chrony, ntpd, openntpd, ntp that dinit has a description for
+#          (/etc/dinit.d, /usr/local/lib/dinit.d, /usr/lib/dinit.d, /run/dinit.d, /var/lib/ribbon/dinit.d). Ribbon ships
+#          chrony, whose service is chronyd. on: `dinitctl enable NAME` (now and at every start) and `dinitctl start
+#          NAME`. off: `dinitctl disable NAME`, on a base with runit services (/etc/sv: Void's) the runit-way links
+#          (/var/service/NAME, /etc/runit/runsvdir/default/NAME) removed, and `dinitctl stop NAME`.
+#
+# Safety. PATH is set here; /etc must be a real directory owned by root that no one else can write; /etc/localtime is
+# replaced only when it is a plain file or a link to one (the link is replaced, never followed). New files are made
+# with mktemp in /etc and removed again on any failure. Exit codes: 0 done, 1 a failure, 2 refused.
+#
+# Tests: with RIBBON_TIME_TEST set and PKEXEC_UID not set (so never under pkexec, which clears the environment anyway),
+# RIBBON_TIME_ROOT=DIR (required then) makes it work on DIR/etc, DIR/usr/share/zoneinfo and DIR's service directories,
+# and RIBBON_TIME_DATE, RIBBON_TIME_HWCLOCK and RIBBON_TIME_DINITCTL name the programs run in place of date, hwclock
+# and dinitctl. In a test the real ones are never run: without its stand-in, set and ntp fail and hwclock is skipped.
+# Outside a test the helper refuses to run unless it is root.
+
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+LC_ALL=C
+export LC_ALL
+unset IFS CDPATH ENV TZ
+umask 022
+
+die() { printf 'ribbon-time-helper: %s\n' "$1" >&2; exit 1; }
+refuse() { printf 'ribbon-time-helper: %s\n' "$1" >&2; exit 2; }
+usage() { refuse "usage: ribbon-time-helper zone Area/City | set YYYY-MM-DD [HH:MM[:SS]] | ntp on|off"; }
+
+# ---- the request, checked before anything else ------------------------------------------------------
+
+valid_zone() {
+	case $1 in
+		'' | /* | */ | -* | *//* | posix/* | right/*) return 1 ;;
+		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789_+/-]*) return 1 ;;
+	esac
+	[ "${#1}" -le 64 ]
+}
+
+# A real calendar date and a real time of day; sets stamp to "YYYY-MM-DD HH:MM:SS".
+stamp=
+valid_stamp() {
+	case $1 in
+		20[0-9][0-9]-[0-9][0-9]-[0-9][0-9]) ;;
+		*) return 1 ;;
+	esac
+	case $2 in
+		[0-9][0-9]:[0-9][0-9]) v_time=$2:00 ;;
+		[0-9][0-9]:[0-9][0-9]:[0-9][0-9]) v_time=$2 ;;
+		*) return 1 ;;
+	esac
+	v_y=${1%%-*}
+	v_rest=${1#*-}
+	v_m=${v_rest%-*}
+	v_d=${v_rest#*-}
+	v_h=${v_time%%:*}
+	v_rest=${v_time#*:}
+	v_mi=${v_rest%:*}
+	v_s=${v_rest#*:}
+	# as numbers: one leading zero off, or the shell reads 08 as octal
+	v_m=${v_m#0}
+	v_d=${v_d#0}
+	v_h=${v_h#0}
+	v_mi=${v_mi#0}
+	v_s=${v_s#0}
+	if [ "$v_m" -lt 1 ] || [ "$v_m" -gt 12 ]; then return 1; fi
+	case $v_m in
+		4 | 6 | 9 | 11) v_max=30 ;;
+		2)
+			if [ $((v_y % 4)) -eq 0 ] && { [ $((v_y % 100)) -ne 0 ] || [ $((v_y % 400)) -eq 0 ]; }; then v_max=29; else v_max=28; fi
+			;;
+		*) v_max=31 ;;
+	esac
+	if [ "$v_d" -lt 1 ] || [ "$v_d" -gt "$v_max" ]; then return 1; fi
+	if [ "$v_h" -gt 23 ] || [ "$v_mi" -gt 59 ] || [ "$v_s" -gt 59 ]; then return 1; fi
+	stamp="$1 $v_time"
+}
+
+[ "$#" -ge 1 ] || usage
+verb=$1
+case $verb in
+	zone)
+		[ "$#" -eq 2 ] || usage
+		valid_zone "$2" || refuse "not a time zone's name"
+		;;
+	set)
+		[ "$#" -eq 2 ] || [ "$#" -eq 3 ] || usage
+		valid_stamp "$2" "${3:-00:00}" || refuse "not a date and a time (YYYY-MM-DD HH:MM, 2000 to 2099)"
+		;;
+	ntp)
+		[ "$#" -eq 2 ] || usage
+		case $2 in
+			on | off) ;;
+			*) usage ;;
+		esac
+		;;
+	*) usage ;;
+esac
+
+# ---- where things are, and who runs this -------------------------------------------------------------
+
+root=
+date_cmd='date'
+hwclock_cmd=
+dinitctl_cmd=dinitctl
+uid=0
+if [ -n "${RIBBON_TIME_TEST:-}" ] && [ -z "${PKEXEC_UID:-}" ]; then
+	root=${RIBBON_TIME_ROOT:-}
+	case $root in
+		/*) ;;
+		*) refuse "a test needs RIBBON_TIME_ROOT, an absolute path" ;;
+	esac
+	while [ "${root%/}" != "$root" ]; do root=${root%/}; done
+	[ -n "$root" ] || refuse "a test needs RIBBON_TIME_ROOT, not /"
+	# nor / spelt another way (/., /etc/.., a link to /)
+	case $(cd -P -- "$root" 2>/dev/null && pwd -P) in
+		'') refuse "a test needs RIBBON_TIME_ROOT, a directory" ;;
+		/ | //) refuse "a test needs RIBBON_TIME_ROOT, not /" ;;
+	esac
+	date_cmd=${RIBBON_TIME_DATE:-}
+	hwclock_cmd=${RIBBON_TIME_HWCLOCK:-}
+	dinitctl_cmd=${RIBBON_TIME_DINITCTL:-}
+	uid=$(id -u) || die "cannot tell who runs me"
+else
+	if [ "$(id -u)" != 0 ]; then die "run me through pkexec"; fi
+	if command -v hwclock >/dev/null 2>&1; then hwclock_cmd=hwclock; fi
+fi
+
+etc=$root/etc
+zoneinfo=$root/usr/share/zoneinfo
+
+# /etc: a real directory, owned by root (by the caller in a test), that no one else can write.
+safe_etc() {
+	if [ -L "$etc" ] || [ ! -d "$etc" ]; then die "$etc is not a directory; not writing there"; fi
+	if [ -z "$(find "$etc" -prune -user "$uid" ! -perm -020 ! -perm -002 2>/dev/null)" ]; then
+		die "$etc is not root's alone; not writing there"
+	fi
+}
+
+tmp=
+tmpdir=
+cleanup() {
+	if [ -n "$tmp" ]; then rm -f -- "$tmp"; fi
+	if [ -n "$tmpdir" ]; then
+		rm -f -- "$tmpdir/localtime"
+		rmdir -- "$tmpdir" 2>/dev/null
+	fi
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+# ---- zone ------------------------------------------------------------------------------------------------
+
+# 0 when following the links from $1 passes through /etc/localtime (tzdata's own zoneinfo/localtime is a link to it):
+# the new link would then point at itself, a loop. Each hop is made absolute with its directory's real path.
+through_localtime() {
+	t_lt=$(cd -P -- "$etc" && pwd -P)/localtime || return 0
+	t_p=$1
+	t_n=0
+	while [ -L "$t_p" ]; do
+		t_n=$((t_n + 1))
+		[ "$t_n" -le 32 ] || return 0
+		t_l=$(readlink -- "$t_p") || return 0
+		case $t_l in
+			/*) t_p=$t_l ;;
+			*) t_p=${t_p%/*}/$t_l ;;
+		esac
+		t_d=$(cd -P -- "${t_p%/*}/" 2>/dev/null && pwd -P) || return 1
+		t_p=${t_d%/}/${t_p##*/}
+		[ "$t_p" = "$t_lt" ] && return 0
+	done
+	return 1
+}
+
+do_zone() {
+	zone=$1
+	file=$zoneinfo/$zone
+	if [ ! -f "$file" ] || [ ! -r "$file" ]; then refuse "there is no time zone of that name"; fi
+	magic=$(dd if="$file" bs=4 count=1 2>/dev/null | tr -d '\000')
+	[ "$magic" = TZif ] || refuse "that is not a time zone"
+	safe_etc
+	target=$etc/localtime
+	through_localtime "$file" && refuse "that name is /etc/localtime itself"
+	if [ -d "$target" ]; then die "$target is a directory; not replacing it"; fi
+	if [ ! -L "$target" ] && [ -e "$target" ] && [ ! -f "$target" ]; then die "$target is not a plain file; not replacing it"; fi
+	names=$etc/timezone
+	# the new files, beside the old ones; then the renames
+	if [ ! -L "$names" ] && [ -f "$names" ]; then
+		tmp=$(mktemp "$etc/.timezone.XXXXXX") || { tmp=; die "cannot write in $etc"; }
+		printf '%s\n' "$zone" >"$tmp" || die "cannot write $tmp"
+		chmod 644 "$tmp" || die "cannot write $tmp"
+	fi
+	tmpdir=$(mktemp -d "$etc/.localtime.XXXXXX") || { tmpdir=; die "cannot write in $etc"; }
+	ln -s "$file" "$tmpdir/localtime" || die "cannot write in $etc"
+	mv -f "$tmpdir/localtime" "$target" || die "cannot replace $target"
+	if [ -n "$tmp" ]; then
+		mv -f "$tmp" "$names" || die "the zone is $zone, but $names could not be written"
+		tmp=
+	fi
+	printf 'time zone %s\n' "$zone"
+}
+
+# ---- set -------------------------------------------------------------------------------------------------
+
+do_set() {
+	[ -n "$date_cmd" ] || die "a test needs RIBBON_TIME_DATE"
+	if [ "$#" -eq 1 ]; then
+		s_now=$("$date_cmd" +%H:%M:%S 2>/dev/null) || die "the time of day could not be read"
+		valid_stamp "$1" "$s_now" || die "the time of day could not be read"
+	fi
+	"$date_cmd" -s "$stamp" >/dev/null 2>&1 || die "the clock could not be set"
+	if [ -z "$hwclock_cmd" ]; then
+		printf 'clock set to %s; this computer has no hardware clock program\n' "$stamp"
+	elif "$hwclock_cmd" -w >/dev/null 2>&1; then
+		printf 'clock set to %s\n' "$stamp"
+	else
+		printf 'clock set to %s; the hardware clock could not be written\n' "$stamp"
+	fi
+}
+
+# ---- ntp -------------------------------------------------------------------------------------------------
+
+# The time service dinit knows: the first of the names that has a description.
+service=
+find_service() {
+	for f_name in chronyd chrony ntpd openntpd ntp; do
+		for f_dir in etc/dinit.d usr/local/lib/dinit.d usr/lib/dinit.d run/dinit.d var/lib/ribbon/dinit.d; do
+			if [ -f "$root/$f_dir/$f_name" ]; then
+				service=$f_name
+				return 0
+			fi
+		done
+	done
+	return 1
+}
+
+do_ntp() {
+	find_service || die "no time service is installed"
+	[ -n "$dinitctl_cmd" ] || die "a test needs RIBBON_TIME_DINITCTL"
+	mark=$etc/dinit.d/boot.d/$service
+	if [ "$1" = on ]; then
+		if ! "$dinitctl_cmd" enable "$service" >/dev/null 2>&1; then
+			# already enabled is not a failure
+			if [ ! -e "$mark" ] && [ ! -L "$mark" ]; then die "$service could not be turned on"; fi
+		fi
+		"$dinitctl_cmd" start "$service" >/dev/null 2>&1 || die "$service did not start"
+		printf '%s is on\n' "$service"
+	else
+		"$dinitctl_cmd" disable "$service" >/dev/null 2>&1 || :
+		if [ -e "$mark" ] || [ -L "$mark" ]; then die "$service could not be turned off"; fi
+		if [ -d "$etc/sv" ]; then   # ribbon-dinit's runit compatibility starts what these links name
+			for link in "$root/var/service/$service" "$etc/runit/runsvdir/default/$service"; do
+				if [ -L "$link" ]; then rm -f -- "$link" || die "$service could not be turned off"; fi
+			done
+		fi
+		"$dinitctl_cmd" stop "$service" >/dev/null 2>&1 || die "$service did not stop"
+		printf '%s is off\n' "$service"
+	fi
+}
+
+case $verb in
+	zone) do_zone "$2" ;;
+	set) do_set "$2" ${3+"$3"} ;;
+	ntp) do_ntp "$2" ;;
+esac

@@ -1,0 +1,26 @@
+# Unix domain stream sockets as Tcl channels (unix_sockets::listen, ::connect), by Cyan Ogilvie. Ribbon's Tcl code
+# reaches local daemons (greetd, kitd, D-Bus) through it. patches/ (offered upstream, srcpkgs/tcl-unix-sockets/
+# UPSTREAM.md): a racy test fixed, and the opt-in -passfds.
+# The v0.7 release asset, not the tag archive: it carries the generated configure and the tclconfig submodules.
+name=tcl-unix-sockets
+kit=org.tcl-lang.unix-sockets
+version=0.7
+revision=2
+summary="Unix domain socket channels for Tcl"
+license="TCL"
+source="https://github.com/cyanogilvie/unix_sockets/releases/download/v0.7/unix_sockets0.7.tar.gz"
+sha256="74d668247fc2682d3dda6858f76414659915f5a747cb99458c9ad1d3656861e3"
+srcdir="unix_sockets0.7"
+needs="org.tcl-lang.tcl"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.tcl-lang.tcl"
+
+build() {
+	./configure --prefix=/usr --exec-prefix=/usr --libdir=/usr/lib --with-tcl=/usr/lib
+	make -j"$JOBS"
+}
+
+stage() {
+	# install-doc expects prebuilt doc/*.n, which the release does not ship
+	make DESTDIR="$DESTDIR" install-binaries
+	install -Dm644 license.terms "$DESTDIR/usr/share/licenses/tcl-unix-sockets/license.terms"
+}

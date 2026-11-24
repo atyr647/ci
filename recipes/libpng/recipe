@@ -1,0 +1,19 @@
+# libpng: reads and writes PNG images; freetype uses it for colour (emoji) glyphs.
+name=libpng
+kit=org.libpng.libpng
+version=1.6.59
+revision=1
+summary="The PNG image library"
+license="Libpng"
+source="https://download.sourceforge.net/libpng/libpng-1.6.59.tar.xz"
+sha256="d80dd2a38a37f803cb9b6ac7b14bd6e74ddc3b654780a8380bdf93523fdb4389"
+srcdir="libpng-1.6.59"
+needs="org.gnu.glibc net.zlib.zlib"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz net.zlib.zlib"
+
+build() {
+	./configure --prefix=/usr --disable-static
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

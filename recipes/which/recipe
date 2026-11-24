@@ -1,0 +1,19 @@
+# which: shows where a command is.
+name=which
+kit=org.gnu.which
+version=2.25
+revision=1
+summary="Shows the full path of commands"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/which/which-2.25.tar.gz"
+sha256="1cb83e4f702e60b8211ab5ec4c2afbab1b1dec80209456a7d2faf7584ed225ea"
+srcdir="which-2.25"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

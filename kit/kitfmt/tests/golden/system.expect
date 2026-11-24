@@ -1,0 +1,19 @@
+# system.kit: what a reader of KIT-FORMAT.md 1.0 must find (signature state with tests/keys/test.pub trusted)
+open ok
+kind system
+name org.ribbon.golden.base
+version 2026.11.1
+root 350497fa4f7f063b71a879d34a73ff018a35e7a7b78cefc10f8c55d7c3d35af5
+header 0
+entries 3
+chunks 1
+stored 54
+bytes 54
+format 1.0
+requires 
+signature valid CF096CB575EDBA78
+image erofs 8192 16384 1afd3f68d53a7df9829a129b053f5f7ed0f4d3a5a9e7236fb38746fbfee63bf2 097e07f8842a82ac8d3731060fb64d98c748bcabe7e7dfee38fa6ddf3c6ea5c2
+entry share dir 493
+entry share/doc dir 493
+entry share/doc/README file 420 54 raw 1 54 e5fdefef5938c039966fbf2183928f921a82c3190ad1be2b5919b918871bceed
+verify ok 1 image ok

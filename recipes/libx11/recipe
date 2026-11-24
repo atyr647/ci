@@ -1,0 +1,19 @@
+# libx11: Xlib, the X Window System's client library, with its locale data (/usr/share/X11/locale).
+name=libx11
+kit=org.x.libx11
+version=1.8.14
+revision=1
+summary="Xlib, the X client library"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libX11-1.8.14.tar.xz"
+sha256="bbc78c46217174655c2b32b138ad119f3ac15f50808b4d0b3a2677a4b1afc950"
+srcdir="libX11-1.8.14"
+needs="org.gnu.glibc org.x.libxcb"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.x.xorgproto org.x.xtrans org.x.libxcb"
+
+build() {
+	./configure --prefix=/usr --disable-static --without-xmlto --without-fop --without-xsltproc --disable-specs
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

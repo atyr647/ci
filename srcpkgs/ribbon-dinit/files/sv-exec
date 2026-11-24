@@ -1,0 +1,33 @@
+#!/bin/sh
+# /usr/lib/ribbon/sv2dinit/sv-exec <runit-service>
+# Runs /etc/sv/<service>/run unmodified under dinit. Because the run script ends in `exec <daemon>`, dinit ends up
+# supervising the daemon itself.
+#
+# A service with a ./finish (usually pid and socket cleanup) is run the way runsv runs it: ./run as a child of this
+# shell, which dinit supervises, and which passes dinit's stop signal on to it; when ./run ends, ./finish is run with
+# runit's two arguments (the exit code of ./run, or -1 when a signal ended it; and the low byte of the wait status: 0, or
+# the signal's number), and this shell exits with ./run's own status. Without a ./finish nothing changes: ./run is exec'd.
+# Tests: RIBBON_SV_DIR (the services' directory), tests/steps.d/26-sv-exec.sh.
+sv=$1
+dir=${RIBBON_SV_DIR:-/etc/sv}/$sv
+cd "$dir" || exit 111
+PATH=/usr/lib/ribbon/sv2dinit/compat:/usr/bin:/usr/sbin:/bin:/sbin
+export PATH
+[ -x ./finish ] || exec ./run
+./run &
+pid=$!
+trap 'kill -TERM "$pid" 2>/dev/null' TERM INT HUP QUIT
+wait "$pid"
+code=$?
+# a signal this shell trapped ends `wait` at once: wait again until ./run has really gone (its status is then the last one)
+while kill -0 "$pid" 2>/dev/null; do
+	wait "$pid"
+	code=$?
+done
+trap - TERM INT HUP QUIT
+if [ "$code" -gt 128 ]; then
+	./finish -1 $((code - 128))
+else
+	./finish "$code" 0
+fi
+exit "$code"

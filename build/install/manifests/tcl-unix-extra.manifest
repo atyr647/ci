@@ -1,0 +1,5 @@
+# tcl-unix-extra: srcpkgs/tcl-unix-extra/template's do_install (its Makefile's install target, then vlicense, vdoc).
+file 755 usr/lib/unix_extra0.3 @build/libunix_extra0.3.so
+file 644 usr/lib/unix_extra0.3 @files/pkgIndex.tcl
+license @repo/LICENSE
+doc @files/README

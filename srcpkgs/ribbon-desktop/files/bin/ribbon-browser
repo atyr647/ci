@@ -1,0 +1,25 @@
+#!/bin/sh
+# ribbon-browser - start the web browser chosen in Settings → Default apps (the desktop menu's
+# "Web browser"). That choice is the x-scheme-handler/https default in mimeapps.list, which
+# xdg-open follows for a link; with no link to open, this starts that app's own Exec line.
+set -u
+id=$(xdg-mime query default x-scheme-handler/https 2>/dev/null)
+[ -n "$id" ] || id=$(xdg-mime query default x-scheme-handler/http 2>/dev/null)
+[ -n "$id" ] || { echo "ribbon-browser: no web browser is chosen in Settings → Default apps" >&2; exit 1; }
+# the desktop file, first in XDG_DATA_HOME then in each of XDG_DATA_DIRS
+file=
+IFS=:
+for d in "${XDG_DATA_HOME:-$HOME/.local/share}" ${XDG_DATA_DIRS:-/usr/local/share:/usr/share}; do
+	if [ -f "$d/applications/$id" ]; then file=$d/applications/$id; break; fi
+done
+unset IFS
+[ -n "$file" ] || { echo "ribbon-browser: $id is chosen but not installed" >&2; exit 1; }
+# Exec in the [Desktop Entry] group, its field codes (%u, %U, %f ...) taken out and %% made %
+exec_line=$(awk '
+	/^\[/ { group = $0; next }
+	group == "[Desktop Entry]" && /^Exec=/ { sub(/^Exec=/, ""); print; exit }
+' "$file")
+[ -n "$exec_line" ] || { echo "ribbon-browser: $file has no Exec line" >&2; exit 1; }
+cmd=$(printf '%s' "$exec_line" | sed 's/%[fFuUdDnNickvm]//g; s/%%/%/g')
+# the Exec line's quoting is the shell's (Desktop Entry spec, "The Exec key")
+eval "exec $cmd"

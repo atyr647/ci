@@ -1,0 +1,20 @@
+# gawk, and awk as its link. Without the arbitrary-precision mode (-M) and readline.
+name=gawk
+kit=org.gnu.gawk
+version=5.3.2
+revision=1
+summary="The GNU awk"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/gawk/gawk-5.3.2.tar.xz"
+sha256="f8c3486509de705192138b00ef2c00bbbdd0e84c30d5c07d23fc73a9dc4cc9cc"
+srcdir="gawk-5.3.2"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	sed -i 's/extras//' Makefile.in
+	FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr --sbindir=/usr/bin --without-mpfr --without-readline
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

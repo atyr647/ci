@@ -1,0 +1,9 @@
+# The game overlay's daemon (apps/hud) in its session-start mode (--auto: it leaves at once, with status 0, when no
+# setting asks for it, and is then not restarted). Started by labwc's autostart. A crash is restarted after 2 s;
+# after 5 starts within 60 s dinit stops restarting it. `ribbon-hud quit` ends it with status 0 (not restarted).
+type = process
+command = /usr/bin/wish -encoding utf-8 /usr/lib/ribbon/hud/main.tcl -name ribbon-hud --auto
+restart = on-failure
+restart-delay = 2
+restart-limit-count = 5
+restart-limit-interval = 60

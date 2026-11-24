@@ -1,0 +1,5 @@
+[Desktop Entry]
+Name=labwc
+Comment=A Wayland window-stacking compositor
+Exec=labwc
+Type=Application

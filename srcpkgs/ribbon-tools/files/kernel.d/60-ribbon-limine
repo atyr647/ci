@@ -1,0 +1,9 @@
+#!/bin/sh
+# Void's kernel hook point (the xbps backend's): the kernel packages run /etc/kernel.d/post-install/* and
+# post-remove/* with PKGNAME VERSION, after 20-dracut has built the initramfs. What Ribbon does then is
+# base-neutral, in /usr/lib/ribbon/kernel-changed; this file only tells it which hook ran.
+case "$0" in
+	*/post-remove/*) what=remove ;;
+	*) what=install ;;
+esac
+exec /usr/lib/ribbon/kernel-changed "$what" "${2:-}"

@@ -1,0 +1,23 @@
+# Template file for 'tkdnd'
+# Drag and drop between Tk and other applications (XDND). Ribbon Files uses
+# it for drags to and from other apps; inside Ribbon it works without it.
+pkgname=tkdnd
+version=2.9.5
+revision=1
+build_style=cmake
+configure_args="-DTCL_INCLUDE_PATH=${XBPS_CROSS_BASE}/usr/include
+ -DTK_INCLUDE_PATH=${XBPS_CROSS_BASE}/usr/include"
+hostmakedepends="tcl tk"
+makedepends="tcl-devel tk-devel libX11-devel libXcursor-devel"
+depends="tk"
+short_desc="Tk extension for native drag and drop (XDND)"
+maintainer="Ribbon OS maintainers <ribbon@localhost>"
+license="BSD-3-Clause"
+homepage="https://github.com/petasis/tkdnd"
+distfiles="https://github.com/petasis/tkdnd/archive/refs/tags/tkdnd-release-test-v${version}.tar.gz"
+checksum=7ab2d1d7c0f57a5dc7f6d5542895b44762a31a01621c9d7f80f3bbd67c7bcc39
+wrksrc="tkdnd-tkdnd-release-test-v${version}"
+
+post_install() {
+	vlicense license.terms
+}

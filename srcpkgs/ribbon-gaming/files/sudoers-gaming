@@ -1,0 +1,4 @@
+# Ribbon OS: GameMode may switch the CPU scheduler mode without a password, for the people of the desktop (the group audio:
+# every account Ribbon makes is in it, and its limits are what a game needs), not for every account on the machine: a service
+# account or a sandboxed program of another user has no business restarting scx or changing the power profile.
+%audio ALL=(root) NOPASSWD: /usr/bin/ribbon-scheduler gamemode on, /usr/bin/ribbon-scheduler gamemode off

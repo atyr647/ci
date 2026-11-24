@@ -1,0 +1,58 @@
+#!/usr/bin/env tclsh
+# kit-updater -- kit's background refresh, update check, download and install (lib/updater.tcl).
+# Run by the per-user dinit service kit-updater.
+#
+#   kit-updater                  the service: refresh shortly after login, then every interval
+#   kit-updater --once           one cycle now (and the install, if its time has come)
+#   kit-updater --set KEY=VALUE  change a setting: notify, download, install (off|HH:MM), interval
+#   kit-updater --status         the settings, the conditions, and what is waiting
+
+set kitlib [file join [file dirname [file dirname [file normalize [info script]]]] lib]
+if {![file exists [file join $kitlib core.tcl]]} { set kitlib /usr/lib/ribbon/kit }
+encoding system utf-8
+fconfigure stdout -encoding utf-8
+fconfigure stderr -encoding utf-8
+source -encoding utf-8 [file join $kitlib core.tcl]
+::kit::need ui net repo store txn plan system verbs updater
+# launcher entries written by an automatic install start kits through the kit command
+proc ::kit::selfCmd {} {
+    set k [file normalize [file join $::kitlib .. bin kit]]
+    return [expr {[file exists $k] ? $k : "/usr/bin/kit"}]
+}
+
+proc main {argv} {
+    ::kit::init
+    lappend ::kit::txn::afterSwitch ::kit::verbs::saveUpdates
+    set ::kit::ui::renderer ::kit::ui::log
+    switch -- [lindex $argv 0] {
+        "" {
+            ::kit::updater::log "started"
+            ::kit::updater::loop [::kit::env KIT_UPDATER_DELAY 90]
+        }
+        --once {
+            ::kit::updater::cycle
+            if {[::kit::updater::due [::kit::updater::settings]]} { ::kit::updater::install }
+        }
+        --set { ::kit::updater::change [lrange $argv 1 end] }
+        --status {
+            set s [::kit::updater::settings]
+            dict for {k v} $s { puts [format "%-10s %s" $k $v] }
+            puts [format "%-10s %s" pinned [expr {[::kit::pinned] eq "" ? "no" : [::kit::pinned]}]]
+            set why [::kit::updater::skipWhy]
+            puts [format "%-10s %s" now [expr {$why eq "" ? "would refresh" : "would skip: $why"}]]
+            set U [::kit::verbs::loadUpdates]
+            if {[dict exists $U updates]} {
+                puts [format "%-10s %d, checked %s" waiting [llength [dict get $U updates]] [::kit::fmtage [expr {[::kit::now] - [dict get $U checked]}]]]
+            }
+        }
+        default { ::kit::fail 2 "usage: kit-updater ?--once | --set KEY=VALUE... | --status?" }
+    }
+    return 0
+}
+
+if {[catch {main $argv} res opts]} {
+    set ec [dict get $opts -errorcode]
+    puts stderr "kit-updater: $res"
+    exit [expr {[lindex $ec 0] eq "KIT" ? [lindex $ec 1] : 2}]
+}
+exit 0

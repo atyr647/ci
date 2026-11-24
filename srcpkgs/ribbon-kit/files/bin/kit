@@ -1,0 +1,107 @@
+#!/usr/bin/env tclsh
+# kit -- install, update and remove kits (docs/KIT-CLI.md).
+#
+#   kit find WORDS | grab KIT… | check [KIT…] | toss KIT… | rewind [KIT] | list | info KIT
+#   kit mend [KIT…] | pack DIR | run KIT [ARGS…] | help [VERB]
+#   (system kits are the same verbs: a kit says in its signed seal that it is one, and kit does the rest through kitd: scope.tcl)
+#
+# Exit codes: 0 done or nothing to do, 1 you said no, 2 bad usage, 3 network or mirror
+# failure, 4 verification failed, 5 kit run could not serve the kit's files (mkkitfs).  --yes
+# answers the prompt.  Environment: KIT_INDEX=FILE pins a saved index; KIT_CONF (default
+# /etc/kit.conf); XDG_DATA_HOME / XDG_CACHE_HOME.  A kit only ever runs from its file (mkkitfs).
+
+set kitlib [file join [file dirname [file dirname [file normalize [info script]]]] lib]
+if {![file exists [file join $kitlib core.tcl]]} { set kitlib /usr/lib/ribbon/kit }
+if {[info exists env(KIT_LIB)]} { set kitlib $env(KIT_LIB) }
+# names and words are UTF-8 whatever the locale says (argv was decoded with the locale's encoding)
+if {$tcl_platform(platform) eq "unix" && [encoding system] ne "utf-8"} {
+    set argv [encoding convertfrom utf-8 [encoding convertto [encoding system] $argv]]
+    encoding system utf-8
+}
+fconfigure stdout -encoding utf-8
+fconfigure stderr -encoding utf-8
+source -encoding utf-8 [file join $kitlib core.tcl]
+
+namespace eval ::kit {
+    variable self [file normalize [info script]]
+    # what launcher entries run
+    proc selfCmd {} { variable self ; return $self }
+    # the modules each verb needs, loaded on demand (kit list loads three small files)
+    variable needs {
+        find  {ui repo net store plan system verbs txn scope}
+        grab  {ui repo net store plan system verbs txn launch scope kitdc}
+        check {ui repo net store plan system verbs txn scope kitdc}
+        toss  {ui repo net store plan system verbs txn scope kitdc}
+        rewind {ui repo net store plan system verbs txn launch scope kitdc}
+        list  {store verbs txn scope}
+        info  {repo net store plan system verbs txn ui scope kitdc}
+        mend  {repo net store plan system verbs txn ui scope kitdc}
+        pack  {verbs store txn}
+        run   {store verbs txn launch plan system repo net ui}
+        help  {verbs}
+    }
+    proc load {verb} { variable needs ; need {*}[dict get $needs $verb] }
+}
+
+proc main {argv} {
+    set yes 0
+    set tcl 0
+    set rest {}
+    set verb ""
+    for {set i 0} {$i < [llength $argv]} {incr i} {
+        set a [lindex $argv $i]
+        if {$verb eq "run" && [llength $rest]} { lappend rest {*}[lrange $argv $i end] ; break }
+        switch -- $a {
+            --yes - -y { set yes 1 ; continue }
+            --tcl { set tcl 1 ; continue }
+            --help - -h { if {$verb eq ""} { set verb help } else { set rest [list $verb] ; set verb help } ; continue }
+        }
+        if {$verb eq ""} {
+            if {[string index $a 0] eq "-"} { ::kit::fail 2 "unknown option $a" }
+            set verb $a
+            continue
+        }
+        if {[string match --* $a] && $verb ne "pack"} { ::kit::fail 2 "unknown option $a" }
+        lappend rest $a
+    }
+    if {$verb eq ""} { ::kit::load help ; puts [::kit::verbs::usage] ; return 0 }
+    if {![dict exists $::kit::needs $verb]} { ::kit::load help ; ::kit::fail 2 "there is no verb '$verb'\n[::kit::verbs::usage]" }
+    # --tcl is the shell's updates panel's: plans and results as Tcl lists (docs/KIT-CLI.md, scripting)
+    if {$tcl && $verb ni {check rewind}} { ::kit::fail 2 "--tcl is for check and rewind (the shell's updates panel)" }
+    ::kit::init
+    ::kit::load $verb
+    if {$verb ne "help"} {
+        if {[namespace exists ::kit::ui]} { set ::kit::ui::yes $yes ; if {$tcl} { set ::kit::ui::renderer ::kit::ui::tcl } }
+        lappend ::kit::txn::afterSwitch ::kit::verbs::saveUpdates
+        ::kit::prologue
+        # a half-done transaction is finished or undone before anything else
+        ::kit::txn::recover
+    }
+    # a verb over kits runs over both scopes as the kits' own kinds say (scope.tcl); --tcl (the shell's panels) is this
+    # person's kits only
+    if {!$tcl && $verb in {grab check toss rewind mend info}} {
+        set rc [::kit::scope::run $verb $rest]
+    } else {
+        set V [string toupper [string index $verb 0]][string range $verb 1 end]
+        set rc [::kit::verbs::$V {*}$rest]
+    }
+    # --tcl without --yes only prints the plan: that is not "you said no"
+    if {$tcl && $::kit::ui::planned} { return 0 }
+    return $rc
+}
+
+set rc [catch {main $argv} res opts]
+if {$rc == 0} { exit [expr {[string is integer -strict $res] ? $res : 0}] }
+set ec [dict get $opts -errorcode]
+switch -- [lindex $ec 0] {
+    KIT { set code [lindex $ec 1] }
+    KITFMT { set code [expr {[lindex $ec 1] in {CONFIG NOENT EXISTS} ? 2 : 4}] }
+    KITTRUST { set code [expr {[lindex $ec 1] in {IO CONFIG} ? 2 : 4}] }
+    default {
+        set code 2
+        if {[info exists env(KIT_DEBUG)]} { puts stderr [dict get $opts -errorinfo] }
+    }
+}
+catch {::kit::unlock}
+puts stderr "kit: $res"
+exit $code

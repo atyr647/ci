@@ -1,0 +1,184 @@
+#!/bin/sh
+# ribbon-hostname-helper - the privileged half of Settings → About: the computer's name. Runs as root through pkexec
+# (polkit action org.ribbon.hostname: an admin's password, kept for a few minutes).
+#
+#   pkexec /usr/bin/ribbon-hostname-helper set NAME
+#
+# NAME is the only thing the caller sends, and it must be one RFC 1123 label: letters, digits and hyphens, 1 to 63 of
+# them, no hyphen at either end. Anything else is refused (exit 2) before a file is touched. No path, no option and no
+# other text is taken; nothing the caller sends is ever evaluated.
+#
+# What it does, in this order, so that a failure leaves the name as it was:
+#   1. writes the new /etc/hostname beside the old one (and, when /etc/hosts has a 127.0.1.1 line, the new /etc/hosts);
+#   2. names the running system (`hostname NAME`; without that program, /proc/sys/kernel/hostname);
+#   3. renames the new files over the old ones (rename(2): a reader sees the old file or the new one, whole).
+# If the rename of /etc/hostname fails the running system gets its old name back. /etc/hosts: on a 127.0.1.1 line the
+# old name (and old-name.domain) become the new one; when no such line carries the old name, the first one is written
+# as "127.0.1.1 NAME". Every other line is kept as it was. A /etc/hosts that is a link, or has no such line, is left
+# alone.
+#
+# Safety. PATH is set here; /etc must be a real directory owned by root that no one else can write; /etc/hostname is
+# replaced only when it is a plain file or a link (the link is replaced, never followed); the new files are made with
+# mktemp (O_EXCL, 0600) in /etc and removed again on any failure. Exit codes: 0 done, 1 a failure, 2 refused.
+#
+# Tests: with RIBBON_HOSTNAME_TEST set and PKEXEC_UID not set (so never under pkexec, which clears the environment
+# anyway), RIBBON_HOSTNAME_ROOT=DIR (required then) makes it work on DIR/etc and DIR/proc/sys/kernel/hostname and never
+# on the real system, and RIBBON_HOSTNAME_CMD=PROGRAM is run in place of `hostname` (without it only the file under
+# DIR/proc is written). Outside a test the helper refuses to run unless it is root.
+
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+LC_ALL=C
+export LC_ALL
+unset IFS CDPATH ENV
+umask 022
+
+die() { printf 'ribbon-hostname-helper: %s\n' "$1" >&2; exit 1; }
+refuse() { printf 'ribbon-hostname-helper: %s\n' "$1" >&2; exit 2; }
+
+# One RFC 1123 label.
+valid() {
+	case $1 in
+		'' | -* | *-) return 1 ;;
+		*[!abcdefghijklmnopqrstuvwxyzABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789-]*) return 1 ;;
+	esac
+	[ "${#1}" -le 63 ]
+}
+
+if [ "$#" -ne 2 ] || [ "$1" != set ]; then refuse "usage: ribbon-hostname-helper set NAME"; fi
+name=$2
+valid "$name" || refuse "not a computer's name (letters, digits and hyphens, 1 to 63, no hyphen at either end)"
+
+root=
+live_cmd=hostname
+uid=0
+if [ -n "${RIBBON_HOSTNAME_TEST:-}" ] && [ -z "${PKEXEC_UID:-}" ]; then
+	root=${RIBBON_HOSTNAME_ROOT:-}
+	case $root in
+		/*) ;;
+		*) refuse "a test needs RIBBON_HOSTNAME_ROOT, an absolute path" ;;
+	esac
+	while [ "${root%/}" != "$root" ]; do root=${root%/}; done
+	[ -n "$root" ] || refuse "a test needs RIBBON_HOSTNAME_ROOT, not /"
+	# nor / spelt another way (/., /etc/.., a link to /)
+	case $(cd -P -- "$root" 2>/dev/null && pwd -P) in
+		'') refuse "a test needs RIBBON_HOSTNAME_ROOT, a directory" ;;
+		/ | //) refuse "a test needs RIBBON_HOSTNAME_ROOT, not /" ;;
+	esac
+	live_cmd=${RIBBON_HOSTNAME_CMD:-}
+	uid=$(id -u) || die "cannot tell who runs me"
+elif [ "$(id -u)" != 0 ]; then
+	die "run me through pkexec"
+fi
+
+etc=$root/etc
+target=$etc/hostname
+hosts=$etc/hosts
+kernel=$root/proc/sys/kernel/hostname
+
+# /etc: a real directory, owned by root (by the caller in a test), that no one else can write.
+if [ -L "$etc" ] || [ ! -d "$etc" ]; then die "$etc is not a directory; not writing there"; fi
+if [ -z "$(find "$etc" -prune -user "$uid" ! -perm -020 ! -perm -002 2>/dev/null)" ]; then
+	die "$etc is not root's alone; not writing there"
+fi
+if [ -d "$target" ] || { [ ! -L "$target" ] && [ -e "$target" ] && [ ! -f "$target" ]; }; then
+	die "$target is not a plain file; not replacing it"
+fi
+
+# The names the computer has now: the saved one and the running one (each only when it is a label itself).
+saved=
+if [ ! -L "$target" ] && [ -f "$target" ] && [ -r "$target" ]; then
+	IFS= read -r saved <"$target" || :
+	valid "$saved" || saved=
+fi
+running=
+if [ -f "$kernel" ] && [ -r "$kernel" ]; then
+	IFS= read -r running <"$kernel" || :
+	valid "$running" || running=
+fi
+
+tmp=
+htmp=
+cleanup() {
+	if [ -n "$tmp" ]; then rm -f -- "$tmp"; fi
+	if [ -n "$htmp" ]; then rm -f -- "$htmp"; fi
+}
+trap cleanup EXIT
+trap 'exit 1' HUP INT TERM
+
+# 1. the new files, beside the old ones
+tmp=$(mktemp "$etc/.hostname.XXXXXX") || { tmp=; die "cannot write in $etc"; }
+printf '%s\n' "$name" >"$tmp" || die "cannot write $tmp"
+chmod 644 "$tmp" || die "cannot write $tmp"
+
+if [ ! -L "$hosts" ] && [ -f "$hosts" ] && [ -r "$hosts" ] && grep -q '^127\.0\.1\.1[ 	]' "$hosts"; then
+	htmp=$(mktemp "$etc/.hosts.XXXXXX") || { htmp=; die "cannot write in $etc"; }
+	# two passes: does a 127.0.1.1 line carry an old name; then the lines, changed
+	awk -v new="$name" -v old1="$saved" -v old2="$running" '
+		function isold(tok, old,    t, o) {
+			if (old == "") return 0
+			t = tolower(tok); o = tolower(old)
+			if (t == o) return 1
+			if (substr(t, 1, length(o) + 1) == o ".") return 2
+			return 0
+		}
+		function swap(tok,    k) {
+			k = isold(tok, old1)
+			if (k == 1) return new
+			if (k == 2) return new substr(tok, length(old1) + 1)
+			k = isold(tok, old2)
+			if (k == 1) return new
+			if (k == 2) return new substr(tok, length(old2) + 1)
+			return tok
+		}
+		function carries(line,    n, f, i) {
+			sub(/#.*/, "", line)
+			n = split(line, f, /[ \t]+/)
+			for (i = 2; i <= n; i++) if (isold(f[i], old1) || isold(f[i], old2)) return 1
+			return 0
+		}
+		NR == FNR { if ($0 ~ /^127\.0\.1\.1[ \t]/ && carries($0)) found = 1; next }
+		!/^127\.0\.1\.1[ \t]/ { print; next }
+		{
+			at = index($0, "#")
+			body = at ? substr($0, 1, at - 1) : $0
+			tail = at ? substr($0, at) : ""
+			if (!found) {
+				if (!done) { done = 1; print "127.0.1.1\t" new (tail != "" ? "\t" tail : ""); next }
+				print; next
+			}
+			out = ""; first = 1
+			while (match(body, /[^ \t]+/)) {
+				out = out substr(body, 1, RSTART - 1)
+				tok = substr(body, RSTART, RLENGTH)
+				out = out (first ? tok : swap(tok))
+				first = 0
+				body = substr(body, RSTART + RLENGTH)
+			}
+			print out body tail
+		}
+	' "$hosts" "$hosts" >"$htmp" || die "cannot write $htmp"
+	[ -s "$htmp" ] || die "cannot write $htmp"
+	chmod 644 "$htmp" || die "cannot write $htmp"
+fi
+
+# 2. the running system
+set_running() {
+	if [ -n "$live_cmd" ] && "$live_cmd" "$1" 2>/dev/null; then return 0; fi
+	if [ -n "$root" ] && [ ! -d "${kernel%/*}" ]; then return 1; fi
+	{ printf '%s\n' "$1" >"$kernel"; } 2>/dev/null
+}
+set_running "$name" || die "cannot name the running system"
+
+# 3. the files
+if ! mv -f -- "$tmp" "$target"; then
+	if [ -n "$running" ]; then set_running "$running" || :; fi
+	die "cannot write $target"
+fi
+tmp=
+note=
+if [ -n "$htmp" ]; then
+	if mv -f -- "$htmp" "$hosts"; then htmp=; else note="; $hosts was not updated"; fi
+fi
+printf 'the computer is now %s%s\n' "$name" "$note"

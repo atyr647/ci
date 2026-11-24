@@ -1,0 +1,49 @@
+#!/bin/sh
+# /usr/lib/dinit/shutdown-hook - run by dinit-shutdown after all processes
+# have been terminated. Mirrors Void's runit shutdown.d (void-runit, CC0-1.0).
+# Exit 0 only if every filesystem (including /) was unmounted or remounted
+# read-only, so dinit-shutdown knows it doesn't need to do it again.
+
+PATH=/usr/bin:/usr/sbin:/bin:/sbin
+export PATH
+[ -r /etc/rc.conf ] && . /etc/rc.conf
+# Ribbon: the hardware clock's mode, where rc.conf (Void's place) says none, from /etc/adjtime (hwclock's own file on
+# every base: its third line is UTC or LOCAL). Windows keeps the clock in local time, so an install next to it
+# writes LOCAL there (ribbon-install); without the file the kernel's default, UTC, stands.
+# --- rtc mode ---
+if [ -z "${HARDWARECLOCK:-}" ] && [ -r "${RIBBON_ADJTIME:-/etc/adjtime}" ]; then
+	case $(sed -n 3p "${RIBBON_ADJTIME:-/etc/adjtime}" | tr -d ' \r\t') in
+		LOCAL) HARDWARECLOCK=localtime ;;
+		UTC) HARDWARECLOCK=UTC ;;
+	esac
+fi
+# --- end rtc mode ---
+
+[ -x /etc/rc.shutdown ] && /etc/rc.shutdown
+
+if command -v seedrng >/dev/null 2>&1; then
+	seedrng
+fi
+
+if [ -n "$HARDWARECLOCK" ]; then
+	hwclock --systohc --"$(echo "$HARDWARECLOCK" | tr 'A-Z' 'a-z')"
+fi
+
+[ -x /usr/libexec/ribbon/halt ] && /usr/libexec/ribbon/halt -w   # wtmp shutdown record
+
+swapoff -a
+umount -r -a -t nosysfs,noproc,nodevtmpfs,notmpfs
+LIBMOUNT_FORCE_MOUNT2=always mount -o remount,ro /
+root_ro=$?
+sync
+
+if command -v vgchange >/dev/null 2>&1; then
+	vgchange -an >/dev/null 2>&1
+fi
+if command -v dmsetup >/dev/null 2>&1; then
+	for v in $(dmsetup ls --target crypt --exec "dmsetup info -c --noheadings -o open,name" 2>/dev/null); do
+		[ "${v%%:*}" = "0" ] && cryptsetup close "${v##*:}"
+	done
+fi
+
+exit $root_ro

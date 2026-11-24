@@ -1,0 +1,6 @@
+type = scripted
+command = /usr/bin/udevadm settle --timeout=60
+restart = false
+log-type = buffer
+depends-on: udevd
+depends-on: early-udev-trigger

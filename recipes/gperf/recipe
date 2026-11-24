@@ -1,0 +1,19 @@
+# gperf: makes perfect hash functions; fontconfig's build uses it.
+name=gperf
+kit=org.gnu.gperf
+version=3.3
+revision=1
+summary="A perfect hash function generator"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/gperf/gperf-3.3.tar.gz"
+sha256="fd87e0aba7e43ae054837afd6cd4db03a3f2693deb3619085e6ed9d8d9604ad8"
+srcdir="gperf-3.3"
+needs="org.gnu.glibc org.gnu.gcc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr --docdir=/usr/share/doc/gperf
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

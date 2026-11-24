@@ -1,0 +1,15 @@
+# The firewall: loads /etc/nftables.conf at boot, and removes only Ribbon's table when stopped (nftables replaces ufw).
+# Ribbon's own description, for a base that has no other (a service in /etc/dinit.d or /run/dinit.d wins).
+# Enabled by the installer.
+# It starts before the network and the login screen (before: NetworkManager, loginready), so nothing is reachable while it
+# loads. /usr/lib/ribbon/firewall-load does not leave the machine open when the file does not load (it loads Ribbon's own
+# ruleset, then a minimal one, and fails the service so that it shows). Stopping removes Ribbon's table only: the tables
+# Docker, libvirt or an administrator made stay (a flush ruleset deleted them all).
+type = scripted
+command = /usr/lib/ribbon/firewall-load
+stop-command = /usr/sbin/nft delete table inet ribbon
+restart = false
+log-type = buffer
+depends-on: system
+before: NetworkManager
+before: loginready

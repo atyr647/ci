@@ -1,0 +1,23 @@
+# dinit: the init and service manager Ribbon runs (PID 1, and each person's services), with dinitctl, dinitcheck and
+# dinit-monitor; the shutdown programs are dinit-shutdown, dinit-reboot and so on, as on Void, where Ribbon's services
+# were written. The release file from GitHub, not the tag archive (which is refused here): nothing confirms its
+# checksum (decision 145's rule).
+name=dinit
+kit=org.davmac.dinit
+version=0.23.0
+revision=1
+summary="The dinit init system and service manager"
+license="Apache-2.0"
+source="https://github.com/davmac314/dinit/releases/download/v0.23.0/dinit-0.23.0.tar.xz"
+sha256="b99067eb85f6e69c7e1411b6e0956ea1ae0831598bae5a4361ebef87317c326e"
+srcdir="dinit-0.23.0"
+needs="org.gnu.glibc org.gnu.gcc org.kernel.libcap"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gnu.m4 org.kernel.libcap"
+
+build() {
+	./configure --prefix=/usr --sbindir=/usr/bin --mandir=/usr/share/man --platform=Linux --shutdown-prefix=dinit- \
+		--enable-shutdown --enable-cgroups --enable-capabilities --enable-ioprio --enable-oom-adj --disable-strip
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

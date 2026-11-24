@@ -1,0 +1,6 @@
+type = scripted
+command = /usr/lib/ribbon/boot.sh console
+restart = false
+options: starts-on-console
+waits-for: early-udev-settle
+depends-on: early-pseudofs

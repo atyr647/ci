@@ -1,0 +1,20 @@
+# expat: the XML parser fontconfig reads its configuration with. The library only: xmlwf, its command-line checker, is
+# left out (nothing in Ribbon calls it).
+name=expat
+kit=io.github.libexpat.expat
+version=2.10.0
+revision=1
+summary="An XML parser library"
+license="MIT"
+source="https://github.com/libexpat/libexpat/releases/download/R_2_10_0/expat-2.10.0.tar.xz"
+sha256="c624ba2998fc65df1163a49641ff3f9ab73138b11641d92c86bee0fb01b1bc7f"
+srcdir="expat-2.10.0"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr --disable-static --without-xmlwf --without-docbook --without-examples --without-tests
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

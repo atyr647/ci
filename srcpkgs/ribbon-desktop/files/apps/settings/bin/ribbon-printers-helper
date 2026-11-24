@@ -1,0 +1,59 @@
+#!/bin/sh
+# ribbon-printers-helper - the privileged half of Settings → Printers: adding and removing a printer. Runs as root
+# through pkexec (polkit action org.ribbon.printers: an admin's password, kept for a few minutes).
+#
+#   pkexec /usr/bin/ribbon-printers-helper add NAME URI
+#   pkexec /usr/bin/ribbon-printers-helper remove NAME
+#
+# add makes NAME a driverless queue for the printer at URI (`lpadmin -p NAME -E -v URI -m everywhere`: CUPS asks the
+# printer what it can do, IPP Everywhere); remove deletes it (`lpadmin -x NAME`). NAME is 1 to 127 letters, digits,
+# - and _; URI is ipp:// or ipps:// followed by host and path characters only. Anything else is refused (exit 2) before
+# lpadmin runs. Nothing the caller sends is ever evaluated, and no other option is passed. Exit codes: 0 done,
+# 1 lpadmin failed (its first line said on standard error), 2 refused.
+#
+# Tests: with RIBBON_PRINTERS_TEST set and PKEXEC_UID not set (so never under pkexec, which clears the environment
+# anyway), RIBBON_PRINTERS_LPADMIN=PROGRAM is run in place of lpadmin and the helper runs as anyone. Outside a test it
+# refuses to run unless it is root.
+set -u
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+LC_ALL=C
+export LC_ALL
+unset IFS CDPATH ENV
+umask 022
+
+refuse() { printf 'ribbon-printers-helper: %s\n' "$1" >&2; exit 2; }
+fail() { printf 'ribbon-printers-helper: %s\n' "$1" >&2; exit 1; }
+
+lpadmin=lpadmin
+if [ -n "${RIBBON_PRINTERS_TEST:-}" ] && [ -z "${PKEXEC_UID:-}" ]; then
+	lpadmin=${RIBBON_PRINTERS_LPADMIN:?RIBBON_PRINTERS_LPADMIN is needed in a test}
+elif [ "$(id -u)" != 0 ]; then
+	refuse "must run as root (through pkexec)"
+fi
+
+name_ok() {
+	case $1 in '' | *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789_-]*) return 1 ;; esac
+	[ "${#1}" -le 127 ]
+}
+uri_ok() {
+	case $1 in ipp://?* | ipps://?*) ;; *) return 1 ;; esac
+	case ${1#*://} in *[!ABCDEFGHIJKLMNOPQRSTUVWXYZabcdefghijklmnopqrstuvwxyz0123456789._~:/%@-]*) return 1 ;; esac
+	[ "${#1}" -le 1024 ]
+}
+
+case ${1:-} in
+	add)
+		[ "$#" -eq 3 ] || refuse "usage: ribbon-printers-helper add NAME URI"
+		name_ok "$2" || refuse "not a printer's name: $2"
+		uri_ok "$3" || refuse "not a printer's address: $3"
+		out=$("$lpadmin" -p "$2" -E -v "$3" -m everywhere 2>&1) || fail "$(printf '%s\n' "$out" | sed -n '1s/^lpadmin: //p')"
+		;;
+	remove)
+		[ "$#" -eq 2 ] || refuse "usage: ribbon-printers-helper remove NAME"
+		name_ok "$2" || refuse "not a printer's name: $2"
+		out=$("$lpadmin" -x "$2" 2>&1) || fail "$(printf '%s\n' "$out" | sed -n '1s/^lpadmin: //p')"
+		;;
+	*) refuse "usage: ribbon-printers-helper add NAME URI | remove NAME" ;;
+esac
+exit 0

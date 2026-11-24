@@ -1,0 +1,19 @@
+# libxau: reads and writes X authority files (who may talk to which display).
+name=libxau
+kit=org.x.libxau
+version=1.0.12
+revision=1
+summary="X authority files"
+license="MIT"
+source="https://www.x.org/releases/individual/lib/libXau-1.0.12.tar.xz"
+sha256="74d0e4dfa3d39ad8939e99bda37f5967aba528211076828464d2777d477fc0fb"
+srcdir="libXau-1.0.12"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.x.xorgproto"
+
+build() {
+	./configure --prefix=/usr --disable-static
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

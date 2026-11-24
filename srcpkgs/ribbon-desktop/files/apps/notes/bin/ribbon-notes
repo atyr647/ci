@@ -1,0 +1,3 @@
+#!/bin/sh
+# ribbon-notes - Notes (Tcl/Tk, /usr/lib/ribbon/notes): ribbon-notes [FILE...]
+exec wish -encoding utf-8 /usr/lib/ribbon/notes/main.tcl -name ribbon-notes -- "$@"

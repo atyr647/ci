@@ -1,0 +1,4 @@
+name: "Outer Wilds"
+runner: wine
+game:
+  exe: @HOME@/Games/OuterWilds/OuterWilds.exe

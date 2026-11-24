@@ -1,0 +1,6 @@
+[Desktop Entry]
+Name=Ribbon
+Comment=The Ribbon shell and apps on the labwc compositor, with HDR support
+Exec=ribbon-session
+Type=Application
+DesktopNames=Ribbon;wlroots

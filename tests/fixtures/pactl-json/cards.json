@@ -1,0 +1,60 @@
+[
+  {
+    "index": 0,
+    "name": "alsa_card.pci-0000_00_1f.3",
+    "owner_module": 4294967295,
+    "driver": "alsa",
+    "properties": {
+      "device.description": "Built-in Audio",
+      "device.bus": "pci",
+      "alsa.card_name": "HDA Intel PCH"
+    },
+    "profiles": {
+      "output:analog-stereo": {
+        "description": "Analog Stereo Output",
+        "available": 1,
+        "sinks": 1,
+        "sources": 0,
+        "priority": 6500
+      }
+    },
+    "active_profile": "output:analog-stereo"
+  },
+  {
+    "index": 5,
+    "name": "bluez_card.AA_BB_CC_DD_EE_01",
+    "owner_module": 4294967295,
+    "driver": "bluez",
+    "properties": {
+      "device.description": "WH-1000XM5",
+      "device.bus": "bluetooth",
+      "device.form_factor": "headset",
+      "api.bluez5.address": "AA:BB:CC:DD:EE:01",
+      "bluez.alias": "WH-1000XM5"
+    },
+    "profiles": {
+      "off": {
+        "description": "Off",
+        "available": 1,
+        "sinks": 0,
+        "sources": 0,
+        "priority": 0
+      },
+      "a2dp-sink": {
+        "description": "High Fidelity Playback (A2DP Sink, codec LDAC)",
+        "available": 1,
+        "sinks": 1,
+        "sources": 0,
+        "priority": 40
+      },
+      "headset-head-unit": {
+        "description": "Headset Head Unit (HSP/HFP, codec mSBC)",
+        "available": 1,
+        "sinks": 1,
+        "sources": 1,
+        "priority": 30
+      }
+    },
+    "active_profile": "a2dp-sink"
+  }
+]

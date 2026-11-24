@@ -1,0 +1,19 @@
+# findutils.
+name=findutils
+kit=org.gnu.findutils
+version=4.10.0
+revision=1
+summary="find, xargs and locate"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/findutils/findutils-4.10.0.tar.xz"
+sha256="1387e0b67ff247d2abde998f90dfbf70c1491391a59ddfecb8ae698789f0a4f5"
+srcdir="findutils-4.10.0"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr --sbindir=/usr/bin --localstatedir=/var/lib/locate
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

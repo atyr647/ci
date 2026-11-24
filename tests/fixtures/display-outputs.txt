@@ -1,0 +1,28 @@
+DP-1 "LG Electronics LG UltraGear 27GR95QE 001 (DP-1)"
+  Make: LG Electronics
+  Model: LG UltraGear 27GR95QE
+  Serial: 001
+  Physical size: 600x340 mm
+  Enabled: yes
+  Modes:
+    2560x1440 px, 164.998001 Hz (preferred, current)
+    2560x1440 px, 144.000000 Hz
+    1920x1080 px, 165.000000 Hz
+    1920x1080 px, 60.000000 Hz
+  Position: 0,0
+  Transform: normal
+  Scale: 1.000000
+  Adaptive Sync: enabled
+eDP-1 "Ribbon Built-in (eDP-1)"
+  Make: Ribbon
+  Model: Built-in
+  Serial: (null)
+  Physical size: 290x190 mm
+  Enabled: yes
+  Modes:
+    2880x1800 px, 90.000000 Hz (preferred, current)
+    1440x900 px, 60.000000 Hz
+  Position: 2560,0
+  Transform: normal
+  Scale: 2.000000
+  Adaptive Sync: disabled

@@ -1,0 +1,21 @@
+# zstd: the Zstandard compression library and zstd; btrfs compresses with it. zstd's own gzip, xz and lz4 modes are
+# named off, so what a build root holds changes nothing.
+name=zstd
+kit=io.github.facebook.zstd
+version=1.6.0
+revision=1
+summary="The Zstandard compression library and tool"
+license="BSD-3-Clause OR GPL-2.0-only"
+source="https://github.com/facebook/zstd/releases/download/v1.6.0/zstd-1.6.0.tar.gz"
+sha256="2ba599ae2a257976278e7e71e998433a387bfd18aa7b78678229fd5d84f5e9b8"
+srcdir="zstd-1.6.0"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+zmake() { make prefix=/usr HAVE_ZLIB=0 HAVE_LZMA=0 HAVE_LZ4=0 "$@"; }
+build() { zmake -j"$JOBS"; }
+
+stage() {
+	zmake DESTDIR="$DESTDIR" install
+	rm -f "$DESTDIR/usr/lib/libzstd.a"
+}

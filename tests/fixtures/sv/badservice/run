@@ -1,0 +1,3 @@
+#!/bin/sh
+# runs a daemon without exec: must be refused.
+mydaemon -f

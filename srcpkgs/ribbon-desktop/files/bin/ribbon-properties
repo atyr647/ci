@@ -1,0 +1,9 @@
+#!/bin/sh
+# ribbon-properties - Properties (Tcl/Tk, /usr/lib/ribbon/properties): an
+# app's kit, a file, a folder, or a .kit file.
+#   ribbon-properties PATH | --app DESKTOP-ID | --kit NAME  [--page PAGE]
+# Files (right-click, Alt+Enter), the launcher and the dock open it.
+case $1 in
+	file://*) p=$(printf '%s' "${1#file://}" | sed 's/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g'); shift; set -- "$(printf '%b' "$p")" "$@" ;;
+esac
+exec wish -encoding utf-8 /usr/lib/ribbon/properties/main.tcl -name ribbon-properties -- "$@"

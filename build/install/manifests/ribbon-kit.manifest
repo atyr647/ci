@@ -1,0 +1,32 @@
+# ribbon-kit: srcpkgs/ribbon-kit/template's do_install. kitfmt and kittrust come from kit/ in this repository
+# (build/build-packages.sh copies them into the package's files/ for xbps-src).
+bin @files/bin/kit
+dir usr/lib/ribbon/kit
+file 644 usr/lib/ribbon/kit @files/lib/*.tcl
+file 755 usr/lib/ribbon/kit @build/kit-landlock
+file 755 usr/lib/ribbon/kit @files/bin/kit-updater
+file 755 usr/lib/ribbon/kit @files/bin/kitd
+file 755 usr/lib/ribbon/kit @files/bin/kit-defaults
+file 644 usr/share/dbus-1/system-services @files/dbus/org.ribbon.Kit1.service
+file 644 usr/share/dbus-1/system.d @files/dbus/org.ribbon.Kit1.conf
+file 644 usr/share/polkit-1/actions @files/polkit/org.ribbon.kit.policy
+dir usr/lib/dracut/modules.d/90ribbon-usrview
+file 755 usr/lib/dracut/modules.d/90ribbon-usrview @files/dracut/90ribbon-usrview/module-setup.sh
+file 755 usr/lib/dracut/modules.d/90ribbon-usrview @files/dracut/90ribbon-usrview/ribbon-usrview.sh
+dir usr/lib/ribbon/kit/kitfmt
+file 644 usr/lib/ribbon/kit/kitfmt @repo/kit/kitfmt/kitfmt.tcl
+file 644 usr/lib/ribbon/kit/kitfmt @repo/kit/kitfmt/sha256.tcl
+file 644 usr/lib/ribbon/kit/kitfmt @repo/kit/kitfmt/pkgIndex.tcl
+file 755 usr/lib/ribbon/kit/kitfmt @repo/kit/kitfmt/kitpack
+dir usr/lib/ribbon/kit/kittrust
+file 644 usr/lib/ribbon/kit/kittrust @repo/kit/kittrust/kittrust.tcl
+file 644 usr/lib/ribbon/kit/kittrust @repo/kit/kittrust/pkgIndex.tcl
+file 644 usr/lib/dinit.d/user @files/services/kit-updater
+dir usr/lib/dinit.d/user/boot.d
+link usr/lib/dinit.d/user/boot.d/kit-updater ../kit-updater
+file 644 etc @files/etc/kit.conf
+# Ribbon's repository file (keys = /etc/kit/trusted-keys). The template also installs the root-signed key list
+# (files/etc/kit/trusted-keys and .minisig) once the root ceremony's output is committed: add it here then
+# (tests/steps.d/90-install.sh fails until this follows).
+file 644 etc/kit/repos.d @files/etc/kit/repos.d/org.ribbon.main.conf
+license @repo/LICENSE

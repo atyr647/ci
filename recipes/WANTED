@@ -1,0 +1,2 @@
+# Kits that recipes need and no recipe makes yet (build/kits/kit-lint.sh holds this list to the recipes). A kit that
+# needs one of these cannot be installed until its recipe is written.

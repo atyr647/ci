@@ -1,0 +1,19 @@
+# patch.
+name=patch
+kit=org.gnu.patch
+version=2.8
+revision=1
+summary="The GNU patch"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/patch/patch-2.8.tar.xz"
+sha256="f87cee69eec2b4fcbf60a396b030ad6aa3415f192aa5f7ee84cad5e11f7f5ae3"
+srcdir="patch-2.8"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	FORCE_UNSAFE_CONFIGURE=1 ./configure --prefix=/usr --sbindir=/usr/bin
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

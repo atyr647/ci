@@ -1,0 +1,8 @@
+From: No Boundary <nb@example.org>
+Subject: =?x-unknown?Q?Strange=20charset?= and =?utf-8?Q?bad=ZZ?= and =?utf-8?B?!!!?=
+Date: Funday, 99 Nov 2026 10:00:00 +0100
+Content-Type: multipart/mixed
+X-Broken line without colon follows
+this line has no colon
+
+body of a multipart without a boundary

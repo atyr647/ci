@@ -1,0 +1,4 @@
+[Desktop Entry]
+Name=Install System
+Exec=sh -c "pkexec installer"
+Type=Application

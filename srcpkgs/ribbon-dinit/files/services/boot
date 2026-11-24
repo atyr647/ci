@@ -1,0 +1,8 @@
+# Ribbon OS: top-level service, started by /usr/lib/ribbon/init.
+# Enable/disable services with `dinitctl enable|disable <name>` (links in
+# /etc/dinit.d/boot.d) - or the runit way, via links in /var/service.
+type = internal
+depends-on: system
+depends-on: loginready
+waits-for: runit-compat
+waits-for.d: /etc/dinit.d/boot.d

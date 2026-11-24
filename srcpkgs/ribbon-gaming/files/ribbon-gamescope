@@ -1,0 +1,12 @@
+#!/bin/sh
+# ribbon-gamescope - gamescope with its statistics sent to the Game HUD.
+#   ribbon-gamescope [gamescope options] -- COMMAND ...
+# In Steam: a game's launch options "ribbon-gamescope -f -- %command%".
+# gamescope writes its statistics (fps= lines) to the pipe the HUD reads, $XDG_RUNTIME_DIR/ribbon-hud-stats, so the
+# HUD's FPS, frame time and graph have numbers for a game that runs under gamescope. Nothing is injected into the game.
+p=${RIBBON_HUD_STATS:-${XDG_RUNTIME_DIR:-/tmp}/ribbon-hud-stats}
+[ -p "$p" ] || { rm -f "$p"; mkfifo -m 600 "$p" 2>/dev/null; }
+if [ -p "$p" ]; then
+	exec gamescope --stats-path "$p" "$@"
+fi
+exec gamescope "$@"

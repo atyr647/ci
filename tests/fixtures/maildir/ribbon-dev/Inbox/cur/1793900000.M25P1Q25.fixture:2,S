@@ -1,0 +1,11 @@
+From: Ola Nordmann <ola@nordmann.example>
+To: ribbon-dev@lists.ribbon.example
+Subject: [ribbon-dev] labwc 0.8 tiling patches
+Date: Fri, 6 Nov 2026 11:00:00 +0100
+Message-ID: <tile-1@nordmann.example>
+List-Id: ribbon-dev <ribbon-dev.lists.ribbon.example>
+Content-Type: text/plain
+
+Rebased on 0.8.1; snap to halves now keeps the gap from rc.xml.
+-- 
+Ola

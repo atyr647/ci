@@ -1,0 +1,21 @@
+# procps-ng: ps, top, free, pgrep, pkill, vmstat, sysctl, watch and libproc2. kill is util-linux's; uptime is here
+# (coreutils leaves it out).
+name=procps-ng
+kit=io.gitlab.procps-ng.procps
+version=4.0.6
+revision=1
+summary="Process and system information tools"
+license="GPL-2.0-or-later AND LGPL-2.1-or-later"
+source="https://downloads.sourceforge.net/project/procps-ng/Production/procps-ng-4.0.6.tar.xz"
+sha256="67bea6fbc3a42a535a0230c9e891e5ddfb4d9d39422d46565a2990d1ace15216"
+srcdir="procps-ng-4.0.6"
+needs="org.gnu.glibc org.gnu.ncurses"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.gnu.ncurses"
+
+build() {
+	./configure --prefix=/usr --sbindir=/usr/bin --docdir=/usr/share/doc/procps-ng --disable-static --disable-nls \
+		--disable-kill --without-systemd --without-elogind --enable-watch8bit
+	make -j"$JOBS"
+}
+
+stage() { make DESTDIR="$DESTDIR" install; }

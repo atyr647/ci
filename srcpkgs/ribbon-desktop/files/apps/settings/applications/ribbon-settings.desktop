@@ -1,0 +1,11 @@
+[Desktop Entry]
+Type=Application
+Name=Settings
+GenericName=System Settings
+Comment=Appearance, displays, network, power and the rest of the system
+Exec=ribbon-settings
+Icon=preferences-system
+Terminal=false
+Categories=Settings;
+StartupWMClass=RibbonSettings
+Keywords=settings;preferences;appearance;theme;network;power;

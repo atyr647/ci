@@ -1,0 +1,24 @@
+# bash: the shell, with its own readline built in, and sh as a link to it: every build's root needs an sh, and so
+# does every script.
+name=bash
+kit=org.gnu.bash
+version=5.3
+revision=1
+summary="The GNU Bourne-again shell"
+license="GPL-3.0-or-later"
+source="https://ftp.gnu.org/gnu/bash/bash-5.3.tar.gz"
+sha256="0d5cd86965f869a26cf64f4b71be7b96f90a3ba8b3d74e27e8e9d9d5550f31ba"
+srcdir="bash-5.3"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz"
+
+build() {
+	./configure --prefix=/usr --without-bash-malloc
+	make -j"$JOBS"
+}
+
+stage() {
+	make DESTDIR="$DESTDIR" install
+	# the system's sh, until a kit for a smaller shell takes the name
+	ln -s bash "$DESTDIR/usr/bin/sh"
+}

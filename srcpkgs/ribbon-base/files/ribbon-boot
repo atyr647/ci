@@ -1,0 +1,20 @@
+# /etc/default/ribbon-boot - Ribbon OS boot settings, used by every boot
+# loader Ribbon sets up (Limine via ribbon-limine, GRUB via
+# /etc/default/ribbon-grub, ZFSBootMenu via a pool property).
+# After editing, refresh the boot menu: sudo ribbon boot update
+
+# The boot loader the installer set up: limine | grub | zfsbootmenu.
+# Empty means "work it out from the files on disk". Changing this does not
+# switch boot loaders by itself; see docs/INSTALLER.md (Boot loaders).
+BOOTLOADER=
+
+# Kernel flags for every menu entry (kernels, fallback kernel, snapshots).
+# ribbon-gpu, ribbon-swap, ribbon-reserve and the installer add theirs to
+# RIBBON_CMDLINE_EXTRA. The flags that find the root filesystem (root=,
+# rootflags=subvol=, rd.luks.uuid=) are the boot loader's: Limine keeps them
+# in /etc/default/ribbon-limine, GRUB works them out itself.
+RIBBON_CMDLINE="loglevel=3 rd.udev.log_level=3 nowatchdog split_lock_detect=off"
+RIBBON_CMDLINE_EXTRA=""
+
+# Seconds the boot menu waits before starting the first entry.
+BOOT_TIMEOUT=3

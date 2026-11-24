@@ -1,0 +1,10 @@
+#!/bin/sh
+# ribbon-files - open a folder, or show a file, in Ribbon Files.
+# Inside a Ribbon session it opens in the shell (its address bar is the top
+# bar's field); otherwise it runs on its own.
+p=${1:-$HOME}
+case $p in
+	file://*) p=$(printf '%s' "${p#file://}" | sed 's/%\([0-9A-Fa-f][0-9A-Fa-f]\)/\\x\1/g'); p=$(printf '%b' "$p") ;;
+esac
+ribbon-shell-ctl files "$p" 2>/dev/null && exit 0
+exec wish -encoding utf-8 /usr/lib/ribbon/shell/main.tcl -name ribbon-files -- --files "$p"

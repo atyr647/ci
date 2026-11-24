@@ -1,0 +1,41 @@
+#!/bin/sh
+# ribbon-services-helper - the privileged half of the System monitor's Services (Monitor-R4-Services, the System
+# side): the system's dinit answers only root. Runs as root through pkexec (polkit, policy/org.ribbon.services.policy:
+# `list` for the person at the machine without a password; start, stop and restart with an administrator's).
+#
+#   pkexec /usr/bin/ribbon-services-helper list
+#   pkexec /usr/bin/ribbon-services-helper start|stop|restart NAME
+#
+# NAME is letters, digits and "@._+-", not starting with "-" or "."; stop and restart refuse the services the session
+# stands on (boot system loginready dbus elogind greetd turnstiled udevd recovery early-*). Nothing the caller sends
+# is evaluated. Exit codes: 0 done, 1 dinitctl failed, 2 refused.
+#
+# Tests: with RIBBON_SERVICES_TEST set and PKEXEC_UID not set (never under pkexec, which clears the environment
+# anyway), RIBBON_SERVICES_DINITCTL names the program run in place of dinitctl. Outside a test it runs only as root.
+PATH=/usr/sbin:/usr/bin:/sbin:/bin
+export PATH
+DINITCTL=dinitctl
+if [ -n "${RIBBON_SERVICES_TEST:-}" ] && [ -z "${PKEXEC_UID:-}" ]; then
+	DINITCTL=${RIBBON_SERVICES_DINITCTL:-false}
+elif [ "$(id -u)" != 0 ]; then
+	echo "ribbon-services-helper: run through pkexec" >&2; exit 2
+fi
+refuse() { echo "ribbon-services-helper: $*" >&2; exit 2; }
+case ${1:-} in
+list)
+	[ $# -eq 1 ] || refuse "list takes no arguments"
+	exec "$DINITCTL" list ;;
+start|stop|restart)
+	[ $# -eq 2 ] || refuse "$1 takes one service"
+	name=$2
+	case $name in
+	''|-*|.*|*[!A-Za-z0-9@._+-]*) refuse "not a service name: $name" ;;
+	esac
+	if [ "$1" != start ]; then
+		case $name in
+		boot|system|loginready|dbus|elogind|greetd|turnstiled|udevd|recovery|early-*) refuse "$name is not stopped from here" ;;
+		esac
+	fi
+	"$DINITCTL" "$1" "$name" || exit 1 ;;
+*) refuse "usage: list | start|stop|restart NAME" ;;
+esac

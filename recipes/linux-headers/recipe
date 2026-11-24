@@ -1,0 +1,28 @@
+# linux-headers: what the kernel shows to programs (/usr/include/linux, asm, ...), cleaned by the kernel's own
+# "make headers". The same release as Ribbon's kernel (srcpkgs/ribbon-kernel): 6.18 with the 6.18.64 patch.
+# The C library is built against these; a compiler needs them beside it.
+name=linux-headers
+kit=org.kernel.linux-headers
+version=6.18.64
+revision=1
+summary="The Linux kernel's headers for programs"
+license="GPL-2.0-only WITH Linux-syscall-note"
+source="https://cdn.kernel.org/pub/linux/kernel/v6.x/linux-6.18.tar.xz
+https://cdn.kernel.org/pub/linux/kernel/v6.x/patch-6.18.64.xz"
+sha256="9106a4605da9e31ff17659d958782b815f9591ab308d03b0ee21aad6c7dced4b
+4841e26f8f6c7b22c6c4d63899ff27ebdc50f61fab720cba7242d5adc3257dd4"
+srcdir="linux-6.18"
+needs=""
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz org.gnu.patch"
+
+build() {
+	xz -dc ../patch-6.18.64.xz | patch -s -p1
+	make mrproper
+	make -j"$JOBS" headers
+}
+
+stage() {
+	find usr/include -type f ! -name '*.h' -delete
+	mkdir -p "$DESTDIR/usr"
+	cp -r usr/include "$DESTDIR/usr/"
+}

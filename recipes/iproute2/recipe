@@ -1,0 +1,25 @@
+# iproute2: ip, ss, bridge, tc and the rest of the kernel's networking tools. Its configure takes what it finds, so the
+# build root holds none of its optional libraries (libelf, libmnl, libcap, libbpf, Berkeley DB for arpd): the plain
+# tools. Its defaults are in /usr/share/iproute2.
+name=iproute2
+kit=org.kernel.iproute2
+version=7.1.0
+revision=1
+summary="The kernel's networking tools (ip, ss, tc)"
+license="GPL-2.0-or-later"
+source="https://cdn.kernel.org/pub/linux/utils/net/iproute2/iproute2-7.1.0.tar.xz"
+sha256="fd9fa1b95809417157ca83dd72957e3261bdbce896353cb936f80af0b33a4b5c"
+srcdir="iproute2-7.1.0"
+needs="org.gnu.glibc"
+build_needs="org.gnu.gcc org.gnu.make org.gnu.bash org.gnu.coreutils org.gnu.sed org.gnu.grep org.gnu.gawk org.gnu.findutils org.gnu.diffutils org.gnu.gzip org.gnu.tar org.tukaani.xz io.github.pkgconf.pkgconf org.gnu.bison io.github.westes.flex org.gnu.m4"
+
+imake() { make SBINDIR=/usr/bin NETNS_RUN_DIR=/run/netns "$@"; }
+build() {
+	# arpd needs Berkeley DB, which is not here
+	sed -i /ARPD/d Makefile
+	rm -f man/man8/arpd.8
+	./configure
+	imake -j"$JOBS"
+}
+
+stage() { imake DESTDIR="$DESTDIR" install; }

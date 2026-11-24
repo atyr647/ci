@@ -1,0 +1,16 @@
+From: Cut <cut@example.org>
+Subject: Missing close
+Date: Thu, 5 Nov 2026 10:00:00 +0100
+Message-ID: <cut@example.org>
+Content-Type: multipart/mixed; boundary="cut"
+
+--cut
+Content-Type: text/plain
+
+first part
+--cut
+Content-Type: application/octet-stream; name=half.bin
+Content-Transfer-Encoding: base64
+
+AAEC!!AwQF*
+BgcI

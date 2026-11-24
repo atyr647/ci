@@ -1,0 +1,16 @@
+#!/bin/sh
+# Ribbon Game Mode: Steam Big Picture inside a full-screen gamescope session
+# (like a console). HDR and VRR are on whenever the display supports them.
+# "Switch to Desktop" in Steam's power menu returns to the login screen.
+export XDG_SESSION_TYPE=wayland XDG_CURRENT_DESKTOP=gamescope
+for f in /etc/ribbon/session.d/*.sh "$HOME"/.config/ribbon/session.d/*.sh; do
+	[ -r "$f" ] && . "$f"
+done
+export PROTON_ENABLE_HDR=1 DXVK_HDR=1
+export STEAM_GAMESCOPE_HDR_SUPPORTED=1 STEAM_GAMESCOPE_VRR_SUPPORTED=1
+export STEAM_MULTIPLE_XWAYLANDS=1 STEAM_ENABLE_VOLUME_HANDLER=1
+
+args="--hdr-enabled --adaptive-sync -e -f --xwayland-count 2"
+[ -r "$HOME/.config/ribbon/gamescope.conf" ] && . "$HOME/.config/ribbon/gamescope.conf"   # GAMESCOPE_ARGS=...
+# shellcheck disable=SC2086
+exec gamescope ${GAMESCOPE_ARGS:-$args} -- steam -gamepadui -steamos3 -steampal

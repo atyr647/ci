@@ -1,0 +1,71 @@
+#!/bin/sh
+# ci-probe - the live ISO's boot-test probe (build/ci/boot-test.sh): with ribbon.ci=1 on the kernel command line it
+# writes one line per milestone to the serial console, "RIBBON-CI ok|FAIL|info ...", then a screenshot of the session
+# (grim, as base64 between RIBBON-CI-SHOT-BEGIN and -END), then "RIBBON-CI done". Without the flag it exits at once.
+grep -qw 'ribbon.ci=1' /proc/cmdline || exit 0
+OUT=/dev/ttyS0
+[ -w "$OUT" ] || OUT=/dev/console
+say() { echo "RIBBON-CI $*" > "$OUT"; }
+# check WHAT SECONDS COMMAND...: ok as soon as COMMAND succeeds, FAIL after SECONDS
+check() {
+	what=$1; secs=$2; shift 2; t=0
+	while [ "$t" -lt "$secs" ]; do
+		if "$@" >/dev/null 2>&1; then say "ok   $what (after $t s)"; return 0; fi
+		sleep 2; t=$((t + 2))
+	done
+	say "FAIL $what (not within $secs s)"; return 1
+}
+running() { pgrep -x "$1" || pgrep -f "$1"; }
+
+say "info probe started; kernel $(uname -r)"
+check "dinit is PID 1" 5 sh -c '[ "$(cat /proc/1/comm)" = dinit ]'
+check "dbus is running" 60 running dbus-daemon
+check "elogind is running" 60 running elogind
+check "greetd is running" 90 running greetd
+check "NetworkManager is running" 90 running NetworkManager
+# polkit is started by D-Bus activation (not a dinit service): what counts is that it answers on the system bus
+check "polkit answers on the system bus" 60 dbus-send --system --print-reply --dest=org.freedesktop.PolicyKit1 \
+	/org/freedesktop/PolicyKit1/Authority org.freedesktop.DBus.Properties.Get \
+	string:org.freedesktop.PolicyKit1.Authority string:BackendName
+check "the live user's labwc session is running" 150 pgrep -u anon -x labwc
+check "the Ribbon shell is running" 90 pgrep -u anon -f 'shell/main.tcl'
+check "the wallpaper is running" 60 pgrep -u anon -f 'ribbon-wall'
+check "the installer was offered" 90 pgrep -u anon -f 'ribbon-installer|installer/.*main.tcl'
+check "PipeWire runs for the live user" 60 pgrep -u anon -x pipewire
+
+# services dinit could not start
+if command -v dinitctl >/dev/null 2>&1; then
+	dinitctl list 2>/dev/null | while read -r line; do say "info dinit $line"; done
+	n=$(dinitctl list 2>/dev/null | grep -c 'X')
+	if [ "${n:-0}" -eq 0 ]; then say "ok   no dinit service failed"; else say "FAIL $n dinit service(s) failed"; fi
+	# why each failed: its log's tail, then its command run once for 5 s with its output (CI only: ribbon.ci=1)
+	dinitctl list 2>/dev/null | sed -n 's/^\[ *{X} *\] \([^ ]*\).*/\1/p' | while read -r svc; do
+		for d in /etc/dinit.d /run/dinit.d /var/lib/ribbon/dinit.d /usr/local/lib/dinit.d /usr/lib/dinit.d; do
+			[ -f "$d/$svc" ] || continue
+			say "info $svc: $d/$svc"
+			sed 's/^/  /' "$d/$svc" | while IFS= read -r l; do say "info $svc |$l"; done
+			lf=$(sed -n 's/^logfile *= *//p' "$d/$svc" | head -1)
+			[ -n "$lf" ] && [ -r "$lf" ] && tail -n 15 "$lf" | while IFS= read -r l; do say "info $svc log: $l"; done
+			cmd=$(sed -n 's/^command *= *//p' "$d/$svc" | head -1)
+			if [ -n "$cmd" ]; then
+				# shellcheck disable=SC2086 # the service's command line, split as dinit splits it
+				timeout 5 $cmd </dev/null 2>&1 | tail -n 15 | while IFS= read -r l; do say "info $svc ran: $l"; done
+			fi
+			break
+		done
+	done
+fi
+say "info memory $(awk '/MemAvailable/ {print int($2/1024)}' /proc/meminfo) MiB available; load $(cut -d' ' -f1-3 /proc/loadavg)"
+
+# the session as it looks, a few seconds after the shell came up
+sleep 8
+uid=$(id -u anon 2>/dev/null)
+rt=/run/user/$uid
+sock=$(find "$rt" -maxdepth 1 -name 'wayland-*' ! -name '*.lock' 2>/dev/null | head -1)
+if [ -n "$sock" ] && command -v grim >/dev/null 2>&1; then
+	if su anon -s /bin/sh -c "XDG_RUNTIME_DIR=$rt WAYLAND_DISPLAY=$(basename "$sock") grim -t png /tmp/ribbon-ci.png" 2>/dev/null && [ -s /tmp/ribbon-ci.png ]; then
+		say "ok   a screenshot of the session was taken ($(wc -c < /tmp/ribbon-ci.png) bytes)"
+		{ echo RIBBON-CI-SHOT-BEGIN; base64 /tmp/ribbon-ci.png; echo RIBBON-CI-SHOT-END; } > "$OUT"
+	else say "FAIL no screenshot of the session (grim)"; fi
+else say "FAIL no Wayland socket for the live user in $rt"; fi
+say "done"

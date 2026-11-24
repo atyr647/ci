@@ -1,0 +1,10 @@
+# The polkit authentication agent (the password card; apps/polkit), under the user's dinit. Started by labwc's
+# autostart, which hands dinit the session's XDG_SESSION_ID (the agent registers for that session). A crash is
+# restarted after 2 s; after 5 starts within 60 s dinit stops restarting it.
+type = process
+command = /usr/bin/ribbon-polkit
+restart = on-failure
+restart-delay = 2
+restart-limit-count = 5
+restart-limit-interval = 60
+waits-for: dbus

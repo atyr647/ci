@@ -1,0 +1,405 @@
+#!/bin/bash
+# ribbon-snapshot - filesystem-agnostic system snapshots for Ribbon OS.
+#
+# btrfs:    snapper config "root" (subvolume @snapshots at /.snapshots);
+#           snapshots are bootable from the boot menu ("Ribbon OS snapshots":
+#           ribbon-limine with Limine, grub-btrfs with GRUB), and booted
+#           read-only snapshots get a writable tmpfs overlay (dracut module
+#           90ribbon-snapshot), so you get a fully working desktop.
+# zfs:      ZFS snapshots of the boot environment; ZFSBootMenu lists them and
+#           can clone any one into a new bootable environment.
+# bcachefs: subvolume snapshots under /.snapshots, booted read-only with the
+#           same overlay (ribbon.snapshot=<name> on the kernel command line);
+#           a permanent rollback runs from the live ISO.
+# other:    no snapshots (btrfs without snapper); commands report that clearly.
+#
+# Boot fallback (docs/SYSTEM-UPDATES.md 5.5, 7.8; D62 A): `pre` (ribbon update)
+# arms a try counter on the EFI partition, <boot>/ribbon/trying. The initramfs
+# (90ribbon-snapshot) takes one try per boot; `boot-watch` (the ribbon-boot-ok
+# service) clears it once the login screen or the desktop has been up for
+# BOOT_GOOD_STABLE seconds, and restarts the machine when that has not happened
+# within BOOT_GOOD_TIMEOUT seconds (watching the hardware watchdog meanwhile).
+# After BOOT_TRIES boots that never got there, the initramfs starts the
+# snapshot taken before the update instead. Settings (ribbon.conf):
+# BOOT_TRIES (3), BOOT_GOOD_TIMEOUT (300), BOOT_GOOD_STABLE (15).
+# Tests: RIBBON_LIB, RIBBON_STATE, RIBBON_BOOT, RIBBON_RUN, RIBBON_SESSIONS,
+# RIBBON_KMSG, RIBBON_WATCHDOG, RIBBON_REBOOT, RIBBON_POLL.
+set -u
+. "${RIBBON_LIB:-/usr/lib/ribbon}/common.sh"
+
+STATE=${RIBBON_STATE:-/var/lib/ribbon}
+KEEP=${SNAPSHOT_KEEP:-10}
+# The counter's partition: the FAT partition at /boot (Ribbon's layout), else
+# the one at /boot/efi (GRUB, /boot on the root), the order the initramfs uses.
+BOOTFAT=yes rr=${RIBBON_ROOT:-}; rr=${rr%/}
+if [ -n "${RIBBON_BOOT:-}" ]; then BOOTDIR=$RIBBON_BOOT
+elif [ "$(findmnt -no FSTYPE "$rr/boot" 2>/dev/null | head -n1)" = vfat ]; then BOOTDIR=$rr/boot
+elif [ "$(findmnt -no FSTYPE "$rr/boot/efi" 2>/dev/null | head -n1)" = vfat ]; then BOOTDIR=$rr/boot/efi
+else BOOTDIR=$rr/boot BOOTFAT=
+fi
+TRYING=$BOOTDIR/ribbon/trying
+RUN=${RIBBON_RUN:-/run/ribbon}
+
+usage() {
+	cat <<EOF
+Usage: ribbon-snapshot <command>
+  list                  show snapshots
+  create [description]  take a snapshot now
+  rollback [id]         make snapshot <id> the system on next boot
+                        (default: snapshot of the last boot marked good)
+  prune [N]             keep the newest N (default $KEEP) automatic snapshots
+  mark-good             record that this boot reached login (run at boot)
+  arm [id]              make the next boots fall back to snapshot <id> (default:
+                        the newest) if they don't reach the login screen
+  retry                 after a fallback, try the updated system again
+  boot-watch            watch this boot (the ribbon-boot-ok service)
+  backend               print the snapshot backend in use
+EOF
+}
+
+backend() {
+	case "$(root_fstype)" in
+		btrfs) have snapper && echo btrfs || echo none ;;
+		zfs) echo zfs ;;
+		bcachefs) echo bcachefs ;;
+		*) echo none ;;
+	esac
+}
+
+zfs_root_ds() { findmnt -no SOURCE / | head -n1; }
+
+regen_menu() {
+	# The snapshot submenu is part of the menu file (ribbon-limine, or
+	# grub-btrfs with GRUB), so rewrite it; ZFSBootMenu finds snapshots itself.
+	case "$(backend)" in btrfs|bcachefs) ;; *) return 0 ;; esac
+	case "$(boot_loader)" in
+		limine) update_bootloader || warn "boot menu not updated; run: sudo ribbon boot update" ;;
+		grub) [ -x /etc/grub.d/41_snapshots-btrfs ] && update_bootloader ;;
+	esac
+	return 0
+}
+
+snap_create() {
+	local desc=${1:-manual} type=${2:-single}
+	case "$(backend)" in
+		btrfs)
+			# a failed snapshot is a failure: `ribbon update` stops on it, and `pre` arms nothing (regen_menu below
+			# always succeeds, so without this the failure was lost and the update ran with no snapshot)
+			snapper -c root create -t "$type" -c number -d "$desc" -p || return 1
+			;;
+		zfs)
+			local id; id=ribbon-$(date +%Y%m%d-%H%M%S)
+			zfs snapshot "$(zfs_root_ds)@${id}" || return 1
+			echo "$id"
+			;;
+		bcachefs)
+			local id; id=$(date +%Y%m%d-%H%M%S)
+			mkdir -p /.snapshots
+			bcachefs subvolume snapshot -r / "/.snapshots/${id}" || return 1
+			echo "$id"
+			;;
+		*)
+			warn "root filesystem $(root_fstype) has no snapshot support; skipping"
+			return 0
+			;;
+	esac
+	regen_menu
+}
+
+snap_list() {
+	case "$(backend)" in
+		btrfs) snapper -c root list ;;
+		zfs) zfs list -t snapshot -o name,creation,used -s creation "$(zfs_root_ds)" ;;
+		bcachefs) ls -1 /.snapshots 2>/dev/null ;;
+		*) echo "No snapshot support on $(root_fstype)." ;;
+	esac
+	[ -r "$STATE/last-good" ] && echo "Last good boot snapshot: $(cat "$STATE/last-good")"
+	if [ -r "$TRYING" ]; then
+		if [ "$(counter_get state)" = fallback ]; then
+			echo "Boot fallback: the updated system did not start; booting snapshot $(counter_get snapshot) (keep it: sudo ribbon rollback $(counter_get snapshot); try again: sudo ribbon-snapshot retry)"
+		else
+			echo "Boot fallback: armed, $(counter_get tries) tries left before snapshot $(counter_get snapshot)"
+		fi
+	fi
+	return 0
+}
+
+snap_prune() {
+	case "$(backend)" in
+		btrfs)
+			snapper -c root set-config "NUMBER_LIMIT=${KEEP}" "NUMBER_LIMIT_IMPORTANT=${KEEP}"
+			snapper -c root cleanup number
+			;;
+		zfs)
+			local ds; ds=$(zfs_root_ds)
+			zfs list -H -t snapshot -o name -s creation "$ds" | grep '@ribbon-' |
+				head -n -"$KEEP" | while read -r s; do zfs destroy "$s"; done
+			;;
+		bcachefs)
+			ls -1 /.snapshots 2>/dev/null | sort | head -n -"$KEEP" |
+				while read -r s; do bcachefs subvolume delete "/.snapshots/$s"; done
+			;;
+	esac
+	prune_kernels
+	regen_menu
+}
+
+# Never purge a kernel whose modules still exist in a snapshot: booting that
+# snapshot would otherwise have no matching kernel in /boot.
+prune_kernels() {
+	local keep v
+	keep=$(for m in /.snapshots/*/snapshot/usr/lib/modules/* /.snapshots/*/usr/lib/modules/*; do
+		[ -d "$m" ] && basename "$m"
+	done | sort -u)
+	if have vkpurge; then
+		for v in $(vkpurge list 2>/dev/null); do
+			if ! printf '%s\n' "$keep" | grep -qxF "$v"; then
+				vkpurge rm "$v" >/dev/null 2>&1 && msg "removed old kernel $v"
+			fi
+		done
+		return 0
+	fi
+	prune_kernel_files "$keep"
+}
+
+# Any other base (no vkpurge): the boot files of a kernel (vmlinuz-V, initramfs-V.img, config-V, System.map-V in /boot) go
+# when nothing needs them: its modules are gone from /usr/lib/modules (its package or kit was removed), no snapshot has
+# modules for it, and it is not the kernel that is running. kernel-boot-files (and the base's own kernel hooks) put them
+# there; this is their other half. RIBBON_KERNELS is /boot, RIBBON_MODULES /usr/lib/modules, RIBBON_RUNNING uname -r.
+prune_kernel_files() { # KEEP: versions snapshots still have modules for, one per line
+	local kdir=${RIBBON_KERNELS:-$rr/boot} mods=${RIBBON_MODULES:-$rr/usr/lib/modules} running=${RIBBON_RUNNING:-$(uname -r)} f v
+	[ -d "$kdir" ] && [ -d "$mods" ] || return 0   # no modules directory at all: not a system to judge from
+	for f in "$kdir"/vmlinuz-*; do
+		[ -e "$f" ] || continue
+		v=${f##*/vmlinuz-}
+		# only names that are kernel versions (a digit first, then letters, digits and . _ + ~ -): nothing else in /boot is ours to remove
+		case $v in [0-9]*) ;; *) continue ;; esac
+		case $v in *[!A-Za-z0-9._+~-]*) continue ;; esac
+		[ "$v" != "$running" ] || continue
+		[ ! -d "$mods/$v" ] || continue
+		printf '%s\n' "$1" | grep -qxF "$v" && continue
+		rm -f -- "$kdir/vmlinuz-$v" "$kdir/initramfs-$v.img" "$kdir/config-$v" "$kdir/System.map-$v"
+		msg "removed the boot files of old kernel $v"
+	done
+	return 0
+}
+
+mark_good() {
+	mkdir -p "$STATE"
+	if [ -e "$RUN/snapshot-boot" ]; then
+		# Booted a snapshot through the overlay; don't overwrite last-good.
+		return 0
+	fi
+	# This boot got there: the updated system is good, stop counting. A counter armed during this boot (an update
+	# before the boot was marked good: the CI found it on 24 Nov, an update run in the first seconds of the login
+	# screen) is the next boot's, and stays.
+	if [ -z "$(counter_get armed)" ] || [ "$(counter_get armed)" != "$(boot_id)" ]; then rm -f "$TRYING"; fi
+	local last; last=$(newest_snapshot)
+	[ -n "$last" ] && echo "$last" > "$STATE/last-good"
+	return 0
+}
+
+# The newest snapshot's id (snapper number, ZFS name, bcachefs name).
+newest_snapshot() {
+	case "$(backend)" in
+		btrfs) snapper -c root --csvout list --columns number 2>/dev/null | tail -n1 | grep -x '[0-9]*[1-9][0-9]*' ;;
+		zfs) zfs list -H -t snapshot -o name -s creation "$(zfs_root_ds)" 2>/dev/null | tail -n1 ;;
+		bcachefs) ls -1 /.snapshots 2>/dev/null | sort | tail -n1 ;;
+	esac
+	return 0
+}
+
+# --- boot fallback -------------------------------------------------------
+counter_get() { sed -n "s/^$1=\([A-Za-z0-9._-]*\)[[:space:]]*\$/\1/p" "$TRYING" 2>/dev/null | tail -n1; }
+
+# This boot's id (the kernel's, new at every boot); RIBBON_BOOT_ID stands in for it in tests.
+boot_id() { if [ -n "${RIBBON_BOOT_ID:-}" ]; then echo "$RIBBON_BOOT_ID"; else cat /proc/sys/kernel/random/boot_id 2>/dev/null; fi; }
+
+counter_write() { # tries snapshot state (the format 90ribbon-snapshot reads), and the boot it was armed in (armed=,
+	# which only mark-good reads: the initramfs keeps the first three when it takes a try)
+	mkdir -p "${TRYING%/*}" || return 1
+	{
+		echo "# Ribbon OS boot try counter (ribbon-snapshot arm; docs/SYSTEM-UPDATES.md 7.8)"
+		echo "tries=$1"
+		echo "snapshot=$2"
+		echo "state=$3"
+		echo "armed=$(boot_id)"
+	} > "$TRYING.new" && mv -f "$TRYING.new" "$TRYING"
+}
+
+# The kernel log, and the console itself: the base's sysctl (kernel.printk) may keep NOTICE messages off the console,
+# and a person (or the CI recovery test, which reads the serial console) should see why the machine restarts.
+say_kmsg() {
+	echo "<5>ribbon-boot-ok: $*" >> "${RIBBON_KMSG:-/dev/kmsg}" 2>/dev/null
+	[ -n "${RIBBON_KMSG:-}" ] || { [ -w /dev/console ] && echo "ribbon-boot-ok: $*" > /dev/console 2>/dev/null; }
+	echo "$*"
+}
+
+# Only btrfs and bcachefs roots: the initramfs boots their snapshots itself
+# (ZFS boots through ZFSBootMenu, which lists them).
+arm() {
+	local id=${1:-}
+	case "$(backend)" in
+		btrfs|bcachefs) ;;
+		*) echo "no boot fallback on $(root_fstype) (the menu lists what can be started)"; return 0 ;;
+	esac
+	[ -n "$id" ] || id=$(newest_snapshot)
+	case "$id" in ''|*[!A-Za-z0-9._-]*|.*) warn "no snapshot to fall back to; the boot fallback is not armed"; return 0 ;; esac
+	[ -d "$BOOTDIR" ] || { warn "$BOOTDIR is missing; the boot fallback is not armed"; return 0; }
+	[ -n "$BOOTFAT" ] || { warn "no EFI (FAT) partition at /boot or /boot/efi for the initramfs to count boots on; the boot fallback is not armed"; return 0; }
+	counter_write "${BOOT_TRIES:-3}" "$id" trying ||
+		{ warn "could not write $TRYING; the boot fallback is not armed"; return 0; }
+	msg "if the next ${BOOT_TRIES:-3} boots don't reach the login screen, snapshot $id starts instead"
+}
+
+retry() {
+	[ -r "$TRYING" ] || die "no boot fallback is in effect"
+	counter_write "${BOOT_TRIES:-3}" "$(counter_get snapshot)" trying || die "could not write $TRYING"
+	ok "the next boot starts the updated system again (${BOOT_TRIES:-3} tries)"
+}
+
+# One session (elogind's files) that is on screen: the login screen (class
+# greeter) or a desktop (class user) whose greeter or shell is running.
+# Prints its id.
+session_up() {
+	local f id class uid remote pat
+	for f in "${RIBBON_SESSIONS:-/run/systemd/sessions}"/*; do
+		[ -f "$f" ] || continue
+		id=${f##*/}
+		case "$id" in *.ref|*[!A-Za-z0-9]*) continue ;; esac
+		class=$(sed -n 's/^CLASS=//p' "$f" | head -n1)
+		uid=$(sed -n 's/^UID=\([0-9]*\)$/\1/p' "$f" | head -n1)
+		remote=$(sed -n 's/^REMOTE=//p' "$f" | head -n1)
+		[ "$remote" = 1 ] && continue
+		[ -n "$uid" ] || continue
+		case "$class" in
+			greeter) pat=${RIBBON_GREETER_PATTERN:-greeter/main.tcl} ;;
+			user) pat=${RIBBON_SHELL_PATTERN:-shell/main.tcl} ;;
+			*) continue ;;
+		esac
+		pgrep -u "$uid" -f "$pat" >/dev/null 2>&1 || continue
+		echo "$id"; return 0
+	done
+	return 1
+}
+
+# The ribbon-boot-ok service. Good = the login screen or a desktop has been up
+# for BOOT_GOOD_STABLE seconds (a greeter that cannot start, with Tcl or kit
+# broken, comes and goes). An armed boot that is not good within
+# BOOT_GOOD_TIMEOUT seconds restarts the machine, which the initramfs counts.
+boot_watch() {
+	local armed='' fallback='' stable=${BOOT_GOOD_STABLE:-15} limit=${BOOT_GOOD_TIMEOUT:-300}
+	local poll=${RIBBON_POLL:-2} wd=${RIBBON_WATCHDOG:-/dev/watchdog} wdon='' seen='' since=0 id
+	[ -e "$RUN/snapshot-boot" ] && fallback=1
+	# armed: the initramfs took this boot's try (not with ribbon.fallback=0, or
+	# when it could not reach the counter: a restart would then never fall back)
+	[ -z "$fallback" ] && [ -e "$RUN/boot-try" ] && [ -r "$TRYING" ] && [ "$(counter_get state)" = trying ] && armed=1
+	# The hardware watchdog, where there is one, resets a machine that hangs
+	# outright; closed with the magic V once the boot is good or stopped.
+	if [ -n "$armed" ] && [ -w "$wd" ] && exec 3>>"$wd"; then wdon=1; fi
+	wd_ping() { [ -z "$wdon" ] || printf . >&3 2>/dev/null; }
+	wd_close() { [ -z "$wdon" ] || { printf V >&3 2>/dev/null; exec 3>&-; wdon=; }; }
+	trap 'wd_close; exit 0' TERM INT
+	SECONDS=0
+	while :; do
+		wd_ping
+		if id=$(session_up); then
+			[ "$id" = "$seen" ] || { seen=$id; since=$SECONDS; }
+			if [ $((SECONDS - since)) -ge "$stable" ]; then
+				wd_close
+				if [ -n "$fallback" ]; then
+					say_kmsg "this boot of a snapshot reached the login screen (session $id); the updated system stays set aside"
+				else
+					mark_good
+					say_kmsg "boot marked good (session $id up for $stable s)"
+				fi
+				return 0
+			fi
+		else
+			seen=
+		fi
+		if [ -n "$armed" ] && [ "$SECONDS" -ge "$limit" ]; then
+			say_kmsg "no login screen within $limit s; restarting ($(counter_get tries) tries left before snapshot $(counter_get snapshot))"
+			${RIBBON_REBOOT:-reboot}
+			return 1
+		fi
+		sleep "$poll"
+	done
+}
+
+rollback() {
+	need_root
+	local id=${1:-}
+	[ -n "$id" ] || id=$(cat "$STATE/last-good" 2>/dev/null)
+	[ -n "$id" ] || die "no snapshot id given and no last-good boot recorded"
+	case "$(backend)" in
+		btrfs) rollback_btrfs "$id" ;;
+		zfs) rollback_zfs "$id" ;;
+		bcachefs) rollback_bcachefs "$id" ;;
+		*) die "no snapshot support on $(root_fstype)" ;;
+	esac
+}
+
+# btrfs layout (installer): top-level contains @, @home, @snapshots, @log,
+# @cache, @swap; fstab mounts / with subvol=@. Rolling back = keep the broken
+# @ as @.broken-DATE and replace @ with a writable copy of the snapshot.
+rollback_btrfs() {
+	local id=$1 dev top src stamp
+	dev=$(findmnt -no SOURCE /.snapshots | sed 's/\[.*\]//' | head -n1)
+	[ -n "$dev" ] || die "/.snapshots is not mounted"
+	src="/.snapshots/${id}/snapshot"
+	[ -d "$src" ] || die "snapshot $id not found"
+	top=$(mktemp -d)
+	mount -o subvolid=5 "$dev" "$top" || die "cannot mount btrfs top level"
+	stamp=$(date +%Y%m%d-%H%M%S)
+	snap_create "before rollback to $id" single >/dev/null || :
+	if [ -d "$top/@" ]; then
+		mv "$top/@" "$top/@.broken-${stamp}" || { umount "$top"; die "could not move @ aside"; }
+	fi
+	btrfs subvolume snapshot "$top/@snapshots/${id}/snapshot" "$top/@" >/dev/null ||
+		{ mv "$top/@.broken-${stamp}" "$top/@"; umount "$top"; die "snapshot copy failed; nothing changed"; }
+	# Limine: the default entry must be a kernel the restored root has modules
+	# for (/boot keeps newer kernels for other snapshots).
+	if [ "$(boot_loader)" = limine ]; then
+		LIMINE_MODULES_ROOT="$top/@" ribbon-limine update ||
+			warn "boot menu not updated; pick a matching kernel from the menu, then run: sudo ribbon boot update"
+	fi
+	umount "$top"; rmdir "$top"
+	rm -f "$TRYING"
+	ok "snapshot $id will be the system after reboot (old root kept as @.broken-${stamp})"
+	echo "Remove it later with: sudo mount -o subvolid=5 $dev /mnt && sudo btrfs subvolume delete /mnt/@.broken-${stamp}"
+}
+
+rollback_zfs() {
+	local id=$1 ds; ds=$(zfs_root_ds)
+	case "$id" in *@*) ;; *) id="${ds}@${id}" ;; esac
+	zfs rollback -r "$id" && ok "rolled back to $id; reboot now" ||
+		die "zfs rollback failed (tip: in ZFSBootMenu press Ctrl+S on the boot environment to clone a snapshot instead)"
+}
+
+rollback_bcachefs() {
+	local id=$1
+	[ -d "/.snapshots/$id" ] || die "snapshot $id not found"
+	die "bcachefs rollback must run from the Ribbon live ISO: mount the filesystem, then
+  mv <root-subvol> <root-subvol>.broken && bcachefs subvolume snapshot /.snapshots/$id <root-subvol>"
+}
+
+case "${1:-}" in
+	list) snap_list ;;
+	create) need_root; shift; snap_create "${1:-manual}" ;;
+	pre)
+		# then arm the boot fallback with the snapshot just taken
+		need_root; shift
+		out=$(snap_create "${1:-pre-update}" single) || exit 1
+		[ -z "$out" ] || echo "$out"
+		arm "${out%%$'\n'*}" >&2 ;;
+	rollback) shift; rollback "${1:-}" ;;
+	prune) need_root; KEEP=${1:-$KEEP}; snap_prune ;;
+	mark-good) mark_good ;;
+	arm) need_root; shift; arm "${1:-}" ;;
+	retry) need_root; retry ;;
+	boot-watch) boot_watch ;;
+	backend) backend ;;
+	-h|--help|"") usage ;;
+	*) usage >&2; exit 2 ;;
+esac
