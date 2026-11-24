@@ -1,0 +1,5 @@
+foot-1.28.0_1
+labwc-0.20.3_1
+tk-8.6.18_1
+wlroots0.20-0.20.2_2
+xorg-server-xwayland-24.1.14_1

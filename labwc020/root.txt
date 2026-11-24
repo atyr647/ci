@@ -1,0 +1,1 @@
+root /home/runner/work/ci/ci/out/root: labwc 0.20.3, foot 1.28.0, Tcl 8.6.18

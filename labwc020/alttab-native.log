@@ -1,0 +1,36 @@
+  ok   ribbon-shell-watch and ribbon-shell-switch build with -Wall -Wextra -Werror (62752 bytes)
+compositor: labwc 0.20.3 (+xwayland +nls +rsvg +libsfdo) wlroots-0.20.2, socket wayland-0, X display :0
+  ok   the helper starts and lists what the compositor offers: shot cap
+S1 Alt+Tab, held
+  ok   S1 the labwc bind reached the shell and the switcher opened (call reveal)
+     state on=1 shown=1 sel=1 fan=0 caps=shot cap apps=3
+     bar strip sharpness: 1 on the desktop, 0.0367285 with the switcher
+  ok   S1 the switcher covers the shell's bar (its edges are gone: only the blurred still is there)
+     dock strip sharpness: 1 on the desktop, 0.0224613 with the switcher
+  ok   S1 the switcher covers the shell's dock (its edges are gone: only the blurred still is there)
+S2 Tab, Shift+Tab, arrows with the helper holding the keyboard
+  ok   S2 A-Tab and A-S-Tab each stepped once through the binds (2 steps)
+  ok   S2 the helper reported the arrow keys (4 moves)
+  ok   S2 the focused app window got no key while the helper held the keyboard (the a was not delivered)
+  note while the helper holds the keyboard this labwc hands the bound Tab to the helper, not to the bind (one step either way)
+  ok   S2 the grave key fanned the chosen stack
+S3 window capture
+  ok   S3 labwc offers ext-image-copy-capture with a toplevel source: the helper copied windows
+     pictures 4 1 2 3
+  ok   S3 the still behind the cards was taken, blurred and dimmed (wlr-screencopy)
+     helper memory: VmRSS: 2904 kB (Pss 1143 kB)
+     from the bind to: still blurred 32 ms, switcher drawn 84 ms, first window copy 33 ms
+S4 W, then release Alt
+  ok   S4 W closed the chosen window (send close)
+  ok   S4 releasing Alt activated a window (send {activate 3})
+  ok   S4 the switcher closed
+  ok   S4 the keyboard went back to the app after the switcher closed
+S5 a tap: Alt+Tab, released at once
+  ok   S5 nothing was shown for a tap
+  ok   S5 the tap switched windows (one activate)
+S6 a fullscreen Wayland game
+     the game at (700,20): 0 0 255; with the switcher up: 7 7 49
+  ok   S6 the switcher is above a fullscreen game (the game stays fullscreen)
+S7 a layer-shell top bar (measured, not required)
+  note a layer-shell TOP bar is drawn above the Tk switcher (override-redirect X windows sit under the top layer): 0 255 0
+alttab native: all checks passed

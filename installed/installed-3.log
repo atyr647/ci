@@ -1,0 +1,15 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01HBdsDxe: loading Boot0001 "Ribbon OS (Limine)" from HD(1,GPT,1F621CFA-2368-4E12-9D10-18F62779809F,0x800,0x400000)/\EFI\limine\BOOTX64.EFI
+BdsDxe: starting Boot0001 "Ribbon OS (Limine)" from HD(1,GPT,1F621CFA-2368-4E12-9D10-18F62779809F,0x800,0x400000)/\EFI\limine\BOOTX64.EFI
+[01;01H[01;01HRIBBON-CI info [boot] probe phase 2; kernel 6.18.64-ribbon_1; root=UUID=203042bf-0e50-4c58-97de-58521c6fc48f rootfstype=btrfs rootflags=subvol=@ rw quiet loglevel=3 rd.udev.log_level=3 nowatchdog split_lock_detect=off apparmor=1 security=apparmor
+RIBBON-CI ok   [boot] dinit is PID 1
+RIBBON-CI ok   [boot] booted by UEFI
+RIBBON-CI ok   [boot] greetd (the login screen) is running (after 0 s)
+RIBBON-CI ok   [boot] elogind is running (after 0 s)
+RIBBON-CI info [after-update] kernel 6.18.64-ribbon_1; last update: 2026-11-24
+RIBBON-CI ok   [after-update] ribbon-boot-ok marked the updated system's boot good (after 18 s)
+RIBBON-CI info [after-update] | [    1.601287] ribbon-boot: trying the updated system (2 tries left after this one)
+RIBBON-CI info [after-update] | [   23.582936] ribbon-boot-ok: boot marked good (session 1 up for 15 s)
+RIBBON-CI ok   [after-update] the boot try counter is cleared
+RIBBON-CI ok   [after-update] the last good boot is recorded
+RIBBON-CI ok   [after-update] no dinit service failed
+RIBBON-CI done

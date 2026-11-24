@@ -1,0 +1,7 @@
+RESULT labwc020-root: ok (root /home/runner/work/ci/ci/out/root: labwc 0.20.3, foot 1.28.0, Tcl 8.6.18)
+RESULT alttab-native: ok (18 ok)
+RESULT alttab-profile: ok (5 cold, 5 warm opens timed)
+RESULT settings-input-live: ok (23 ok)
+RESULT term: ok (75 ok)
+RESULT hud-surface: ok (73 ok)
+RESULT randr-keys: ok (1 ok)

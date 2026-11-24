@@ -1,0 +1,207 @@
+[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01H[2J[01;01H[=3h[2J[01;01Hdracut Warning: ZFS: No hostid found on kernel command line or /etc/hostid.
+dracut Warning: ZFS: Pools may not import correctly.
+ln: failed to create symbolic link '/sysroot/etc/runit/runsvdir/default/': No such file or directory
+[  OK  ] runit-compat
+[  OK  ] early-pseudofs
+[  OK  ] early-kmods
+[  OK  ] udevd
+[  OK  ] early-udev-trigger
+[  OK  ] early-udev-settle
+[1m=> Activating btrfs devices...[m
+Scanning for Btrfs filesystems
+[1m=> Activating LVM devices...[m
+[1m=> Scanning for and importing ZFS pools...[m
+no pools available to import
+[1m=> Mounting ZFS file systems...[m
+[1m=> Setting up keymap to 'us'...[m
+[  OK  ] early-devices
+[1m=> Checking filesystems:[m
+[1m=> Mounting rootfs read-write...[m
+[1m=> Mounting all non-network filesystems...[m
+[  OK  ] early-console
+[  OK  ] early-filesystems
+[  OK  ] dbus-prepare
+[  OK  ] early-apparmor
+[  OK  ] early-sysctl
+[  OK  ] early-misc
+[  OK  ] early-swap
+[  OK  ] system
+[  OK  ] local.target
+[  OK  ] scx
+turnstiled: Initializing turnstiled...
+[  OK  ] turnstiled
+[  OK  ] dbus
+[  OK  ] elogind
+[  OK  ] loginready
+[  OK  ] ribbon-ci-install
+[  OK  ] greetd
+[  OK  ] ribbon-ci-probe
+[STOPPD] ribbon-ci-probe
+[  OK  ] power-profiles-daemon
+[  OK  ] NetworkManager
+RIBBON-CI info install: started; kernel 6.18.64-ribbon_1
+RIBBON-CI info install: booted by UEFI
+[  OK  ] bluetoothd
+[  OK  ] agetty@tty3
+[  OK  ] agetty@tty2
+[  OK  ] boot
+dinit: Could not load service nscd: service description not found.
+RIBBON-CI info install|   2,881,060,938B  43%   69.3MB/s    0:00:53  
+RIBBON-CI info install|   2,902,925,298B  43%   62.7MB/s    0:00:59  
+RIBBON-CI info install|   2,919,140,274B  44%   54.9MB/s    0:01:07  
+RIBBON-CI info install|   2,938,638,574B  44%   36.2MB/s    0:01:41  
+RIBBON-CI info install|   2,963,468,782B  44%   20.5MB/s    0:02:57  
+RIBBON-CI info install|   2,982,442,568B  45%   19.8MB/s    0:03:02  
+RIBBON-CI info install|   3,017,900,397B  45%   24.6MB/s    0:02:25  
+RIBBON-CI info install|   3,037,298,392B  45%   24.6MB/s    0:02:25  
+RIBBON-CI info install|   3,052,998,761B  46%   22.4MB/s    0:02:38  
+RIBBON-CI info install|   3,074,178,063B  46%   22.9MB/s    0:02:34  
+RIBBON-CI info install|   3,096,515,385B  46%   19.6MB/s    0:02:58  
+RIBBON-CI info install|   3,115,155,708B  47%   19.4MB/s    0:02:59  
+RIBBON-CI info install|   3,147,003,494B  47%   23.4MB/s    0:02:27  
+RIBBON-CI info install|   3,164,883,025B  47%   22.7MB/s    0:02:31  
+RIBBON-CI info install|   3,204,930,605B  48%   27.1MB/s    0:02:05  
+RIBBON-CI info install|   3,241,310,368B  49%   31.5MB/s    0:01:46  
+RIBBON-CI info install|   3,272,034,287B  49%   31.2MB/s    0:01:46  
+RIBBON-CI info install|   3,307,162,241B  50%   35.6MB/s    0:01:32  
+RIBBON-CI info install|   3,359,993,699B  50%   38.7MB/s    0:01:23  
+RIBBON-CI info install|   3,411,634,070B  51%   42.4MB/s    0:01:15  
+RIBBON-CI info install|   3,464,170,627B  52%   47.7MB/s    0:01:05  
+RIBBON-CI info install|   3,505,193,867B  53%   49.2MB/s    0:01:03  
+RIBBON-CI info install|   3,546,173,197B  53%   46.3MB/s    0:01:06  
+RIBBON-CI info install|   3,593,790,299B  54%   45.3MB/s    0:01:06  
+RIBBON-CI info install|   3,637,979,750B  55%   43.1MB/s    0:01:08  
+RIBBON-CI info install|   3,696,398,885B  55%   47.4MB/s    0:01:01  
+RIBBON-CI info install|   3,754,482,653B  56%   51.6MB/s    0:00:55  
+RIBBON-CI info install|   3,808,698,037B  57%   53.3MB/s    0:00:52  
+RIBBON-CI info install|   3,859,082,922B  58%   55.1MB/s    0:00:49  
+RIBBON-CI info install|   3,905,830,142B  59%   52.2MB/s    0:00:51  
+RIBBON-CI info install|   3,953,475,052B  59%   49.6MB/s    0:00:53  
+RIBBON-CI info install|   3,998,124,279B  60%   46.8MB/s    0:00:55  
+RIBBON-CI info install|   4,046,218,719B  61%   45.6MB/s    0:00:56  
+RIBBON-CI info install|   4,101,010,838B  62%   47.6MB/s    0:00:52  
+RIBBON-CI info install|   4,145,901,954B  62%   46.9MB/s    0:00:52  
+RIBBON-CI info install|   4,211,819,740B  63%   52.6MB/s    0:00:45  
+RIBBON-CI info install|   4,271,815,150B  64%   56.3MB/s    0:00:41  
+RIBBON-CI info install|   4,324,997,716B  65%   55.9MB/s    0:00:40  
+RIBBON-CI info install|   4,377,991,153B  66%   57.6MB/s    0:00:38  
+RIBBON-CI info install|   4,428,839,761B  67%   53.8MB/s    0:00:40  
+RIBBON-CI info install|   4,477,217,591B  67%   50.9MB/s    0:00:41  
+RIBBON-CI info install|   4,540,565,199B  68%   53.4MB/s    0:00:38  
+RIBBON-CI info install|   4,598,585,232B  69%   54.9MB/s    0:00:36  
+RIBBON-CI info install|   4,654,051,712B  70%   56.2MB/s    0:00:34  
+RIBBON-CI info install|   4,711,958,303B  71%   58.5MB/s    0:00:32  
+RIBBON-CI info install|   4,769,303,905B  72%   57.0MB/s    0:00:32  
+RIBBON-CI info install|   4,823,155,762B  72%   55.9MB/s    0:00:31  
+RIBBON-CI info install|   4,870,575,516B  73%   53.9MB/s    0:00:32  
+RIBBON-CI info install|   4,917,318,166B  74%   51.2MB/s    0:00:33  
+RIBBON-CI info install|   4,963,577,163B  75%   48.4MB/s    0:00:33  
+RIBBON-CI info install|   5,027,870,251B  76%   51.0MB/s    0:00:30  
+RIBBON-CI info install|   5,077,784,040B  76%   51.5MB/s    0:00:29  
+RIBBON-CI info install|   5,128,050,210B  77%   52.4MB/s    0:00:28  
+RIBBON-CI info install|   5,158,052,582B  78%   48.5MB/s    0:00:29  
+RIBBON-CI info install|   5,197,386,990B  78%   42.3MB/s    0:00:33  
+RIBBON-CI info install|   5,238,103,106B  79%   40.0MB/s    0:00:34  
+RIBBON-CI info install|   5,278,591,122B  79%   37.2MB/s    0:00:35  
+RIBBON-CI info install|   5,327,954,388B  80%   40.9MB/s    0:00:31  
+RIBBON-CI info install|   5,403,976,148B  81%   49.6MB/s    0:00:24  
+RIBBON-CI info install|   5,443,297,748B  82%   48.9MB/s    0:00:23  
+RIBBON-CI info install|   5,499,411,558B  83%   53.2MB/s    0:00:20  
+RIBBON-CI info install|   5,535,961,593B  83%   51.5MB/s    0:00:20  
+RIBBON-CI info install|   5,561,216,794B  84%   39.0MB/s    0:00:26  
+RIBBON-CI info install|   5,674,798,475B  85%   57.7MB/s    0:00:16  
+RIBBON-CI info install|   5,701,501,748B  86%   50.4MB/s    0:00:17  
+RIBBON-CI info install|   5,738,659,577B  86%   50.5MB/s    0:00:17  
+RIBBON-CI info install|   5,751,475,332B  87%   47.4MB/s    0:00:18  
+RIBBON-CI info install|   5,762,778,691B  87%   22.0MB/s    0:00:38  
+RIBBON-CI info install|   5,774,947,503B  87%   18.4MB/s    0:00:45  
+RIBBON-CI info install|   5,787,934,017B  87%   12.3MB/s    0:01:06  
+RIBBON-CI info install|   5,804,462,519B  87%   13.2MB/s    0:01:00  
+RIBBON-CI info install|   5,818,964,461B  88%   14.0MB/s    0:00:56  
+RIBBON-CI info install|   5,834,136,912B  88%   14.8MB/s    0:00:52  
+RIBBON-CI info install|   5,850,063,605B  88%   15.5MB/s    0:00:48  
+RIBBON-CI info install|   5,866,740,652B  88%   15.5MB/s    0:00:47  
+RIBBON-CI info install|   5,912,083,398B  89%   23.2MB/s    0:00:29  
+RIBBON-CI info install|   5,932,872,988B  89%   24.6MB/s    0:00:27  
+RIBBON-CI info install|   5,970,712,402B  90%   30.1MB/s    0:00:21  
+RIBBON-CI info install|   6,006,893,701B  90%   35.0MB/s    0:00:17  
+RIBBON-CI info install|   6,046,584,440B  91%   33.6MB/s    0:00:16  
+RIBBON-CI info install|   6,085,220,302B  92%   38.0MB/s    0:00:13  
+RIBBON-CI info install|   6,124,109,928B  92%   38.3MB/s    0:00:12  
+RIBBON-CI info install|   6,162,811,551B  93%   39.0MB/s    0:00:11  
+RIBBON-CI info install|   6,197,387,782B  93%   37.7MB/s    0:00:10  
+RIBBON-CI info install|   6,232,052,830B  94%   36.7MB/s    0:00:10  
+RIBBON-CI info install|   6,266,032,655B  94%   35.5MB/s    0:00:09  
+RIBBON-CI info install|   6,314,578,198B  95%   37.9MB/s    0:00:07  
+RIBBON-CI info install|   6,335,156,318B  95%   34.4MB/s    0:00:07  
+RIBBON-CI info install|   6,344,804,723B  96%   28.2MB/s    0:00:09  
+RIBBON-CI info install|   6,374,679,959B  96%   27.2MB/s    0:00:08  
+RIBBON-CI info install|   6,398,144,643B  96%   20.9MB/s    0:00:10  
+RIBBON-CI info install|   6,404,608,267B  96%   17.4MB/s    0:00:11  
+RIBBON-CI info install|   6,432,444,164B  97%   21.9MB/s    0:00:07  
+RIBBON-CI info install|   6,462,200,610B  97%   21.9MB/s    0:00:06  
+RIBBON-CI info install|   6,486,008,202B  98%   21.7MB/s    0:00:05  
+RIBBON-CI info install|   6,523,288,073B  98%   29.2MB/s    0:00:02  
+RIBBON-CI info install| ==> Writing /etc/fstab
+RIBBON-CI info install| ==> Setting up the system
+RIBBON-CI info install| ==> Configuring system
+RIBBON-CI info install| ribbon-postinstall: locale en_US.UTF-8 generated
+RIBBON-CI info install| ==> Post-install configuration
+RIBBON-CI info install| ribbon-postinstall: boot loader: limine
+RIBBON-CI info install| ribbon-postinstall: could not remove zfs
+RIBBON-CI info install| ribbon-postinstall: removed live-session settings and unused packages: installer zfsbootmenu bcachefs-module grub-btrfs grub-efi os-prober
+RIBBON-CI info install| ribbon-postinstall: enabled services: NetworkManager agetty@tty2 agetty@tty3 bluetoothd chronyd cronie greetd nftables power-profiles-daemon ribbon-boot-ok ribbon-ci-probe ribbon-power-limit ribbon-reserve scx 
+RIBBON-CI info install| ribbon-postinstall: firewall on, AppArmor enforcing
+RIBBON-CI info install| warn service 'bolt' not installed; not enabling it
+RIBBON-CI info install|  ok  hardware setup done
+RIBBON-CI info install| ribbon-postinstall: disk reserve: btrfs: simple quotas enabled
+RIBBON-CI info install| /usr/bin/ribbon-limine: line 58: RIBBON_ROOT_CMDLINE: set RIBBON_ROOT_CMDLINE in /etc/default/ribbon-limine (see: ribbon-limine root-cmdline)
+RIBBON-CI info install| ==> Boot loader
+RIBBON-CI info install| ==> Installing the boot loader
+RIBBON-CI info install| ribbon-postinstall: initramfs rebuilt for: 6.18.64-ribbon_1 6.18.65_1 
+RIBBON-CI info install| ribbon-postinstall: Limine installed (2 menu entries)
+RIBBON-CI info install| ==> Your account
+RIBBON-CI info install| ==> Creating tester
+RIBBON-CI info install| ribbon-postinstall: game drive entries use nofail
+RIBBON-CI info install| Tue Nov 24 19:15:28 2026 <3> SystemCmd.cc(doWait):238 command "/usr/bin/systemctl enable --now snapper-timeline.timer" not found
+RIBBON-CI info install| ribbon-postinstall: btrfs snapshots configured (bootable from the limine menu)
+RIBBON-CI info install| ==> Done. Remove the install media and reboot into Ribbon OS.
+RIBBON-CI ok   install: ribbon-install finished in 210 s
+RIBBON-CI ok   install: the probe is in the installed system (/dev/vda2)
+RIBBON-CI install-done
+[STOPPD] early-udev-settle
+[STOPPD] early-udev-trigger
+[STOPPD] early-apparmor
+[STOPPD] runit-compat
+[STOPPD] boot
+[STOPPD] ribbon-ci-install
+[STOPPD] greetd
+[STOPPD] bluetoothd
+[STOPPD] power-profiles-daemon
+[STOPPD] agetty@tty2
+[STOPPD] agetty@tty3
+[STOPPD] loginready
+[STOPPD] elogind
+[STOPPD] NetworkManager
+[STOPPD] dbus
+[STOPPD] dbus-prepare
+turnstiled: pam_elogind(turnstiled:session): Failed to connect to system bus: Connection refused
+[STOPPD] turnstiled
+[STOPPD] local.target
+[STOPPD] scx
+[STOPPD] system
+[STOPPD] early-misc
+[STOPPD] early-sysctl
+[STOPPD] early-swap
+[STOPPD] early-filesystems
+[STOPPD] early-devices
+[STOPPD] early-console
+[STOPPD] udevd
+[STOPPD] early-kmods
+[STOPPD] early-pseudofs
+Sending TERM/KILL to all processes...
+Executing shutdown hook...
+Seeding 256 bits and crediting
+Saving 256 bits of creditable seed for next boot
+Issuing shutdown via kernel...
+[  223.220305] reboot: Power down

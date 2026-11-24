@@ -1,0 +1,83 @@
+  ok   ribbon-shell-watch builds with -Wall -Wextra -Werror (38480 bytes)
+compositor: labwc 0.20.3 (+xwayland +nls +rsvg +libsfdo) wlroots-0.20.2, foot version: 1.28.0, socket wayland-0
+  ok   key A-F7 pressed on the virtual keyboard reached labwc's keybind (5 of 5)
+  note key to keybind running ribbon-shell-ctl probe: mean 4.2 ms, min 2.9 ms (includes starting sh + timeout + the shell reading the FIFO)
+  ok   three footclient windows are three tabs of group g1 (60 ms from ribbon-terminal to the first tab selected, foot --server started by the shell)
+  ok   the strip window is not in the toplevel stream (skipTaskbar), only the three tabs are
+  ok   app-ids ribbon-term-g1-1..3
+  ok   one foot --server
+  ok   two tabs minimised behind the front one
+  ok   the dock shows one Terminal button for the three tabs ({ribbon-terminal n=3 Terminal})
+  ok   ribbon-term-ctl tab 1: tab 1 up, the other two minimised (31 ms including starting ribbon-term-ctl and polling)
+  note shell side of that switch: activate + minimize + raise written in 3.43 ms
+  ok   next: tab 2
+  ok   prev: tab 1
+  ok   Alt+3 (virtual keyboard, foot pipe binding, ribbon-term-ctl) switched to tab 3 (31 ms with polling)
+  ok   Alt+1 switched back to tab 1
+  ok   a title change in a background tab marks it (marks=2 )
+  ok   bringing the tab up clears its mark
+  ok   an OSC 777 notification marks its tab (foot passes ${app-id} to ribbon-term-ctl activity-app)
+  ok   the front tab starts at the strip's foot (y 152: foot 10,20,30; y 151: strip 59,56,53)
+  ok   the group moved from 170,110 to 370,185
+  ok   after the move the front tab is still under the strip (foot 10,20,30 at y 227, strip 59,56,53 above it)
+  ok   nothing is left at the old place (strip row 0,0,0, tab area 0,0,0)
+  note move: rc.xml rewrite + SIGHUP + key written 1.7 ms (mean of 5)
+  note every place incl. those without a rewrite: 0.94 ms (mean of 9)
+  ok   W-Left snapped the group (rect 8,62,708,776)
+  ok   after the snap the tab is under the strip, together
+  ok   W-Down restored the rectangle from before the snap
+  ok   W-S-2 sent the group, strip and tab, to desktop 2 (both are on screen after the switch)
+  ok   term-groups holds g1's rectangle 8,62,708,776, its rectangle before the snap 370,185,1100,680 and tab 2 (g1 8 62 708 776 0 2 370,185,1100,680)
+  ok   after the shell restart the group is back at 8,62,708,776
+  ok   after the shell restart tab 2 is in front and the others are minimised
+  ok   after the shell restart snap restore gives back 370,185,1100,680 (the rectangle before the snap)
+  ok   the restored tab is under its strip at the restored place
+  ok   a tab running sleep 100 in front of its shell is seen as running it (its terminal's foreground group)
+  ok   Ctrl+Shift+W on it asks first: Close this tab? / sleep 100 is still running
+  ok     the tab stays open while it asks
+  ok     a 440 x 164 sheet under the strip, centred on the window (142 104 440 164)
+  ok     on screen: Close tab in the accent, the sheet's §bar around it (29,28,27)
+  ok     Esc answers Cancel (the sheet has the keyboard)
+  ok   Cancel keeps the tab
+  ok   the window's close button asks: Close this window?
+  ok     Cancel keeps the window and its tabs
+  ok   Restart terminals asks first: Restart terminals?
+  ok     Cancel restarts nothing
+  ok   the pill's close asks too, and a click on Close tab closes the tab (3 left)
+  ok   with Ask before closing a running command off, the busy tab closes at once
+  ok   close removed the front tab (2 left)
+  ok     an idle tab (its shell at the prompt) closes at once, nothing asked
+  ok   the dock count follows (2)
+  ok   the last tab closed: the group and its strip are gone
+  ok   closing the group removed its line from term-groups
+  ok   no terminal window is left
+  ok   the generated rc.xml holds no rules once the terminal is closed
+  ok   a new tab takes Default's background from terminal.conf (footclient -o)
+  ok   the tab was started with profile Default
+  ok   the preferences window has the app-id ribbon-term-g1-prefs
+  ok   the preferences are the group's second tab (tabs=6 7)
+  ok   the foot tab is minimised behind the preferences
+  ok   the preferences fill the tab area under the strip (the profiles' side, then the page)
+  ok   prefs again brings the same preferences tab to the front
+  ok   Restart terminals started the idle tab again with the new background
+  ok   closing both tabs closes the group (the preferences tab with it)
+  ok   one tab and Show the strip: Two or more: the strip is hidden
+  ok     and nothing of it is on screen (the tab has labwc's title bar there: 225,222,219)
+  ok   a second tab brings the strip back
+  ok     and it is drawn above the tabs again
+  ok   New tab goes: Next puts the new tab after the current first tab (1795545651196 order ribbon-term-g1-1 ribbon-term-g1-3 ribbon-term-g1-2 hide=0)
+  ok   closing every tab with Closing the last tab: Opens a new tab leaves one new tab (1795545657364 order ribbon-term-g1-4 hide=1)
+  ok   the window's close button still closes it
+  ok   a tab's shell is found by RIBBON_TERM_TAB in its environment
+  ok   a right click's callback opens the tab's menu
+  ok   the menu and, over New tab with profile, the profiles beside it are on screen
+  ok   Duplicate tab opens a third tab
+  ok   Rename… gives the pill the typed name
+  ok   Text size: three steps make the tab 17 pt and its page changes (243486 px differ)
+  ok   Move to a new window: the tab is the one tab of a new group
+  ok     its app-id is ribbon-term-g2-1 (foot's OSC 176)
+  ok   ribbon-terminal run in a folder opens the new tab in that folder
+  ok   both windows close
+00:00:10.064 [ERROR] [xwayland/xwm.c:1984] xcb error: op ConfigureWindow (no minor), code Window (no extension), sequence 410, value 4194463
+00:00:10.064 [ERROR] [xwayland/xwm.c:1984] xcb error: op ConfigureWindow (no minor), code Window (no extension), sequence 412, value 4194463
+00:00:10.064 [ERROR] [xwayland/xwm.c:1984] xcb error: op ChangeProperty (no minor), code Window (no extension), sequence 415, value 4194463

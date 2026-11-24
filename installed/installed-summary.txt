@@ -1,0 +1,8 @@
+RESULT installed-install: ok (2 checks)
+RESULT installed-boot: ok (8 checks)
+RESULT installed-postinstall: ok (25 checks)
+RESULT installed-swap: ok (10 checks)
+RESULT installed-reserve: ok (12 checks)
+RESULT installed-doctor: ok (7 checks)
+RESULT installed-update: ok (7 checks)
+RESULT installed-after-update: ok (4 checks)

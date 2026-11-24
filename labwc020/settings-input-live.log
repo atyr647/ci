@@ -1,0 +1,25 @@
+  ok   ribbon-session puts the xdg-input layer between the margin's and Ribbon's
+  compositor: labwc 0.20.3 (+xwayland +nls +rsvg +libsfdo) wlroots-0.20.2 on Xvfb :0
+  ok   labwc merges Ribbon's rc.xml, the terminal's, the margin's and ours
+  ok   labwc reads our environment file
+  ok   labwc starts with the generated files and reports no error
+  ok   X clients see the repeat settings (after 300 ms, 30 a second)
+  ok   every repeat, mouse and touchpad row changed: labwc reconfigures without complaint
+  ok     and X clients see the new repeat settings at once (450 ms, 12 a second)
+  ok   two layouts with variants, Super Space, Caps Lock as Esc
+  ok     and the keymap X clients get has both layouts, the switch key and the Caps Lock option
+  ok   switch key alt_shift is an option XKB knows
+  ok   switch key ctrl_shift is an option XKB knows
+  ok   switch key alt_space is an option XKB knows
+  ok   switch key shifts is an option XKB knows
+  ok   switch key win_space is an option XKB knows
+  ok   Caps Lock as ctrl
+  ok   Caps Lock as caps
+  ok   Caps Lock as esc
+  ok   a variant that does not exist is reported by labwc (the check can fail)
+  ok   one layout, no variant, no options: the empty values take the earlier ones back
+  ok     and the keymap is French alone, with no option left
+  ok   after the terminal rewrites its rc.xml our layer is read again
+  ok     and our file is as it was
+  ok     and the repeat settings still hold
+Keyboard and mouse against labwc: all checks passed

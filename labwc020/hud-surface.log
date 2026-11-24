@@ -1,0 +1,110 @@
+  note Game HUD surface against labwc 0.20.3 in /home/runner/work/ci/ci/out/root
+  ok   ribbon-hud-surface builds with -Wall -Wextra -Werror (58080 bytes)
+compositor: labwc 0.20.3 (+xwayland +nls +rsvg +libsfdo) wlroots-0.20.2, socket wayland-0, X display :0
+  ok   the output is 1440x900, the boards' size
+     the game at its corners: 192 57 43 / 241 196 15
+  ok   the game is fullscreen (its stripes reach both corners of the 1440x900 output)
+S1 Super+F12 (a labwc bind: ribbon-hud cycle; the daemon starts on the first press)
+     first press to a drawn HUD (daemon start, helper start, first frame): 146 ms
+     1795545674430 state quick={open=0 focus=overlay ask=0 layout=off rows=overlay,shot profile= hdr= volume= 
+  ok   S1 press 1: FPS
+     surface box 1317 0 123x106
+  ok   S1 the FPS pill is on screen over the game (top right: 31 42 48)
+  ok   S1 press 2: Compact
+  ok   S1 press 3: Full
+     box heights: FPS 106, Compact 167, Full 449 (panel 40 / 101 / 383 plus shadow room)
+  ok   S1 the three layouts have growing surfaces
+  ok   S1 press 4: Off (the surface is unmapped)
+  ok   S1 Off leaves the game's picture untouched (0 pixels differ)
+  ok   S1 press 5: back to FPS (the cycle goes on)
+S2 above the fullscreen game, S3 see-through
+  ok   S2 away from the HUD the game is unchanged
+     inside the surface box: 110390 of 130210 pixels differ from the game alone
+  ok   S2 the HUD is drawn above the fullscreen game
+     at 1250,50: game 241 196 15, HUD 58 51 25, glass over game expected 59 52 25
+  ok   S3 the glass is see-through: bar colour at 86 % over the game's pixel
+     at 1290,50: game 192 57 43, HUD 51 32 29, glass over game expected 52 32 29
+  ok   S3 the glass is see-through: bar colour at 86 % over the game's pixel
+  ok   S3 two points of glass over different stripes differ (58 51 25 / 51 32 29): an opaque panel would show one colour
+S4 clicks pass through, S5 the keyboard stays with the game
+  ok   S4 a click on the HUD's glass reached the game (click 1250 50)
+  ok   S4 a click on the pin button reached the game too (the HUD takes no input by default)
+  ok   S4 the HUD did not take the click (still unpinned)
+  ok   S4 moving the pointer over the HUD never took it from the game (no ptr-leave)
+  ok   S5 a key typed with the HUD up arrived at the game
+  ok   S5 the game never lost keyboard focus (no kbd-leave since the HUD showed)
+  ok   S5 and after a layout change
+S6 interactive 1: the pin and close buttons take clicks, the rest still passes through
+  ok   S6 the click on the pin button pinned the HUD
+  ok   S6 the game did not get that click
+  ok   S6 a click on the glass beside the buttons still reaches the game
+  ok   S6 the pin button's name comes
+  ok   S6 not at once: 500 ms after the pointer came
+  ok   S6 its pill is drawn under the header (light text at 1332,80)
+  ok   S6 moving on to Close: its name
+  ok   S6 at once (1 ms): the pointer came straight from a shown name
+  ok   S6 the name goes when the pointer leaves
+  ok   S6 interactive 0: the pin button passes the click through again
+S7 menu 1: the right-hand HUD moves to 358 px from the right edge
+     surface box x: 1150 -> 816
+  ok   S7 the surface moved 334 px left (24 -> 358 from the edge)
+  ok   S7 menu 0 puts it back
+S8 close
+  ok   S8 Close hides the HUD
+  ok   S8 Super+F12 brings it back in the layout it had
+S9 costs
+     ribbon-hud-surface: VmRSS: 11088 kB (Pss 5863 kB), binary 58080 bytes
+     ribbon-hud daemon (wish): VmRSS: 18808 kB (Pss 13850 kB)
+     daemon CPU while the Full HUD is up with no frame data: 5 ticks in 5 s (1% of a core... 1 tick = 10 ms)
+     helper CPU: 1 ticks in 3 s
+S9b frame times through the file source (hud::frames::use_file; RIBBON_HUD_FRAMES)
+  ok   S9b with nothing writing frame times the HUD says so (frames=0: dashes and No frame data)
+  ok   S9b frame times appended to the file give numbers (frames=1)
+  ok   S9b two seconds without frame times: unavailable again
+S11 the Game overlay store (game-overlay.conf, written as the Settings page writes it)
+  ok   S11 no file: the built-in Defaults (top right, 100 %, 86 %)
+  ok   S11 the daemon read the changed file by itself: settings key=defaults on=1 start=1 source=auto layout=full position=bottom-left scale=125 opacity=70
+     surface box 0 359 357x541
+  ok   S11 the surface re-anchored to the bottom left corner
+  ok   S11 and is drawn at 125 % (box 357 px wide, 290 at 100 %)
+     at 134,429: game 241 196 15, HUD 92 77 22, glass at 70 % expected 93 78 23
+  ok   S11 Transparency 30 %: the glass is the bar colour at 70 % over the game
+  ok   S11 reload with nothing changed keeps the HUD as it is
+  ok   S12 the daemon follows the compositor's windows (its own ribbon-shell-watch)
+S12 a game window (app id steam_app_620, as Proton's windows are) comes up
+  ok   S12 the HUD shows itself for the game, in the game's own layout (Compact)
+  ok   S12 the window is the Steam game 620, named from its manifest (Portal 2)
+  ok   S12 the record in effect is the game's own fields over Defaults
+  ok   S12 the HUD is at the game's corner (top left: box 0 0)
+  ok   S12 it is drawn over the game (30 33 37 over 32 48 64)
+  ok   S12 state: shown, game, steam:620
+  ok   S12 the game's art was found (Steam's library cache: 620_icon.jpg)
+  ok   S12 the header shows the game's art, not the pill (242 229 91 is the cover's sky)
+S13 the game loses focus (another window comes up), pin, and the game closes
+  ok   S13 another window in front: the unpinned HUD is hidden (its layout is kept)
+  ok   S13 the game is in front again: the HUD is back
+  ok   S13 pinned: the HUD stays up when the game loses focus
+  ok   S13 pinned, another window in front: another program's frame times are not shown as the game's
+  ok   S13 pinned, another window in front: the game's own frame times are shown
+  ok   S13 the game closed: its HUD is gone
+  ok   S13 back on the first window: off, Defaults
+S14 overlay off for a game; Show when a game starts off
+  ok   S14 a game with its overlay off gets no HUD
+  ok   S14 Super+F12 does nothing for it (the overlay is off for steam:1245620)
+  ok   S14 Show when a game starts off: the game gets no HUD by itself
+  ok   S14 Super+F12 still brings it up, with the game's settings
+S15 the frame source row, and gamescope's stats pipe through ribbon-gamescope (a stand-in gamescope)
+  ok   S15 Automatic: the layer's file gives frame numbers
+  ok   S15 Compositor: the layer's file is not read (No frame data without a compositor producer)
+  ok   S15 ribbon-gamescope hands gamescope the HUD's pipe and the game's command (stats-path=/tmp/hudnat.8841/rt/ribbon-hud-stats cmd=thegame --arg)
+  ok   S15 the compositor's pipe gives frame numbers (fps=144 lines)
+S16 ribbon-hud start (labwc's autostart) and reload (Settings)
+  ok   S16 nothing asks for Show when a game starts: no daemon is left running
+  ok   S16 Settings turned it on (reload): the daemon starts and the game in front gets its HUD
+S10 the surface's drawing (cairo) against the Tk canvas drawing, 1440x900 boards scenes
+  note S10 is not run against a root (it needs the repo tree and xvfb on the host)
+labwc errors:
+Errors from xkbcomp are not fatal to the X server
+00:01:17.427 [ERROR] [xwayland/xwm.c:1984] xcb error: op ChangeWindowAttributes (no minor), code Window (no extension), sequence 192, value 4194307
+HUD surface: all checks passed
+  ok   Game HUD surface (tests/hud-native/run.sh)

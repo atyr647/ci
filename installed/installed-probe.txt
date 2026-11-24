@@ -1,0 +1,261 @@
+RIBBON-CI info install: started; kernel 6.18.64-ribbon_1
+RIBBON-CI info install: booted by UEFI
+RIBBON-CI info install|   2,881,060,938B  43%   69.3MB/s    0:00:53  
+RIBBON-CI info install|   2,902,925,298B  43%   62.7MB/s    0:00:59  
+RIBBON-CI info install|   2,919,140,274B  44%   54.9MB/s    0:01:07  
+RIBBON-CI info install|   2,938,638,574B  44%   36.2MB/s    0:01:41  
+RIBBON-CI info install|   2,963,468,782B  44%   20.5MB/s    0:02:57  
+RIBBON-CI info install|   2,982,442,568B  45%   19.8MB/s    0:03:02  
+RIBBON-CI info install|   3,017,900,397B  45%   24.6MB/s    0:02:25  
+RIBBON-CI info install|   3,037,298,392B  45%   24.6MB/s    0:02:25  
+RIBBON-CI info install|   3,052,998,761B  46%   22.4MB/s    0:02:38  
+RIBBON-CI info install|   3,074,178,063B  46%   22.9MB/s    0:02:34  
+RIBBON-CI info install|   3,096,515,385B  46%   19.6MB/s    0:02:58  
+RIBBON-CI info install|   3,115,155,708B  47%   19.4MB/s    0:02:59  
+RIBBON-CI info install|   3,147,003,494B  47%   23.4MB/s    0:02:27  
+RIBBON-CI info install|   3,164,883,025B  47%   22.7MB/s    0:02:31  
+RIBBON-CI info install|   3,204,930,605B  48%   27.1MB/s    0:02:05  
+RIBBON-CI info install|   3,241,310,368B  49%   31.5MB/s    0:01:46  
+RIBBON-CI info install|   3,272,034,287B  49%   31.2MB/s    0:01:46  
+RIBBON-CI info install|   3,307,162,241B  50%   35.6MB/s    0:01:32  
+RIBBON-CI info install|   3,359,993,699B  50%   38.7MB/s    0:01:23  
+RIBBON-CI info install|   3,411,634,070B  51%   42.4MB/s    0:01:15  
+RIBBON-CI info install|   3,464,170,627B  52%   47.7MB/s    0:01:05  
+RIBBON-CI info install|   3,505,193,867B  53%   49.2MB/s    0:01:03  
+RIBBON-CI info install|   3,546,173,197B  53%   46.3MB/s    0:01:06  
+RIBBON-CI info install|   3,593,790,299B  54%   45.3MB/s    0:01:06  
+RIBBON-CI info install|   3,637,979,750B  55%   43.1MB/s    0:01:08  
+RIBBON-CI info install|   3,696,398,885B  55%   47.4MB/s    0:01:01  
+RIBBON-CI info install|   3,754,482,653B  56%   51.6MB/s    0:00:55  
+RIBBON-CI info install|   3,808,698,037B  57%   53.3MB/s    0:00:52  
+RIBBON-CI info install|   3,859,082,922B  58%   55.1MB/s    0:00:49  
+RIBBON-CI info install|   3,905,830,142B  59%   52.2MB/s    0:00:51  
+RIBBON-CI info install|   3,953,475,052B  59%   49.6MB/s    0:00:53  
+RIBBON-CI info install|   3,998,124,279B  60%   46.8MB/s    0:00:55  
+RIBBON-CI info install|   4,046,218,719B  61%   45.6MB/s    0:00:56  
+RIBBON-CI info install|   4,101,010,838B  62%   47.6MB/s    0:00:52  
+RIBBON-CI info install|   4,145,901,954B  62%   46.9MB/s    0:00:52  
+RIBBON-CI info install|   4,211,819,740B  63%   52.6MB/s    0:00:45  
+RIBBON-CI info install|   4,271,815,150B  64%   56.3MB/s    0:00:41  
+RIBBON-CI info install|   4,324,997,716B  65%   55.9MB/s    0:00:40  
+RIBBON-CI info install|   4,377,991,153B  66%   57.6MB/s    0:00:38  
+RIBBON-CI info install|   4,428,839,761B  67%   53.8MB/s    0:00:40  
+RIBBON-CI info install|   4,477,217,591B  67%   50.9MB/s    0:00:41  
+RIBBON-CI info install|   4,540,565,199B  68%   53.4MB/s    0:00:38  
+RIBBON-CI info install|   4,598,585,232B  69%   54.9MB/s    0:00:36  
+RIBBON-CI info install|   4,654,051,712B  70%   56.2MB/s    0:00:34  
+RIBBON-CI info install|   4,711,958,303B  71%   58.5MB/s    0:00:32  
+RIBBON-CI info install|   4,769,303,905B  72%   57.0MB/s    0:00:32  
+RIBBON-CI info install|   4,823,155,762B  72%   55.9MB/s    0:00:31  
+RIBBON-CI info install|   4,870,575,516B  73%   53.9MB/s    0:00:32  
+RIBBON-CI info install|   4,917,318,166B  74%   51.2MB/s    0:00:33  
+RIBBON-CI info install|   4,963,577,163B  75%   48.4MB/s    0:00:33  
+RIBBON-CI info install|   5,027,870,251B  76%   51.0MB/s    0:00:30  
+RIBBON-CI info install|   5,077,784,040B  76%   51.5MB/s    0:00:29  
+RIBBON-CI info install|   5,128,050,210B  77%   52.4MB/s    0:00:28  
+RIBBON-CI info install|   5,158,052,582B  78%   48.5MB/s    0:00:29  
+RIBBON-CI info install|   5,197,386,990B  78%   42.3MB/s    0:00:33  
+RIBBON-CI info install|   5,238,103,106B  79%   40.0MB/s    0:00:34  
+RIBBON-CI info install|   5,278,591,122B  79%   37.2MB/s    0:00:35  
+RIBBON-CI info install|   5,327,954,388B  80%   40.9MB/s    0:00:31  
+RIBBON-CI info install|   5,403,976,148B  81%   49.6MB/s    0:00:24  
+RIBBON-CI info install|   5,443,297,748B  82%   48.9MB/s    0:00:23  
+RIBBON-CI info install|   5,499,411,558B  83%   53.2MB/s    0:00:20  
+RIBBON-CI info install|   5,535,961,593B  83%   51.5MB/s    0:00:20  
+RIBBON-CI info install|   5,561,216,794B  84%   39.0MB/s    0:00:26  
+RIBBON-CI info install|   5,674,798,475B  85%   57.7MB/s    0:00:16  
+RIBBON-CI info install|   5,701,501,748B  86%   50.4MB/s    0:00:17  
+RIBBON-CI info install|   5,738,659,577B  86%   50.5MB/s    0:00:17  
+RIBBON-CI info install|   5,751,475,332B  87%   47.4MB/s    0:00:18  
+RIBBON-CI info install|   5,762,778,691B  87%   22.0MB/s    0:00:38  
+RIBBON-CI info install|   5,774,947,503B  87%   18.4MB/s    0:00:45  
+RIBBON-CI info install|   5,787,934,017B  87%   12.3MB/s    0:01:06  
+RIBBON-CI info install|   5,804,462,519B  87%   13.2MB/s    0:01:00  
+RIBBON-CI info install|   5,818,964,461B  88%   14.0MB/s    0:00:56  
+RIBBON-CI info install|   5,834,136,912B  88%   14.8MB/s    0:00:52  
+RIBBON-CI info install|   5,850,063,605B  88%   15.5MB/s    0:00:48  
+RIBBON-CI info install|   5,866,740,652B  88%   15.5MB/s    0:00:47  
+RIBBON-CI info install|   5,912,083,398B  89%   23.2MB/s    0:00:29  
+RIBBON-CI info install|   5,932,872,988B  89%   24.6MB/s    0:00:27  
+RIBBON-CI info install|   5,970,712,402B  90%   30.1MB/s    0:00:21  
+RIBBON-CI info install|   6,006,893,701B  90%   35.0MB/s    0:00:17  
+RIBBON-CI info install|   6,046,584,440B  91%   33.6MB/s    0:00:16  
+RIBBON-CI info install|   6,085,220,302B  92%   38.0MB/s    0:00:13  
+RIBBON-CI info install|   6,124,109,928B  92%   38.3MB/s    0:00:12  
+RIBBON-CI info install|   6,162,811,551B  93%   39.0MB/s    0:00:11  
+RIBBON-CI info install|   6,197,387,782B  93%   37.7MB/s    0:00:10  
+RIBBON-CI info install|   6,232,052,830B  94%   36.7MB/s    0:00:10  
+RIBBON-CI info install|   6,266,032,655B  94%   35.5MB/s    0:00:09  
+RIBBON-CI info install|   6,314,578,198B  95%   37.9MB/s    0:00:07  
+RIBBON-CI info install|   6,335,156,318B  95%   34.4MB/s    0:00:07  
+RIBBON-CI info install|   6,344,804,723B  96%   28.2MB/s    0:00:09  
+RIBBON-CI info install|   6,374,679,959B  96%   27.2MB/s    0:00:08  
+RIBBON-CI info install|   6,398,144,643B  96%   20.9MB/s    0:00:10  
+RIBBON-CI info install|   6,404,608,267B  96%   17.4MB/s    0:00:11  
+RIBBON-CI info install|   6,432,444,164B  97%   21.9MB/s    0:00:07  
+RIBBON-CI info install|   6,462,200,610B  97%   21.9MB/s    0:00:06  
+RIBBON-CI info install|   6,486,008,202B  98%   21.7MB/s    0:00:05  
+RIBBON-CI info install|   6,523,288,073B  98%   29.2MB/s    0:00:02  
+RIBBON-CI info install| ==> Writing /etc/fstab
+RIBBON-CI info install| ==> Setting up the system
+RIBBON-CI info install| ==> Configuring system
+RIBBON-CI info install| ribbon-postinstall: locale en_US.UTF-8 generated
+RIBBON-CI info install| ==> Post-install configuration
+RIBBON-CI info install| ribbon-postinstall: boot loader: limine
+RIBBON-CI info install| ribbon-postinstall: could not remove zfs
+RIBBON-CI info install| ribbon-postinstall: removed live-session settings and unused packages: installer zfsbootmenu bcachefs-module grub-btrfs grub-efi os-prober
+RIBBON-CI info install| ribbon-postinstall: enabled services: NetworkManager agetty@tty2 agetty@tty3 bluetoothd chronyd cronie greetd nftables power-profiles-daemon ribbon-boot-ok ribbon-ci-probe ribbon-power-limit ribbon-reserve scx 
+RIBBON-CI info install| ribbon-postinstall: firewall on, AppArmor enforcing
+RIBBON-CI info install| warn service 'bolt' not installed; not enabling it
+RIBBON-CI info install|  ok  hardware setup done
+RIBBON-CI info install| ribbon-postinstall: disk reserve: btrfs: simple quotas enabled
+RIBBON-CI info install| /usr/bin/ribbon-limine: line 58: RIBBON_ROOT_CMDLINE: set RIBBON_ROOT_CMDLINE in /etc/default/ribbon-limine (see: ribbon-limine root-cmdline)
+RIBBON-CI info install| ==> Boot loader
+RIBBON-CI info install| ==> Installing the boot loader
+RIBBON-CI info install| ribbon-postinstall: initramfs rebuilt for: 6.18.64-ribbon_1 6.18.65_1 
+RIBBON-CI info install| ribbon-postinstall: Limine installed (2 menu entries)
+RIBBON-CI info install| ==> Your account
+RIBBON-CI info install| ==> Creating tester
+RIBBON-CI info install| ribbon-postinstall: game drive entries use nofail
+RIBBON-CI info install| Tue Nov 24 19:15:28 2026 <3> SystemCmd.cc(doWait):238 command "/usr/bin/systemctl enable --now snapper-timeline.timer" not found
+RIBBON-CI info install| ribbon-postinstall: btrfs snapshots configured (bootable from the limine menu)
+RIBBON-CI info install| ==> Done. Remove the install media and reboot into Ribbon OS.
+RIBBON-CI ok   install: ribbon-install finished in 210 s
+RIBBON-CI ok   install: the probe is in the installed system (/dev/vda2)
+RIBBON-CI install-done
+RIBBON-CI info [boot] probe phase 1; kernel 6.18.64-ribbon_1; root=UUID=203042bf-0e50-4c58-97de-58521c6fc48f rootfstype=btrfs rootflags=subvol=@ rw quiet loglevel=3 rd.udev.log_level=3 nowatchdog split_lock_detect=off apparmor=1 security=apparmor
+RIBBON-CI ok   [boot] dinit is PID 1
+RIBBON-CI ok   [boot] booted by UEFI
+RIBBON-CI ok   [boot] greetd (the login screen) is running (after 0 s)
+RIBBON-CI ok   [boot] elogind is running (after 0 s)
+RIBBON-CI ok   [postinstall] boot-choice: BOOTLOADER=limine
+RIBBON-CI ok   [postinstall] live-cleanup: no live-session marker or autologin left
+RIBBON-CI ok   [postinstall] services: greetd is enabled
+RIBBON-CI ok   [postinstall] services: NetworkManager is enabled
+RIBBON-CI ok   [postinstall] services: ribbon-boot-ok is enabled
+RIBBON-CI ok   [postinstall] services: ribbon-reserve is enabled
+RIBBON-CI ok   [postinstall] services: nftables is enabled
+RIBBON-CI ok   [postinstall] services: greetd is started (after 0 s)
+RIBBON-CI ok   [postinstall] services: NetworkManager is started (after 0 s)
+RIBBON-CI ok   [postinstall] services: ribbon-reserve is started (after 0 s)
+RIBBON-CI ok   [postinstall] security: Ribbon's nftables ruleset is /etc/nftables.conf
+RIBBON-CI ok   [postinstall] security: the firewall is loaded (input policy drop)
+RIBBON-CI ok   [postinstall] security: AppArmor on the kernel command line
+RIBBON-CI ok   [postinstall] bootloader: /boot/limine.conf has a menu entry for the running kernel
+RIBBON-CI ok   [postinstall] bootloader: Limine's EFI binary is on the EFI partition
+RIBBON-CI ok   [postinstall] bootloader: the firmware has a 'Ribbon OS (Limine)' entry
+RIBBON-CI ok   [postinstall] snapshots: snapper's root config lists snapshots
+RIBBON-CI ok   [postinstall] snapshots: /.snapshots is the @snapshots subvolume
+RIBBON-CI ok   [postinstall] fstab: /home is mounted
+RIBBON-CI ok   [postinstall] fstab: /swap is mounted
+RIBBON-CI ok   [postinstall] fstab: /.snapshots is mounted
+RIBBON-CI ok   [postinstall] fstab: /boot is mounted
+RIBBON-CI ok   [postinstall] account: tester is an administrator (wheel)
+RIBBON-CI ok   [postinstall] account: root is locked
+RIBBON-CI ok   [postinstall] hostname ribbon-ci
+RIBBON-CI ok   [swap] zram swap is on at boot (ribbon-swap boot) (after 0 s)
+RIBBON-CI ok   [swap] swap.conf: ZRAM_SIZE=50% (the installer's zram choice)
+RIBBON-CI ok   [swap] vm.swappiness is 180 for zram
+RIBBON-CI ok   [swap] ribbon-swap set file=256M
+RIBBON-CI ok   [swap]   /swap/swapfile is on
+RIBBON-CI ok   [swap]   and in /etc/fstab
+RIBBON-CI ok   [swap]   and NOCOW in @swap (btrfs filesystem mkswapfile)
+RIBBON-CI ok   [swap] ribbon-swap set file=off
+RIBBON-CI ok   [swap]   the swap file is off, gone and out of /etc/fstab
+RIBBON-CI ok   [swap]   zram is still on
+RIBBON-CI info [swap] | NAME       TYPE      SIZE USED PRIO
+RIBBON-CI info [swap] | /dev/zram0 partition 2.9G   0B  100
+RIBBON-CI info [swap] | NAME       ALGORITHM DISKSIZE DATA COMPR TOTAL STREAMS MOUNTPOINT
+RIBBON-CI info [swap] | /dev/zram0 zstd          2.9G   4K   59B   20K         [SWAP]
+RIBBON-CI info [swap] | 
+RIBBON-CI info [swap] | # Written by ribbon-swap. Change with: ribbon swap set ...
+RIBBON-CI info [swap] | ZRAM_SIZE=50%
+RIBBON-CI info [swap] | ZRAM_ALGO=zstd
+RIBBON-CI info [swap] | SWAPFILE_SIZE=off
+RIBBON-CI info [swap] | HIBERNATE=no
+RIBBON-CI ok   [reserve] the service wrote its state (/run/ribbon/reserve) (after 0 s)
+RIBBON-CI ok   [reserve] state: the spare is present
+RIBBON-CI ok   [reserve] the spare file /swap/ribbon-spare holds 2G
+RIBBON-CI ok   [reserve] btrfs simple quotas are on
+RIBBON-CI ok   [reserve] @home is capped (qgroup 0/262, limit 20940275712 bytes)
+RIBBON-CI info [reserve] | For your files:  19.5 GB left
+RIBBON-CI info [reserve] | For the system:  32.5 GB free, of which 15.0 GB is kept for it alone
+RIBBON-CI info [reserve] | Spare:           2.0 GB held for emergencies
+RIBBON-CI ok   [reserve] ribbon-reserve status reports the room left
+RIBBON-CI ok   [reserve] the user may still write (64 MiB in their home)
+RIBBON-CI ok   [reserve] a user file reaching into the reserve is refused (fallocate: fallocate failed: Disk quota exceeded)
+RIBBON-CI ok   [reserve]   (the disk itself had room for it: 34831552512 bytes free)
+RIBBON-CI ok   [reserve] release: the spare is deleted and the state says released, critical
+RIBBON-CI ok   [reserve] apply: the spare is made again
+RIBBON-CI ok   [reserve] the service starts again
+RIBBON-CI info [doctor] | ==> Init
+RIBBON-CI info [doctor] |  ok  dinit is PID 1
+RIBBON-CI info [doctor] |  ok  no failed services
+RIBBON-CI info [doctor] |  ok  all installed runit services have dinit equivalents
+RIBBON-CI info [doctor] | ==> Snapshots
+RIBBON-CI info [doctor] |  ok  snapshot backend: btrfs
+RIBBON-CI info [doctor] | ==> Kernel
+RIBBON-CI info [doctor] |  ok  running 6.18.64-ribbon_1
+RIBBON-CI info [doctor] |  ok  2 kernels in /boot (fallback available)
+RIBBON-CI info [doctor] |  ok  sched_ext: disabled 
+RIBBON-CI info [doctor] | ==> Boot
+RIBBON-CI info [doctor] |  ok  Limine menu: 3 entries, 1 snapshot entries
+RIBBON-CI info [doctor] | ==> Storage
+RIBBON-CI info [doctor] |  ok  / is 15% full
+RIBBON-CI info [doctor] |  ok  /boot is 5% full
+RIBBON-CI info [doctor] |  ok  swap: /dev/zram0 2.9G 
+RIBBON-CI info [doctor] | ==> Packages
+RIBBON-CI info [doctor] |  ok  package database consistent
+RIBBON-CI info [doctor] |  ok  no pending .new config files
+RIBBON-CI info [doctor] | ==> Graphics
+RIBBON-CI info [doctor] |      00:01.0 VGA compatible controller: Red Hat, Inc. Virtio 1.0 GPU (rev 01)
+RIBBON-CI info [doctor] |      	Kernel driver in use: virtio-pci
+RIBBON-CI info [doctor] | 
+RIBBON-CI info [doctor] |  ok  no problems found
+RIBBON-CI ok   [doctor] its exit status (0) is the number of problems it reports
+RIBBON-CI ok   [doctor] it finds dinit as PID 1
+RIBBON-CI ok   [doctor] it finds no failed service
+RIBBON-CI ok   [doctor] it finds the btrfs snapshots
+RIBBON-CI ok   [doctor] it reads the Limine menu
+RIBBON-CI ok   [doctor] it sees the swap
+RIBBON-CI ok   [doctor] no problem beyond a fresh install's single kernel
+RIBBON-CI ok   [update] the network is up (for the repositories) (after 0 s)
+RIBBON-CI info [update] | ==> Taking a snapshot before updating
+RIBBON-CI info [update] | 2
+RIBBON-CI info [update] | ==> if the next 3 boots don't reach the login screen, snapshot 2 starts instead
+RIBBON-CI info [update] | ==> Syncing repositories
+RIBBON-CI info [update] | ERROR: [reposync] failed to fetch file `https://github.com/atyr647/ribbon/releases/download/repo-current/x86_64-repodata': Not Found
+RIBBON-CI info [update] | [*] Updating repository `https://github.com/atyr647/ribbon/releases/download/repo-current/x86_64-repodata' ...
+RIBBON-CI info [update] | [*] Updating repository `https://repo-default.voidlinux.org/current/x86_64-repodata' ...
+RIBBON-CI info [update] | [*] Updating repository `https://repo-default.voidlinux.org/current/nonfree/x86_64-repodata' ...
+RIBBON-CI info [update] | [*] Updating repository `https://repo-default.voidlinux.org/current/multilib/x86_64-repodata' ...
+RIBBON-CI info [update] | [*] Updating repository `https://repo-default.voidlinux.org/current/multilib/nonfree/x86_64-repodata' ...
+RIBBON-CI info [update] | ==> Updating the package manager
+RIBBON-CI info [update] | Package 'xbps' is up to date.
+RIBBON-CI info [update] | ==> Updating the system
+RIBBON-CI info [update] | ==> Refreshing the boot menu
+RIBBON-CI info [update] | ==> Updating Flatpak apps
+RIBBON-CI info [update] | 
+RIBBON-CI info [update] | Nothing to update.
+RIBBON-CI info [update] | ==> Not checking app kits: they belong to each user (run: kit check)
+RIBBON-CI info [update] |  ok  System is up to date
+RIBBON-CI ok   [update] ribbon-update -y finished in 6 s
+RIBBON-CI ok   [update] it took a snapshot first (2,single,ribbon update 2026-11-24; the newest before was 1)
+RIBBON-CI ok   [update] the boot fallback is armed (/boot/ribbon/trying: # Ribbon OS boot try counter (ribbon-snapshot arm; docs/SYSTEM-UPDATES.md 7.8) tries=3 snapshot=2 state=trying armed=3b4c76a7-70f9-4fc9-9f25-ce6590b9eb1c )
+RIBBON-CI ok   [update] every runit service has its dinit service after the update
+RIBBON-CI ok   [update] the boot menu still has its kernels
+RIBBON-CI ok   [update] the boot menu lists the snapshots
+RIBBON-CI done
+RIBBON-CI info [boot] probe phase 2; kernel 6.18.64-ribbon_1; root=UUID=203042bf-0e50-4c58-97de-58521c6fc48f rootfstype=btrfs rootflags=subvol=@ rw quiet loglevel=3 rd.udev.log_level=3 nowatchdog split_lock_detect=off apparmor=1 security=apparmor
+RIBBON-CI ok   [boot] dinit is PID 1
+RIBBON-CI ok   [boot] booted by UEFI
+RIBBON-CI ok   [boot] greetd (the login screen) is running (after 0 s)
+RIBBON-CI ok   [boot] elogind is running (after 0 s)
+RIBBON-CI info [after-update] kernel 6.18.64-ribbon_1; last update: 2026-11-24
+RIBBON-CI ok   [after-update] ribbon-boot-ok marked the updated system's boot good (after 18 s)
+RIBBON-CI info [after-update] | [    1.601287] ribbon-boot: trying the updated system (2 tries left after this one)
+RIBBON-CI info [after-update] | [   23.582936] ribbon-boot-ok: boot marked good (session 1 up for 15 s)
+RIBBON-CI ok   [after-update] the boot try counter is cleared
+RIBBON-CI ok   [after-update] the last good boot is recorded
+RIBBON-CI ok   [after-update] no dinit service failed
+RIBBON-CI done

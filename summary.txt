@@ -1,0 +1,17 @@
+RESULT labwc020-root: ok (root /home/runner/work/ci/ci/out/root: labwc 0.20.3, foot 1.28.0, Tcl 8.6.18)
+RESULT alttab-native: ok (18 ok)
+RESULT alttab-profile: ok (5 cold, 5 warm opens timed)
+RESULT settings-input-live: ok (23 ok)
+RESULT term: ok (75 ok)
+RESULT hud-surface: ok (73 ok)
+RESULT randr-keys: ok (1 ok)
+RESULT installed-install: ok (2 checks)
+RESULT installed-boot: ok (8 checks)
+RESULT installed-postinstall: ok (25 checks)
+RESULT installed-swap: ok (10 checks)
+RESULT installed-reserve: ok (12 checks)
+RESULT installed-doctor: ok (7 checks)
+RESULT installed-update: ok (7 checks)
+RESULT installed-after-update: ok (4 checks)
+run: https://github.com/atyr647/ci/actions/runs/45461412399
+revision: ec9fcdd
