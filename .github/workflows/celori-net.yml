@@ -1,0 +1,87 @@
+name: celori-net
+# Celori E10 part 2 on real operating systems. The network code alone (the wire format, the sessions, a driver over the OS's UDP sockets, and the host's socket half in Rust) is built with each
+# runner's own compiler:
+#   * net_test and session_test print the same NET_HASH and SESSION_HASH as Linux x86-64 (celori-net/expected.json): the protocol and the sessions behave alike everywhere;
+#   * udp_session runs a server and three clients over loopback in one process, and a server and two clients as separate processes: every input the server used is the client's;
+#   * the Rust socket half's tests (non-blocking sockets, the policy, limits, an ICMP error of an earlier send not stopping the reads);
+#   * netem: a Linux runner puts the server and the clients in two network namespaces joined by a virtual link that delays (40 ms +- 10), loses (5 %), duplicates and reorders datagrams.
+#     That is the kernel's emulation of a bad network over real sockets, not a network between two machines (hosted runners accept no inbound connections).
+on:
+  workflow_dispatch:
+  push:
+    paths: ['celori-net/**', '.github/workflows/celori-net.yml']
+jobs:
+  net:
+    strategy:
+      fail-fast: false
+      matrix:
+        include:
+          - { label: linux-x64,   os: ubuntu-latest,    lib: '' }
+          - { label: linux-arm64, os: ubuntu-24.04-arm, lib: '' }
+          - { label: win-x64,     os: windows-latest,   lib: '-lws2_32' }
+          - { label: win-arm64,   os: windows-11-arm,   lib: '-lws2_32' }
+          - { label: mac-arm64,   os: macos-latest,     lib: '' }
+          - { label: mac-x64,     os: macos-15-intel,   lib: '' }
+    runs-on: ${{ matrix.os }}
+    defaults: { run: { shell: bash, working-directory: celori-net } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build (the runner's clang)
+        run: |
+          clang --version | head -1
+          mkdir -p out
+          clang -O2 -c monocypher/monocypher.c -o out/monocypher.o
+          for t in net_test session_test udp_session; do
+            clang++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Imonocypher tests/$t.cpp src/net/protocol.cpp src/net/session.cpp out/monocypher.o ${{ matrix.lib }} -o out/$t
+          done
+      - name: Unit tests, hashes against Linux x86-64
+        run: |
+          ./out/net_test | tee out/net.txt | tail -2
+          ./out/session_test | tee out/session.txt | tail -3
+          python3 -c "
+          import json, re
+          e = json.load(open('expected.json'))
+          n = re.search(r'NET_HASH (\w+)', open('out/net.txt').read()).group(1)
+          s = re.search(r'SESSION_HASH (\w+)', open('out/session.txt').read()).group(1)
+          print('net', n, e['net'], 'session', s, e['session'])
+          assert ' 0 failed' in open('out/net.txt').read() and ' 0 failed' in open('out/session.txt').read()
+          assert n == e['net'] and s == e['session']"
+      - name: UDP, one process (a server and three clients over loopback, 10 s)
+        run: ./out/udp_session both 600 3
+      - name: UDP, separate processes (a server and two clients, 8 s)
+        run: |
+          ./out/udp_session server 47777 480 2 > out/srv.json &
+          sleep 1
+          ./out/udp_session client 127.0.0.1 47777 400 200 > out/c1.json &
+          ./out/udp_session client 127.0.0.1 47777 400 201 > out/c2.json &
+          wait
+          cat out/srv.json out/c1.json out/c2.json
+          grep -q '"ok":true' out/srv.json && grep -q '"ok":true' out/c1.json && grep -q '"ok":true' out/c2.json
+      - name: The host's socket half (Rust)
+        run: cd netcore && cargo test --release 2>&1 | tail -15
+  netem:
+    runs-on: ubuntu-latest
+    defaults: { run: { shell: bash, working-directory: celori-net } }
+    steps:
+      - uses: actions/checkout@v4
+      - name: Build
+        run: |
+          mkdir -p out && clang -O2 -c monocypher/monocypher.c -o out/monocypher.o
+          clang++ -std=c++20 -O2 -fno-exceptions -fno-rtti -Imonocypher tests/udp_session.cpp src/net/protocol.cpp src/net/session.cpp out/monocypher.o -o out/udp_session
+      - name: Two namespaces over a link with delay, loss, duplicates and reordering
+        run: |
+          set -x
+          sudo ip netns add srv; sudo ip netns add cli
+          sudo ip link add vs type veth peer name vc
+          sudo ip link set vs netns srv; sudo ip link set vc netns cli
+          sudo ip -n srv addr add 10.77.0.1/24 dev vs; sudo ip -n cli addr add 10.77.0.2/24 dev vc
+          sudo ip -n srv link set vs up; sudo ip -n cli link set vc up; sudo ip -n srv link set lo up; sudo ip -n cli link set lo up
+          for ns in srv cli; do dev=$([ $ns = srv ] && echo vs || echo vc); sudo ip netns exec $ns tc qdisc add dev $dev root netem delay 40ms 10ms distribution normal loss 5% duplicate 1% reorder 10% 50%; done
+          sudo ip netns exec cli ping -c 5 10.77.0.1 | tail -2
+          sudo ip netns exec srv ./out/udp_session server 47777 1260 2 > out/srv.json &
+          sleep 1
+          sudo ip netns exec cli ./out/udp_session client 10.77.0.1 47777 1140 300 > out/c1.json &
+          sudo ip netns exec cli ./out/udp_session client 10.77.0.1 47777 1140 301 > out/c2.json &
+          wait
+          cat out/srv.json out/c1.json out/c2.json
+          grep -q '"ok":true' out/srv.json && grep -q '"ok":true' out/c1.json && grep -q '"ok":true' out/c2.json
