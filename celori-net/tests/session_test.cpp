@@ -165,8 +165,9 @@ int main() {
         c.send_input(r.now + 100, Input{}); for (Datagram& d : c.take_outbox()) r.server.receive(2, d.bytes.data(), d.bytes.size(), r.now);
         CHECK(r.server.stats().inputs_early >= 1, "an input 100 ticks ahead is dropped (early %llu)", (unsigned long long)r.server.stats().inputs_early);
         r.server.inputs_for(r.now + 1); r.server.inputs_for(r.now + 2);
-        c.send_input(r.now, Input{}); for (Datagram& d : c.take_outbox()) r.server.receive(2, d.bytes.data(), d.bytes.size(), r.now);
-        CHECK(r.server.stats().inputs_late >= 1, "an input for a tick already simulated is dropped (late %llu)", (unsigned long long)r.server.stats().inputs_late);
+        c.send_input(r.now + 1, Input{}); for (Datagram& d : c.take_outbox()) r.server.receive(2, d.bytes.data(), d.bytes.size(), r.now);      // tick now+1 was simulated with the last input
+        CHECK(r.server.stats().inputs_past >= 1 && r.server.stats().inputs_late >= 1, "an input for a tick already simulated without it is dropped and counted late (past %llu, late %llu)",
+              (unsigned long long)r.server.stats().inputs_past, (unsigned long long)r.server.stats().inputs_late);
         // a stranger refusing the client during a login: dropped
         Client d(kGame, 121, key_of(121), Nonces{12});
         r.add(3, &d); d.connect(kServer);

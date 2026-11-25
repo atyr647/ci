@@ -42,7 +42,9 @@ struct ServerConfig {
     std::function<Nonce()> nonce;                 // fresh server nonces (the host's random source; tests give a seeded one)
 };
 
-struct ServerStats { uint64_t received = 0, dropped = 0, refused = 0, logins = 0, leaves = 0, timeouts = 0, inputs_late = 0, inputs_repeated = 0, inputs_early = 0, sent = 0, sent_bytes = 0; };
+// inputs_repeated: ticks a player's input had not arrived for (the last one was used); inputs_late: of those, inputs that arrived afterwards (too late to be used); inputs_past: every copy of an
+// input for a tick already simulated (a client repeats each input in several messages, so most copies are expected to be past); inputs_early: inputs too far ahead (dropped)
+struct ServerStats { uint64_t received = 0, dropped = 0, refused = 0, logins = 0, leaves = 0, timeouts = 0, inputs_late = 0, inputs_past = 0, inputs_repeated = 0, inputs_early = 0, sent = 0, sent_bytes = 0; };
 
 class Server {
 public:
@@ -65,7 +67,7 @@ public:
     // What the server knows of a live player: the newest snapshot tick it has acknowledged (the baseline of the next delta), the newest input tick received, its account.
     struct Live { Peer peer = 0; uint32_t connection = 0; uint32_t account = 0; int32_t player = 0; Key session{}; uint64_t last_heard = 0; uint64_t acked = 0;
                   uint64_t newest_input = 0; uint64_t used_through = 0; uint64_t newest_sent = 0; uint32_t sequence = 0; uint32_t snapshots = 0; Input last_used; std::map<uint64_t, Input> buffer;
-                  ReplayWindow replay; };
+                  ReplayWindow replay; std::deque<uint64_t> repeated; };      // repeated: the last ticks (at most kInputBuffer) whose input was missing when simulated
     const std::map<int32_t, Live>& players() const { return live_; }
     const ServerStats& stats() const { return stats_; }
 

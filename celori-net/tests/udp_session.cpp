@@ -181,8 +181,8 @@ int main(int argc, char** argv) {
             if (s.exact[p] != n || n < ticks / 2) ok = false;
         }
         const ServerStats& st = s.server->stats();
-        std::printf("{\"ok\":%s,\"role\":\"server\",\"players\":[%s],\"logins\":%llu,\"received\":%llu,\"dropped\":%llu,\"inputs_repeated\":%llu,\"inputs_late\":%llu,\"sent\":%llu}\n", ok ? "true" : "false", per.c_str(),
-                    (unsigned long long)st.logins, (unsigned long long)st.received, (unsigned long long)st.dropped, (unsigned long long)st.inputs_repeated, (unsigned long long)st.inputs_late, (unsigned long long)st.sent);
+        std::printf("{\"ok\":%s,\"role\":\"server\",\"players\":[%s],\"logins\":%llu,\"received\":%llu,\"dropped\":%llu,\"inputs_repeated\":%llu,\"inputs_late\":%llu,\"inputs_past\":%llu,\"sent\":%llu}\n", ok ? "true" : "false", per.c_str(),
+                    (unsigned long long)st.logins, (unsigned long long)st.received, (unsigned long long)st.dropped, (unsigned long long)st.inputs_repeated, (unsigned long long)st.inputs_late, (unsigned long long)st.inputs_past, (unsigned long long)st.sent);
         return ok ? 0 : 1;
     }
     if (mode == "client" && argc == 6) {

@@ -97,7 +97,12 @@ void Server::receive(Peer from, const uint8_t* data, size_t size, uint64_t now) 
             if (m.ack > l.acked && m.ack <= l.newest_sent) l.acked = m.ack;          // an ack of a snapshot never sent is ignored
             for (size_t i = 0; i < m.inputs.size(); i++) {
                 const uint64_t t = m.tick + i;
-                if (t <= l.used_through) { if (!l.buffer.count(t)) stats_.inputs_late++; continue; }        // that tick is simulated already
+                if (t <= l.used_through) {                                                                  // that tick is simulated already
+                    stats_.inputs_past++;
+                    auto r = std::find(l.repeated.begin(), l.repeated.end(), t);
+                    if (r != l.repeated.end()) { stats_.inputs_late++; l.repeated.erase(r); }               // the first copy of an input the server had to do without
+                    continue;
+                }
                 if (t > now + kInputBuffer) { stats_.inputs_early++; continue; }
                 l.buffer.emplace(t, m.inputs[i]);
                 if (t > l.newest_input) l.newest_input = t;
@@ -123,7 +128,7 @@ std::vector<PlayerInput> Server::inputs_for(uint64_t t) {
     for (auto& [p, l] : live_) {
         auto it = l.buffer.find(t);
         if (it != l.buffer.end()) l.last_used = it->second;
-        else stats_.inputs_repeated++;
+        else { stats_.inputs_repeated++; l.repeated.push_back(t); if (l.repeated.size() > kInputBuffer) l.repeated.pop_front(); }
         l.buffer.erase(l.buffer.begin(), l.buffer.upper_bound(t));
         if (t > l.used_through) l.used_through = t;
         PlayerInput pi; pi.player = p; pi.in = l.last_used;

@@ -70,7 +70,10 @@ jobs:
           cat out/srv.json out/c1.json out/c2.json
           grep -q '"ok":true' out/srv.json && grep -q '"ok":true' out/c1.json && grep -q '"ok":true' out/c2.json
       - name: The host's socket half (Rust)
-        run: cd netcore && cargo test --release 2>&1 | tail -15
+        # PowerShell on Windows: in Git Bash, Git's own /usr/bin/link shadows MSVC's link.exe that cargo needs
+        shell: ${{ runner.os == 'Windows' && 'pwsh' || 'bash' }}
+        working-directory: celori-net/netcore
+        run: cargo test --release
   netem:
     runs-on: ubuntu-latest
     defaults: { run: { shell: bash, working-directory: celori-net } }
