@@ -26,7 +26,19 @@ jobs:
     defaults: { run: { shell: bash, working-directory: celori-net } }
     steps:
       - uses: actions/checkout@v4
+      - uses: ilammy/msvc-dev-cmd@v1
+        if: runner.os == 'Windows'
+        with: { arch: "${{ matrix.label == 'win-arm64' && 'arm64' || 'x64' }}" }
+      - name: Build (Windows, MSVC; the runner's LLVM is older than its MSVC library accepts)
+        if: runner.os == 'Windows'
+        run: |
+          mkdir -p out
+          cl /nologo /O2 /c monocypher/monocypher.c /Foout/monocypher.obj
+          for t in net_test session_test udp_session; do
+            cl /nologo /std:c++20 /O2 /EHsc /Imonocypher tests/$t.cpp src/net/protocol.cpp src/net/session.cpp out/monocypher.obj ws2_32.lib /Fo"out/" /Fe"out/$t.exe"
+          done
       - name: Build (the runner's clang)
+        if: runner.os != 'Windows'
         run: |
           clang --version | head -1
           mkdir -p out
