@@ -189,12 +189,30 @@ int main() {
         r.add(2, &a); r.add(3, &b); r.add(4, &c);
         a.connect(kServer); b.connect(kServer); c.connect(kServer); r.run(5);
         r.server.take_events();
-        a.leave(); r.run(3);
+        a.leave();
+        {   // the LEAVE goes out in copies: the first is lost, the second ends the player, the rest are dropped (with one copy, a lost LEAVE kept the player until the time-out)
+            std::vector<Datagram> o = a.take_outbox();
+            if (o.size() > 1) r.server.receive(2, o[1].bytes.data(), o[1].bytes.size(), r.now);
+            CHECK(!r.server.players().count(1), "the first LEAVE lost: a later copy ends the player (%zu copies)", o.size());
+            const uint64_t dr = r.server.stats().dropped;
+            for (size_t k = 2; k < o.size(); k++) r.server.receive(2, o[k].bytes.data(), o[k].bytes.size(), r.now);
+            CHECK(o.size() == 8 && r.server.stats().dropped == dr + 6 && r.server.stats().leaves == 1, "8 copies; the other copies are dropped, one leave counted");
+        }
+        r.run(3);
         auto ev = r.server.take_events();
         CHECK(ev.size() == 1 && ev[0].kind == Server::Event::Left && ev[0].player == 1 && ev[0].reason == Refusal::Left, "a client that leaves: left event for player 1");
         r.server.kick(2, "cheating"); r.run(3);
         ev = r.server.take_events();
         CHECK(b.state() == Client::State::Closed && b.refusal() == Refusal::Kicked && b.refusal_text() == "cheating" && ev.size() == 1 && ev[0].reason == Refusal::Kicked, "a kicked client is told why");
+        {   // a kick also goes out in copies
+            Client k2(kGame, 133, key_of(133), Nonces{24}); r.add(6, &k2); k2.connect(kServer); r.run(8); r.server.take_events();
+            const int32_t kp = k2.player();
+            r.server.kick(kp, "copies");
+            std::vector<Datagram> o = r.server.take_outbox();
+            if (o.size() > 1) k2.receive(kServer, o[1].bytes.data(), o[1].bytes.size());
+            CHECK(o.size() == 8 && k2.state() == Client::State::Closed && k2.refusal() == Refusal::Kicked && k2.refusal_text() == "copies", "the first kick notice lost: a later copy tells the client (%zu copies)", o.size());
+            r.clients.erase(6); r.server.take_events();
+        }
         // c stops sending: after 120 ticks of silence the server drops it and says so
         for (int i = 0; i < 130; i++) r.step();
         ev = r.server.take_events();

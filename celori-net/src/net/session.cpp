@@ -40,7 +40,7 @@ void Server::refuse(Peer to, uint32_t connection, Refusal why, const std::string
 void Server::drop(int32_t player, Refusal why, bool tell) {
     auto it = live_.find(player);
     if (it == live_.end()) return;
-    if (tell) { Message l; l.type = Type::Leave; l.connection = it->second.connection; l.sequence = ++it->second.sequence; l.reason = why; send(it->second.peer, l, &it->second.session); }
+    if (tell) for (uint32_t k = 0; k < kLeaveCopies; k++) { Message l; l.type = Type::Leave; l.connection = it->second.connection; l.sequence = ++it->second.sequence; l.reason = why; send(it->second.peer, l, &it->second.session); }
     by_connection_.erase(it->second.connection);
     events_.push_back({Event::Left, player, it->second.account, why});
     if (why == Refusal::TimedOut) stats_.timeouts++; else stats_.leaves++;
@@ -158,8 +158,10 @@ bool Server::send_snapshot(int32_t player, uint64_t t, uint64_t baseline, const 
 void Server::kick(int32_t player, const std::string& why) {
     auto it = live_.find(player);
     if (it == live_.end()) return;
-    Message l; l.type = Type::Leave; l.connection = it->second.connection; l.sequence = ++it->second.sequence; l.reason = Refusal::Kicked; l.text = why.substr(0, kMaxReason);
-    send(it->second.peer, l, &it->second.session);
+    for (uint32_t k = 0; k < kLeaveCopies; k++) {
+        Message l; l.type = Type::Leave; l.connection = it->second.connection; l.sequence = ++it->second.sequence; l.reason = Refusal::Kicked; l.text = why.substr(0, kMaxReason);
+        send(it->second.peer, l, &it->second.session);
+    }
     drop(player, Refusal::Kicked, false);
 }
 
@@ -260,8 +262,10 @@ void Client::send_input(uint64_t t, const Input& in) {
 
 void Client::leave() {
     if (state_ != State::Live) { state_ = State::Closed; return; }
-    Message l; l.type = Type::Leave; l.connection = connection_; l.sequence = ++sequence_; l.reason = Refusal::Left;
-    send(l, true);
+    for (uint32_t k = 0; k < kLeaveCopies; k++) {
+        Message l; l.type = Type::Leave; l.connection = connection_; l.sequence = ++sequence_; l.reason = Refusal::Left;
+        send(l, true);
+    }
     state_ = State::Closed;
 }
 

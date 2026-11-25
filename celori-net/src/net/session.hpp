@@ -29,6 +29,8 @@ struct Datagram { Peer peer = 0; std::vector<uint8_t> bytes; };
 
 constexpr uint32_t kMaxPending = 64;              // policy: logins in progress at once (more HELLOs are dropped until one finishes or times out)
 constexpr uint32_t kInputsPerMessage = 8;         // a client repeats its last 8 ticks of input in each message
+constexpr uint32_t kLeaveCopies = kInputsPerMessage;   // a LEAVE (leave, kick, time-out notice) goes out in this many datagrams: a lost one would leave a player in the game
+                                                       // until the time-out (found on the CI netem run, 2026-11-25); the same redundancy inputs have
 constexpr uint32_t kInputBuffer = 64;             // the server keeps a player's inputs at most 64 ticks ahead of its tick (a client further ahead is wrong: dropped)
 
 struct ServerConfig {
