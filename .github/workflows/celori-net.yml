@@ -80,6 +80,8 @@ jobs:
         working-directory: celori-net/netcore
         run: cargo test --release
   netem:
+    # three runs: each draws its own losses, delays and reorderings
+    strategy: { fail-fast: false, matrix: { draw: [1, 2, 3] } }
     runs-on: ubuntu-latest
     defaults: { run: { shell: bash, working-directory: celori-net } }
     steps:
